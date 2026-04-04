@@ -1,0 +1,273 @@
+package app
+
+import "time"
+
+const (
+	RoleAdmin      = "admin"
+	RoleOwner      = "owner"
+	RoleSupervisor = "supervisor"
+	RoleHelper     = "helper"
+	RoleClient     = "client"
+)
+
+type Config struct {
+	DatabaseURL string
+	UploadDir   string
+	JWTSecret   string
+	PublicBase  string
+}
+
+type Claims struct {
+	UserID   string `json:"user_id"`
+	TenantID string `json:"tenant_id"`
+	Role     string `json:"role"`
+	Email    string `json:"email"`
+}
+
+type User struct {
+	ID            string `json:"id"`
+	TenantID      string `json:"tenant_id"`
+	Email         string `json:"email"`
+	FullName      string `json:"full_name"`
+	Role          string `json:"role"`
+	EmailVerified bool   `json:"email_verified"`
+}
+
+type Tenant struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+type Blueprint struct {
+	ID               string `json:"id"`
+	TenantID         string `json:"tenant_id"`
+	ProjectID        string `json:"project_id"`
+	UploadedByUserID string `json:"uploaded_by_user_id"`
+	FileName         string `json:"file_name"`
+	FileType         string `json:"file_type"` // dwg, dxf, pdf, glb
+	FileSizeBytes    int64  `json:"file_size_bytes"`
+	URLArchivo       string `json:"url_archivo"`
+	URLPreview       string `json:"url_preview,omitempty"`
+	Status           string `json:"status"`
+	Scale            string `json:"scale"`
+	Version          int    `json:"version"`
+	MetadataJSON     string `json:"metadata_json"`
+	CreatedAt        string `json:"created_at"`
+}
+
+type Project struct {
+	ID               string  `json:"id"`
+	TenantID         string  `json:"tenant_id"`
+	Name             string  `json:"name"`
+	Description      string  `json:"description"`
+	Status           string  `json:"status"`
+	ClientUserID     string  `json:"client_user_id"`
+	SupervisorUserID string  `json:"supervisor_user_id"`
+	BudgetTotalCents int64   `json:"budget_total_cents"`
+	SpentTotalCents  int64   `json:"spent_total_cents"`
+	StartDate        string  `json:"start_date"`
+	PlannedEndDate   string  `json:"planned_end_date"`
+	LatitudeCenter   float64 `json:"latitude_center"`
+	LongitudeCenter  float64 `json:"longitude_center"`
+	GeofenceRadiusM  int     `json:"geofence_radius_m"`
+}
+
+type Task struct {
+	ID                    string `json:"id"`
+	TenantID              string `json:"tenant_id"`
+	ProjectID             string `json:"project_id"`
+	Title                 string `json:"title"`
+	Description           string `json:"description"`
+	AssignedToUserID      string `json:"assigned_to_user_id"`
+	Status                string `json:"status"`
+	StartDate             string `json:"start_date"`
+	EndDate               string `json:"end_date"`
+	PredecessorTaskID     string `json:"predecessor_task_id,omitempty"` // For Gantt dependency
+	ExpectedFinishQuality string `json:"expected_finish_quality"`
+	TechnicalSpecText     string `json:"technical_spec_text"`
+	BudgetCents           int64  `json:"budget_cents"`
+	SpentCents            int64  `json:"spent_cents"`
+	ProgressPercent       int    `json:"progress_percent"`
+}
+
+type Deliverable struct {
+	ID            string `json:"id"`
+	TenantID      string `json:"tenant_id"`
+	ProjectID     string `json:"project_id"`
+	TaskID        string `json:"task_id"`
+	Title         string `json:"title"`
+	Description   string `json:"description"`
+	DueDate       string `json:"due_date"`
+	Status        string `json:"status"`
+	ClientVisible bool   `json:"client_visible"`
+}
+
+type Evidence struct {
+	ID                 string  `json:"id"`
+	TenantID           string  `json:"tenant_id"`
+	ProjectID          string  `json:"project_id"`
+	TaskID             string  `json:"task_id"`
+	UploadedByUserID   string  `json:"uploaded_by_user_id"`
+	ApprovedByUserID   string  `json:"approved_by_user_id,omitempty"`
+	FileName           string  `json:"file_name"`
+	MimeType           string  `json:"mime_type"`
+	FileSizeBytes      int64   `json:"file_size_bytes"`
+	URLArchivo         string  `json:"url_archivo"`
+	Status             string  `json:"status"`
+	Latitude           float64 `json:"latitude"`
+	Longitude          float64 `json:"longitude"`
+	MetadataEXIF       string  `json:"metadata_exif"`
+	ApprovalComment    string  `json:"approval_comment,omitempty"`
+	RejectionReason    string  `json:"rejection_reason,omitempty"`
+	VisibleToClient    bool    `json:"is_visible_to_client"`
+	AIProcessingStatus string  `json:"ai_processing_status"`
+	QualityScore       int     `json:"quality_score,omitempty"`
+	CreatedAt          string  `json:"created_at"`
+}
+
+type UploadSession struct {
+	ID           string `json:"id"`
+	UploadURL    string `json:"upload_url"`
+	Method       string `json:"method"`
+	ExpiresAt    string `json:"expires_at"`
+	FileName     string `json:"file_name"`
+	ContentType  string `json:"content_type"`
+	IntendedSize int64  `json:"intended_size_bytes"`
+}
+
+type Expense struct {
+	ID               string `json:"id"`
+	TenantID         string `json:"tenant_id"`
+	ProjectID        string `json:"project_id"`
+	TaskID           string `json:"task_id,omitempty"`
+	Title            string `json:"title"`
+	AmountCents      int64  `json:"amount_cents"`
+	Category         string `json:"category"` // material, labor, equipment, misc
+	Vendor           string `json:"vendor"`
+	Status           string `json:"status"`                // pending, approved, disputed
+	EvidenceID       string `json:"evidence_id,omitempty"` // Link to receipt photo
+	UploadedByUserID string `json:"uploaded_by_user_id"`
+	Date             string `json:"date"`
+	CreatedAt        string `json:"created_at"`
+}
+
+type DailyLog struct {
+	ID               string `json:"id"`
+	TenantID         string `json:"tenant_id"`
+	ProjectID        string `json:"project_id"`
+	Date             string `json:"date"`
+	Weather          string `json:"weather"`
+	Headcount        int    `json:"headcount"`     // Total headcount
+	ManpowerJSON     string `json:"manpower_json"` // Breakdown by trade e.g. {"Concrete": 4, "Electric": 2}
+	Narrative        string `json:"narrative"`
+	Accidents        string `json:"accidents,omitempty"`
+	Status           string `json:"status"` // draft, submitted
+	UploadedByUserID string `json:"uploaded_by_user_id"`
+	CreatedAt        string `json:"created_at"`
+}
+
+type BudgetAdjustment struct {
+	ID               string `json:"id"`
+	TenantID         string `json:"tenant_id"`
+	ProjectID        string `json:"project_id"`
+	AmountCents      int64  `json:"amount_cents"`
+	Reason           string `json:"reason"`
+	ApprovedByUserID string `json:"approved_by_user_id"`
+	Date             string `json:"date"`
+	CreatedAt        string `json:"created_at"`
+}
+
+type ProjectMessage struct {
+	ID         string `json:"id"`
+	TenantID   string `json:"tenant_id"`
+	ProjectID  string `json:"project_id"`
+	FromUserID string `json:"from_user_id"`
+	ToUserID   string `json:"to_user_id,omitempty"` // Empty if broadcast
+	Text       string `json:"text"`
+	Type       string `json:"type"`   // chat, rfi, announcement
+	Status     string `json:"status"` // unread, read
+	CreatedAt  string `json:"created_at"`
+}
+
+type RBACRule struct {
+	Resource string `json:"resource"`
+	Role     string `json:"role"`
+	Effect   string `json:"effect"`
+}
+
+type LoginResponse struct {
+	AccessToken string `json:"access_token"`
+	User        User   `json:"user"`
+}
+
+type UserInviteResponse struct {
+	User            User   `json:"user"`
+	InviteURL       string `json:"invite_url"`
+	InviteExpiresAt string `json:"invite_expires_at"`
+}
+
+type Dashboard struct {
+	ProductName string        `json:"product_name"`
+	Portfolio   Portfolio     `json:"portfolio"`
+	Projects    []ProjectCard `json:"projects"`
+}
+
+type Portfolio struct {
+	ActiveProjects int     `json:"active_projects"`
+	OpenAlerts     int     `json:"open_alerts"`
+	HealthScore    float64 `json:"health_score"`
+	BudgetVariance string  `json:"budget_variance"`
+}
+
+type ProjectCard struct {
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Status           string `json:"status"`
+	TimelineProgress int    `json:"timeline_progress"`
+	BudgetConsumed   int    `json:"budget_consumed"`
+	QualityScore     int    `json:"quality_score"`
+	DeliverablesDue  int    `json:"deliverables_due"`
+}
+
+type ClientSummary struct {
+	ProjectID          string        `json:"project_id"`
+	ProjectName        string        `json:"project_name"`
+	TimelineProgress   int           `json:"timeline_progress"`
+	BudgetSpentPercent int           `json:"budget_spent_percent"`
+	Deliverables       []Deliverable `json:"deliverables"`
+	Gallery            []Evidence    `json:"gallery"`
+}
+
+type AuditFeedback struct {
+	IsValidEvidence bool     `json:"is_valid_evidence"`
+	QualityScore    int      `json:"quality_score"`
+	AnalysisSummary string   `json:"analysis_summary"`
+	DetectedIssues  []string `json:"detected_issues"`
+	Recommendations string   `json:"recommendations"`
+	StatusLogic     string   `json:"status_logic"`
+}
+
+type DemoAccount struct {
+	Role     string `json:"role"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type DemoPayload struct {
+	Product        string        `json:"product"`
+	Message        string        `json:"message"`
+	DemoAccounts   []DemoAccount `json:"demo_accounts"`
+	SuggestedFlow  []string      `json:"suggested_flow"`
+	GeneratedAtUTC time.Time     `json:"generated_at_utc"`
+}
+
+type Verification struct {
+	ID        string `json:"id"`
+	TenantID  string `json:"tenant_id"`
+	UserID    string `json:"user_id"`
+	Type      string `json:"type"` // email_verification, password_reset
+	Token     string `json:"token"`
+	ExpiresAt string `json:"expires_at"`
+	CreatedAt string `json:"created_at"`
+}

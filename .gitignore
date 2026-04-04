@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Next.js build output and cache
+frontend/.next/
+
+# Uploaded files / user data
+data/
+
+# Go build artifacts
+backend/api
+*.exe
+
+# Environment files
+.env
+.env.local
+.env.*.local

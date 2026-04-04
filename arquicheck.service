@@ -1,0 +1,25 @@
+[Unit]
+Description=Arquicheck SaaS — Docker Compose Stack
+Documentation=https://github.com/tu-usuario/arquicheck
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/arquicheck
+EnvironmentFile=/opt/arquicheck/.env
+
+ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down
+
+TimeoutStartSec=300
+TimeoutStopSec=60
+
+# Reintentar en caso de fallo
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target

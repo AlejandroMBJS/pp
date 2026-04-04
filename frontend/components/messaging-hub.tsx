@@ -53,11 +53,13 @@ export function MessagingHub({
   session,
   users,
   tasks,
+  isMobile = false,
 }: {
   project: Project;
   session: Session;
   users: UserSummary[];
   tasks: Task[];
+  isMobile?: boolean;
 }) {
   const [messages, setMessages] = useState<ProjectMessage[]>([]);
   const [inputText, setInputText] = useState("");
@@ -264,17 +266,17 @@ export function MessagingHub({
   };
 
   return (
-    <div className="h-[700px] flex flex-col glass-card border-white/5 bg-white/[0.01] overflow-hidden animate-in fade-in zoom-in-95 duration-500">
-      <div className="p-6 border-b border-white/5 flex items-center justify-between bg-white/[0.01]">
-        <div className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-2xl bg-blue-600/20 flex items-center justify-center border border-blue-600/20">
-            <MessageSquare className="text-blue-400" size={24} />
+    <div className={`flex flex-col glass-card border-white/5 bg-white/[0.01] overflow-hidden animate-in fade-in zoom-in-95 duration-500 ${isMobile ? 'h-[calc(100vh-180px)]' : 'h-[700px]'}`}>
+      <div className={`${isMobile ? 'p-4' : 'p-6'} border-b border-white/5 flex items-center justify-between bg-white/[0.01]`}>
+        <div className="flex items-center gap-3">
+          <div className={`${isMobile ? 'h-10 w-10' : 'h-12 w-12'} rounded-2xl bg-blue-600/20 flex items-center justify-center border border-blue-600/20`}>
+            <MessageSquare className="text-blue-400" size={isMobile ? 20 : 24} />
           </div>
           <div>
-            <h2 className="text-lg font-black text-white tracking-tight">Communication Hub</h2>
+            <h2 className={`${isMobile ? 'text-base' : 'text-lg'} font-black text-white tracking-tight`}>Communication Hub</h2>
             <div className="flex items-center gap-2 mt-0.5">
               <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-              <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Project Channel: {project.name}</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Project: {project.name}</span>
             </div>
           </div>
         </div>

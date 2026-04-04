@@ -17,6 +17,7 @@ type HelperCanvasProps = {
   onFileChange: (file: File | null) => void;
   onUpload: (e: FormEvent<HTMLFormElement>) => Promise<void>;
   loading: boolean;
+  isMobile?: boolean;
 };
 
 function statusBadgeColor(status: string): "green" | "amber" | "red" | "gray" {
@@ -46,6 +47,7 @@ export function HelperCanvas({
   onFileChange,
   onUpload,
   loading,
+  isMobile = false,
 }: HelperCanvasProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);

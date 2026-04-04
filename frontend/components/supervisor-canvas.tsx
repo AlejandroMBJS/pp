@@ -71,6 +71,7 @@ type SupervisorCanvasProps = {
   loading: boolean;
   onViewChange?: (view: string) => void;
   onNewTask?: () => void;
+  isMobile?: boolean;
 };
 
 export function SupervisorCanvas({
@@ -91,6 +92,7 @@ export function SupervisorCanvas({
   loading,
   onViewChange,
   onNewTask,
+  isMobile = false,
 }: SupervisorCanvasProps) {
   // ── Review / Approval Queue ──
   if (activeView === "review") {
@@ -98,50 +100,54 @@ export function SupervisorCanvas({
     const rest = evidences.filter((e) => e.status !== "pending_approval");
 
     return (
-      <div className="space-y-8 animate-fade-in">
-        <div className="flex items-center justify-between mb-8 pb-6 border-b border-white/5">
+      <div className={`space-y-8 animate-fade-in ${isMobile ? 'pb-20' : ''}`}>
+        <div className={`${isMobile ? 'flex-col items-start gap-3' : 'flex items-center justify-between'} mb-6 pb-6 border-b border-white/5`}>
           <div>
-            <h1 className="text-3xl font-black text-white tracking-tight uppercase">Review Queue</h1>
+            <h1 className={`${isMobile ? 'text-xl' : 'text-3xl'} font-black text-white tracking-tight uppercase`}>Review Queue</h1>
             <p className="mt-1 text-[10px] font-bold text-white/30 uppercase tracking-[0.2em] max-w-2xl">
-              Operations supervision · Evidence validation · Engine V3.0
+              {isMobile ? `${pending.length} pending` : 'Operations supervision · Evidence validation · Engine V3.0'}
             </p>
           </div>
-          <button 
-            onClick={onNewTask}
-            className="px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)] transition-all flex items-center gap-3 group active:scale-95"
-          >
-            <Plus size={18} className="group-hover:rotate-90 transition-transform duration-300" />
-            <span className="text-[10px] font-black uppercase tracking-widest">New Task</span>
-          </button>
+          {!isMobile && (
+            <button 
+              onClick={onNewTask}
+              className="px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)] transition-all flex items-center gap-3 group active:scale-95"
+            >
+              <Plus size={18} className="group-hover:rotate-90 transition-transform duration-300" />
+              <span className="text-[10px] font-black uppercase tracking-widest">New Task</span>
+            </button>
+          )}
         </div>
 
-        {/* Operational Shortcuts */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <button 
-            onClick={() => onViewChange?.("journal")}
-            className="glass-card p-4 flex items-center gap-4 border-white/5 bg-white/[0.02] hover:bg-white/[0.05] transition-all text-left group"
-          >
-            <div className="h-10 w-10 rounded-xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20 group-hover:scale-110 transition-transform">
-              <AlignLeft className="text-amber-400" size={20} />
-            </div>
-            <div>
-              <div className="text-[10px] font-black uppercase tracking-widest text-white/30">Quick Access</div>
-              <div className="text-sm font-bold text-white tracking-tight">Project Log</div>
-            </div>
-          </button>
-          <button 
-            onClick={() => onViewChange?.("finances")}
-            className="glass-card p-4 flex items-center gap-4 border-white/5 bg-white/[0.02] hover:bg-white/[0.05] transition-all text-left group"
-          >
-            <div className="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 group-hover:scale-110 transition-transform">
-              <TrendingUp className="text-blue-400" size={20} />
-            </div>
-            <div>
-              <div className="text-[10px] font-black uppercase tracking-widest text-white/30">Management</div>
-              <div className="text-sm font-bold text-white tracking-tight">Expense Report</div>
-            </div>
-          </button>
-        </div>
+        {/* Operational Shortcuts - hide on mobile to focus on review */}
+        {!isMobile && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <button 
+              onClick={() => onViewChange?.("journal")}
+              className="glass-card p-4 flex items-center gap-4 border-white/5 bg-white/[0.02] hover:bg-white/[0.05] transition-all text-left group"
+            >
+              <div className="h-10 w-10 rounded-xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20 group-hover:scale-110 transition-transform">
+                <AlignLeft className="text-amber-400" size={20} />
+              </div>
+              <div>
+                <div className="text-[10px] font-black uppercase tracking-widest text-white/30">Quick Access</div>
+                <div className="text-sm font-bold text-white tracking-tight">Project Log</div>
+              </div>
+            </button>
+            <button 
+              onClick={() => onViewChange?.("finances")}
+              className="glass-card p-4 flex items-center gap-4 border-white/5 bg-white/[0.02] hover:bg-white/[0.05] transition-all text-left group"
+            >
+              <div className="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 group-hover:scale-110 transition-transform">
+                <TrendingUp className="text-blue-400" size={20} />
+              </div>
+              <div>
+                <div className="text-[10px] font-black uppercase tracking-widest text-white/30">Management</div>
+                <div className="text-sm font-bold text-white tracking-tight">Expense Report</div>
+              </div>
+            </button>
+          </div>
+        )}
 
         {/* Timeline form */}
         {currentTask && (

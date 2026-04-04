@@ -76,6 +76,7 @@ type OwnerCanvasProps = {
   onViewChange?: (view: string) => void;
   onNewProject?: () => void;
   onNewTask?: () => void;
+  isMobile?: boolean;
 };
 
 function money(value: number) {
@@ -110,62 +111,86 @@ export function OwnerCanvas({
   onViewChange,
   onNewProject,
   onNewTask,
+  isMobile = false,
 }: OwnerCanvasProps) {
   // ── Overview ──
   if (activeView === "overview") {
     return (
-      <div className="space-y-8 animate-fadeIn">
-        <div className="flex items-center justify-between mb-8 pb-6 border-b border-white/5 animate-slideInDown">
+      <div className={`space-y-8 animate-fadeIn ${isMobile ? 'pb-20' : ''}`}>
+        <div className={`${isMobile ? 'flex-col items-start gap-4' : 'flex items-center justify-between'} mb-8 pb-6 border-b border-white/5 animate-slideInDown`}>
           <div>
-            <h1 className="text-3xl font-black text-white tracking-tight uppercase">Command Center</h1>
+            <h1 className={`${isMobile ? 'text-xl' : 'text-3xl'} font-black text-white tracking-tight uppercase`}>Command Center</h1>
             <p className="mt-1 text-xs font-bold text-white/30 uppercase tracking-[0.2em] max-w-2xl">
               Active portfolio · Real-time KPIs · Engine V3.0
             </p>
           </div>
-          <div className="flex gap-4">
-            <button 
-              onClick={() => onViewChange?.("projects")}
-              className="px-6 py-3 rounded-2xl bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 hover:border-blue-500/30 transition-all flex items-center gap-3 group"
-            >
-              <LayoutGrid size={18} className="group-hover:scale-110 transition-transform" />
-              <span className="text-[10px] font-black uppercase tracking-widest">View full portfolio</span>
-            </button>
-            <button 
-              onClick={onNewProject}
-              className="px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_30px_rgba(37,99,235,0.5)] transition-all flex items-center gap-3 group active:scale-95"
-            >
-              <Plus size={18} className="group-hover:rotate-90 transition-transform duration-300" />
-              <span className="text-[10px] font-black uppercase tracking-widest">New project</span>
-            </button>
-          </div>
+          {!isMobile && (
+            <div className="flex gap-4">
+              <button 
+                onClick={() => onViewChange?.("projects")}
+                className="px-6 py-3 rounded-2xl bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 hover:border-blue-500/30 transition-all flex items-center gap-3 group"
+              >
+                <LayoutGrid size={18} className="group-hover:scale-110 transition-transform" />
+                <span className="text-[10px] font-black uppercase tracking-widest">View full portfolio</span>
+              </button>
+              <button 
+                onClick={onNewProject}
+                className="px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_30px_rgba(37,99,235,0.5)] transition-all flex items-center gap-3 group active:scale-95"
+              >
+                <Plus size={18} className="group-hover:rotate-90 transition-transform duration-300" />
+                <span className="text-[10px] font-black uppercase tracking-widest">New project</span>
+              </button>
+            </div>
+          )}
         </div>
 
-        <div className="metric-grid">
-          <MetricCard
-            label="Active projects"
-            value={dashboard?.portfolio.active_projects ?? 0}
-            accent="blue"
-            className="glass-card metric-card-premium"
-          />
-          <MetricCard
-            label="Open alerts"
-            value={dashboard?.portfolio.open_alerts ?? 0}
-            accent="amber"
-            className="glass-card metric-card-premium"
-          />
-          <MetricCard
-            label="Health score"
-            value={`${dashboard?.portfolio.health_score.toFixed(1) ?? "0"}%`}
-            accent="green"
-            className="glass-card metric-card-premium"
-          />
-          <MetricCard
-            label="Variance"
-            value={dashboard?.portfolio.budget_variance ?? "0%"}
-            accent="dark"
-            className="glass-card metric-card-premium"
-          />
-        </div>
+        {isMobile ? (
+          <div className="space-y-4">
+            <div className="glass-card p-4 border-white/5">
+              <div className="text-[10px] font-bold uppercase text-white/40 tracking-widest mb-1">Active Projects</div>
+              <div className="text-2xl font-black text-white">{dashboard?.portfolio.active_projects ?? 0}</div>
+            </div>
+            <div className="glass-card p-4 border-white/5">
+              <div className="text-[10px] font-bold uppercase text-white/40 tracking-widest mb-1">Open Alerts</div>
+              <div className="text-2xl font-black text-amber-400">{dashboard?.portfolio.open_alerts ?? 0}</div>
+            </div>
+            <div className="glass-card p-4 border-white/5">
+              <div className="text-[10px] font-bold uppercase text-white/40 tracking-widest mb-1">Health Score</div>
+              <div className="text-2xl font-black text-green-400">{dashboard?.portfolio.health_score.toFixed(1) ?? "0"}%</div>
+            </div>
+            <div className="glass-card p-4 border-white/5">
+              <div className="text-[10px] font-bold uppercase text-white/40 tracking-widest mb-1">Budget Variance</div>
+              <div className="text-2xl font-black text-white">{dashboard?.portfolio.budget_variance ?? "0%"}</div>
+            </div>
+          </div>
+        ) : (
+          <div className="metric-grid">
+            <MetricCard
+              label="Active projects"
+              value={dashboard?.portfolio.active_projects ?? 0}
+              accent="blue"
+              className="glass-card metric-card-premium"
+            />
+            <MetricCard
+              label="Open alerts"
+              value={dashboard?.portfolio.open_alerts ?? 0}
+              accent="amber"
+              className="glass-card metric-card-premium"
+            />
+            <MetricCard
+              label="Health score"
+              value={`${dashboard?.portfolio.health_score.toFixed(1) ?? "0"}%`}
+              accent="green"
+              className="glass-card metric-card-premium"
+            />
+            <MetricCard
+              label="Variance"
+              value={dashboard?.portfolio.budget_variance ?? "0%"}
+              accent="dark"
+              className="glass-card metric-card-premium"
+            />
+          </div>
+        )}
 
         {/* Operational Quick Access */}
         <div className="space-y-5">
@@ -289,33 +314,71 @@ export function OwnerCanvas({
   // ── Projects / Timeline ──
   if (activeView === "projects") {
     return (
-      <div className="space-y-6">
+      <div className={`space-y-6 ${isMobile ? 'pb-20' : ''}`}>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
+          <h1 className={`${isMobile ? 'text-xl' : 'text-2xl'} font-bold text-white`}>
              {currentProject?.name ?? "Projects and timeline"}
           </h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Gantt calendar with tasks, deliverables, and photo evidence.
+          <p className="mt-1 text-sm text-white/40">
+            {isMobile ? 'Project overview' : 'Gantt calendar with tasks, deliverables, and photo evidence.'}
           </p>
         </div>
 
-        {currentProject && (
+        {currentProject && !isMobile && (
           <BudgetPanel project={currentProject} tasks={tasks} />
+        )}
+
+        {isMobile && currentProject && (
+          <div className="glass-card p-4 border-white/5">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-[10px] font-bold uppercase text-white/40">Budget</span>
+              <span className="text-sm font-bold text-white">{money(currentProject.budget_total_cents)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-[10px] font-bold uppercase text-white/40">Spent</span>
+              <span className="text-sm font-bold text-amber-400">{money(currentProject.spent_total_cents)}</span>
+            </div>
+          </div>
         )}
 
         {tasks.length > 0 ? (
           <div className="space-y-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-400">
-              Task timeline
-            </h2>
-            <GanttTimeline
-              tasks={tasks}
-              deliverables={deliverables}
-              allEvidences={allEvidences}
-              highlightDeliverableId={highlightedDeliverableId}
-              onDeliverableClick={onDeliverableNavigate}
-              onTaskClick={onTaskClick}
-            />
+            {!isMobile && (
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40">
+                Task timeline
+              </h2>
+            )}
+            {isMobile ? (
+              <div className="space-y-3">
+                {tasks.map((task) => (
+                  <div key={task.id} className="glass-card p-4 border-white/5">
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="font-bold text-white text-sm">{task.title}</div>
+                      <span className={`badge ${statusBadge(task.status)}`}>{task.status}</span>
+                    </div>
+                    <div className="text-xs text-white/40">{task.start_date} → {task.end_date}</div>
+                    <div className="mt-2">
+                      <div className="flex justify-between text-[10px] mb-1">
+                        <span className="text-white/40">Progress</span>
+                        <span className="text-white">{task.progress_percent}%</span>
+                      </div>
+                      <div className="progress-track">
+                        <div className="progress-fill bg-blue-500" style={{ width: `${task.progress_percent}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <GanttTimeline
+                tasks={tasks}
+                deliverables={deliverables}
+                allEvidences={allEvidences}
+                highlightDeliverableId={highlightedDeliverableId}
+                onDeliverableClick={onDeliverableNavigate}
+                onTaskClick={onTaskClick}
+              />
+            )}
           </div>
         ) : (
            <EmptyState text="No tasks in this project yet." />
@@ -323,7 +386,7 @@ export function OwnerCanvas({
 
         {evidences.length > 0 && (
           <div className="space-y-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-400">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40">
                Recent evidence
             </h2>
             <EvidenceGallery
@@ -331,6 +394,7 @@ export function OwnerCanvas({
               showActions
               onApprove={(id) => onEvidenceDecision(id, "approve")}
               onReject={(id) => onEvidenceDecision(id, "reject")}
+              isMobile={isMobile}
             />
           </div>
         )}

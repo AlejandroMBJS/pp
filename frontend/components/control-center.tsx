@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Sidebar } from "./sidebar";
 import { TopBar } from "./topbar";
+import { MobileBottomNav } from "./mobile-bottom-nav";
 import { PublicWorkspace } from "./public-workspace";
 import { OwnerCanvas } from "./owner-canvas";
 import { SupervisorCanvas } from "./supervisor-canvas";
@@ -231,6 +232,7 @@ export function ControlCenter() {
   const [session, setSession] = useState<LoginResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [authForm, setAuthForm] = useState<AuthFormState>({
     company_name: "",
     company_slug: "",
@@ -380,6 +382,14 @@ export function ControlCenter() {
         setPublicDashboard(dash);
       })
       .catch(() => toast.error("Unable to load the public demo."));
+  }, []);
+
+  // Mobile detection
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
   useEffect(() => {
@@ -1156,6 +1166,7 @@ export function ControlCenter() {
             highlightedDeliverableId={highlightedDeliverableId}
             onDeliverableNavigate={handleDeliverableNavigate}
             loading={loading}
+            isMobile={isMobile}
           />
         );
       }
@@ -1170,6 +1181,7 @@ export function ControlCenter() {
             onFileChange={setUploadFile}
             onUpload={handleHelperUpload}
             loading={loading}
+            isMobile={isMobile}
           />
         );
       }
@@ -1181,7 +1193,7 @@ export function ControlCenter() {
         return <DailyJournal project={currentProject} session={session} />;
       }
       if (activeView === "messages" && currentProject) {
-        return <MessagingHub project={currentProject} session={session} users={users} tasks={tasks} />;
+        return <MessagingHub project={currentProject} session={session} users={users} tasks={tasks} isMobile={isMobile} />;
       }
       if (activeView === "ownergallery") {
         return (
@@ -1206,11 +1218,12 @@ export function ControlCenter() {
             selectedTaskId={clientGalleryTaskId}
             onDeliverableClick={(id, taskId) => handleDeliverableNavigate(id, taskId)}
             onClearTaskFilter={() => setClientGalleryTaskId(null)}
+            isMobile={isMobile}
           />
         );
       }
       if (activeView === "blueprints") {
-        return <PlanViewer blueprints={blueprints} token={session.access_token} onUpload={handleBlueprintUpload} onDelete={handleBlueprintDelete} />;
+        return <PlanViewer blueprints={blueprints} token={session.access_token} onUpload={handleBlueprintUpload} onDelete={handleBlueprintDelete} isMobile={isMobile} />;
       }
 
       // Owner native views (overview, projects, team)
@@ -1234,6 +1247,7 @@ export function ControlCenter() {
             setSelectedTaskId("");
             setTaskEditOpen(true);
           }}
+          isMobile={isMobile}
         />
       );
     }
@@ -1246,7 +1260,7 @@ export function ControlCenter() {
         return <DailyJournal project={currentProject} session={session} />;
       }
       if (activeView === "messages" && currentProject) {
-        return <MessagingHub project={currentProject} session={session} users={users} tasks={tasks} />;
+        return <MessagingHub project={currentProject} session={session} users={users} tasks={tasks} isMobile={isMobile} />;
       }
       if (activeView === "gallery") {
         return (
@@ -1262,7 +1276,7 @@ export function ControlCenter() {
         );
       }
       if (activeView === "blueprints") {
-        return <PlanViewer blueprints={blueprints} token={session.access_token} onUpload={handleBlueprintUpload} onDelete={handleBlueprintDelete} />;
+        return <PlanViewer blueprints={blueprints} token={session.access_token} onUpload={handleBlueprintUpload} onDelete={handleBlueprintDelete} isMobile={isMobile} />;
       }
 
       return (
@@ -1287,6 +1301,7 @@ export function ControlCenter() {
             setSelectedTaskId("");
             setTaskEditOpen(true);
           }}
+          isMobile={isMobile}
         />
       );
     }
@@ -1384,23 +1399,25 @@ export function ControlCenter() {
         loading={loading}
       />
 
-      <Sidebar
-        session={session}
-        activeView={activeView}
-        setActiveView={setActiveView}
-        projects={projects}
-        selectedProjectId={selectedProjectId}
-        setSelectedProjectId={setSelectedProjectId}
-        tasks={tasks}
-        selectedTaskId={selectedTaskId}
-        onTaskSelect={handleTaskSelect}
-        tenants={tenants}
-        pendingEvidenceCount={pendingEvidenceCount}
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        onOpenSettingsGeneral={() => setSettingsGeneralOpen(true)}
-        onOpenSettingsProject={() => setSettingsProjectOpen(true)}
-      />
+      {!isMobile && (
+        <Sidebar
+          session={session}
+          activeView={activeView}
+          setActiveView={setActiveView}
+          projects={projects}
+          selectedProjectId={selectedProjectId}
+          setSelectedProjectId={setSelectedProjectId}
+          tasks={tasks}
+          selectedTaskId={selectedTaskId}
+          onTaskSelect={handleTaskSelect}
+          tenants={tenants}
+          pendingEvidenceCount={pendingEvidenceCount}
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          onOpenSettingsGeneral={() => setSettingsGeneralOpen(true)}
+          onOpenSettingsProject={() => setSettingsProjectOpen(true)}
+        />
+      )}
 
       <div className="app-main">
         <TopBar
@@ -1411,6 +1428,7 @@ export function ControlCenter() {
           onMenuOpen={() => setSidebarOpen(true)}
           onExportCsv={handleExportCsv}
           pendingCount={pendingEvidenceCount}
+          isMobile={isMobile}
         />
 
         <div className="app-content">
@@ -1418,40 +1436,51 @@ export function ControlCenter() {
             {renderCanvas()}
           </main>
 
-          <RightInspector
-            session={session}
-            activeView={activeView}
-            users={users}
-            supervisors={supervisors}
-            helpers={helpers}
-            clients={clients}
-            newUser={newUser}
-            setNewUser={setNewUser}
-            lastUserInvite={lastUserInvite}
-            newProject={newProject}
-            setNewProject={setNewProject}
-            newTask={newTask}
-            setNewTask={setNewTask}
-            currentProject={currentProject}
-            currentTask={currentTask}
-            deliverables={deliverables}
-            evidences={evidences}
-            rbac={rbac}
-            onCreateUser={handleCreateUser}
-            onCopyInviteLink={handleCopyInviteLink}
-            onCreateProject={handleCreateProject}
-            onCreateTask={handleCreateTask}
-            onDeliverableClick={(id) => handleDeliverableNavigate(id)}
-            onOpenSettingsGeneral={() => setSettingsGeneralOpen(true)}
-            onOpenSettingsProject={() => setSettingsProjectOpen(true)}
-            onOpenTaskApproval={(idx = 0) => {
-              setTaskApprovalIndex(idx);
-              setTaskApprovalOpen(true);
-            }}
-            onOpenPhotoUpload={() => setPhotoUploadOpen(true)}
-            loading={loading}
-          />
+          {!isMobile && (
+            <RightInspector
+              session={session}
+              activeView={activeView}
+              users={users}
+              supervisors={supervisors}
+              helpers={helpers}
+              clients={clients}
+              newUser={newUser}
+              setNewUser={setNewUser}
+              lastUserInvite={lastUserInvite}
+              newProject={newProject}
+              setNewProject={setNewProject}
+              newTask={newTask}
+              setNewTask={setNewTask}
+              currentProject={currentProject}
+              currentTask={currentTask}
+              deliverables={deliverables}
+              evidences={evidences}
+              rbac={rbac}
+              onCreateUser={handleCreateUser}
+              onCopyInviteLink={handleCopyInviteLink}
+              onCreateProject={handleCreateProject}
+              onCreateTask={handleCreateTask}
+              onDeliverableClick={(id) => handleDeliverableNavigate(id)}
+              onOpenSettingsGeneral={() => setSettingsGeneralOpen(true)}
+              onOpenSettingsProject={() => setSettingsProjectOpen(true)}
+              onOpenTaskApproval={(idx = 0) => {
+                setTaskApprovalIndex(idx);
+                setTaskApprovalOpen(true);
+              }}
+              onOpenPhotoUpload={() => setPhotoUploadOpen(true)}
+              loading={loading}
+            />
+          )}
         </div>
+
+        {isMobile && (
+          <MobileBottomNav
+            role={session.user.role}
+            activeView={activeView}
+            onViewChange={setActiveView}
+            pendingCount={pendingEvidenceCount}
+          />
+        )}
       </div>
     </div>
     </AuthTokenProvider>

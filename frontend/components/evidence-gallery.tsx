@@ -117,6 +117,7 @@ type EvidenceGalleryProps = {
   onApprove?: (id: string) => void;
   onReject?: (id: string) => void;
   emptyText?: string;
+  isMobile?: boolean;
 };
 
 function statusBadgeClass(status: string) {
@@ -337,6 +338,7 @@ export function EvidenceGallery({
   onApprove,
   onReject,
   emptyText = "No evidence available.",
+  isMobile = false,
 }: EvidenceGalleryProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -403,22 +405,22 @@ export function EvidenceGallery({
                     IA: {evidence.ai_processing_status}
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className={`flex ${isMobile ? 'flex-col gap-2' : 'gap-2'}`}>
                   <button
-                    className="btn-success"
+                    className={`${isMobile ? 'min-h-[48px] flex-1' : ''} btn-success`}
                     onClick={() => onApprove?.(evidence.id)}
                     aria-label="Approve evidence"
                   >
                     <CheckCircle size={13} />
-                    Approve
+                    {isMobile ? 'Approve' : 'Approve'}
                   </button>
                   <button
-                    className="btn-danger"
+                    className={`${isMobile ? 'min-h-[48px] flex-1' : ''} btn-danger`}
                     onClick={() => onReject?.(evidence.id)}
                     aria-label="Reject evidence"
                   >
                     <XCircle size={13} />
-                    Reject
+                    {isMobile ? 'Reject' : 'Reject'}
                   </button>
                 </div>
               </div>

@@ -16,6 +16,7 @@ type ClientCanvasProps = {
   selectedTaskId?: string | null;
   onDeliverableClick: (deliverableId: string, taskId?: string) => void;
   onClearTaskFilter?: () => void;
+  isMobile?: boolean;
 };
 
 export function ClientCanvas({
@@ -24,6 +25,7 @@ export function ClientCanvas({
   selectedTaskId,
   onDeliverableClick,
   onClearTaskFilter,
+  isMobile = false,
 }: ClientCanvasProps) {
   const gallery = clientSummary?.gallery ?? [];
   const filteredGallery = selectedTaskId
@@ -32,17 +34,35 @@ export function ClientCanvas({
 
   if (activeView === "summary") {
     return (
-      <div className="space-y-8 animate-fade-in">
+      <div className={`space-y-8 animate-fade-in ${isMobile ? 'pb-20' : ''}`}>
         <div className="executive-header">
-          <h1 className="text-4xl font-black text-white tracking-tight leading-none">
+          <h1 className={`${isMobile ? 'text-2xl' : 'text-4xl'} font-black text-white tracking-tight leading-none`}>
             {clientSummary?.project_name ?? "Project Summary"}
           </h1>
           <p className="mt-2 text-sm text-white/50 font-medium">
-            Curated technical and financial view for tracking your project.
+            {isMobile ? 'Project progress overview' : 'Curated technical and financial view for tracking your project.'}
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {isMobile ? (
+          <div className="space-y-4">
+            <div className="glass-card p-4 border-blue-500/10">
+              <div className="metric-label text-white/40 text-xs uppercase">Overall Progress</div>
+              <div className="metric-value text-blue-400 font-black text-3xl">{clientSummary?.timeline_progress ?? 0}%</div>
+              <div className="mt-3 h-2 w-full bg-white/5 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,0.5)] transition-all duration-1000" style={{ width: `${clientSummary?.timeline_progress ?? 0}%` }} />
+              </div>
+            </div>
+            <div className="glass-card p-4 border-white/5">
+              <div className="metric-label text-white/40 text-xs uppercase">Budget Spent</div>
+              <div className="metric-value text-white font-black text-3xl">{clientSummary?.budget_spent_percent ?? 0}%</div>
+              <div className="mt-3 h-2 w-full bg-white/5 rounded-full overflow-hidden">
+                <div className="h-full bg-white/40 transition-all duration-1000" style={{ width: `${clientSummary?.budget_spent_percent ?? 0}%` }} />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <div className="glass-card metric-card-premium border-blue-500/10">
             <div className="metric-label text-white/40">Overall Progress</div>
             <div className="metric-value text-blue-400 font-black">{clientSummary?.timeline_progress ?? 0}%</div>
@@ -68,7 +88,8 @@ export function ClientCanvas({
             <div className="text-[10px] text-white/20 font-bold uppercase tracking-widest mt-1">Approved Photos</div>
           </div>
         </div>
-
+        )}
+        
         {/* Deliverables */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">

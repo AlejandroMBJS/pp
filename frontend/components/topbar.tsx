@@ -32,6 +32,7 @@ type TopBarProps = {
   onMenuOpen: () => void;
   onExportCsv?: () => void;
   pendingCount?: number;
+  isMobile?: boolean;
 };
 
 export function TopBar({
@@ -42,6 +43,7 @@ export function TopBar({
   onMenuOpen,
   onExportCsv,
   pendingCount = 0,
+  isMobile = false,
 }: TopBarProps) {
   const roleColor = roleColors[session.user.role] ?? "#6b7280";
   const canExport =
@@ -51,15 +53,17 @@ export function TopBar({
 
   return (
     <header className="topbar">
-      {/* Mobile hamburger */}
-      <button
-        type="button"
-        className="menu-btn"
-        onClick={onMenuOpen}
-        aria-label="Open menu"
-      >
-        <Menu size={18} />
-      </button>
+      {/* Mobile hamburger - hidden when MobileBottomNav is shown */}
+      {!isMobile && (
+        <button
+          type="button"
+          className="menu-btn"
+          onClick={onMenuOpen}
+          aria-label="Open menu"
+        >
+          <Menu size={18} />
+        </button>
+      )}
 
       {/* Breadcrumb */}
       <div className="flex-1 min-w-0">

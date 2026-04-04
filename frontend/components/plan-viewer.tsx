@@ -54,6 +54,7 @@ type PlanViewerProps = {
   token?: string;
   onUpload?: (file: File) => Promise<void>;
   onDelete?: (blueprintId: string) => Promise<void>;
+  isMobile?: boolean;
 };
 
 interface DxfLayerState {
@@ -626,7 +627,7 @@ function BlueprintStage({
 
 // ─── Main PlanViewer ──────────────────────────────────────────────────────────
 
-export function PlanViewer({ blueprints, token, onUpload, onDelete }: PlanViewerProps) {
+export function PlanViewer({ blueprints, token, onUpload, onDelete, isMobile = false }: PlanViewerProps) {
   const [selectedPlanIds, setSelectedPlanIds] = useState<string[]>(blueprints[0] ? [blueprints[0].id] : []);
   const [assets, setAssets] = useState<Map<string, string>>(new Map());
   const [previews, setPreviews] = useState<Map<string, string>>(new Map());
@@ -866,23 +867,25 @@ export function PlanViewer({ blueprints, token, onUpload, onDelete }: PlanViewer
   };
 
   return (
-    <div className="flex h-full flex-col animate-fadeIn">
-      <div className="flex items-center justify-between border-b border-white/5 bg-white/[0.02] p-6">
+    <div className={`flex h-full flex-col animate-fadeIn ${isMobile ? 'pb-20' : ''}`}>
+      <div className={`flex items-center justify-between border-b border-white/5 bg-white/[0.02] ${isMobile ? 'p-4' : 'p-6'}`}>
         <div>
-          <h2 className="text-2xl font-black uppercase tracking-tight text-white">Technical Project Viewer</h2>
+          <h2 className={`${isMobile ? 'text-lg' : 'text-2xl'} font-black uppercase tracking-tight text-white`}>Technical Project Viewer</h2>
           <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-white/40">
-            Stage 3D · Visor DXF vectorial · Preview autenticado
+            {isMobile ? 'Planos' : 'Stage 3D · Visor DXF vectorial · Preview autenticado'}
           </p>
         </div>
-        <label className="cursor-pointer rounded-xl border border-white/10 bg-white/5 p-2 text-white/60 transition-colors hover:text-white">
-          <Upload size={18} />
-          <input
-            type="file"
-            className="hidden"
-            onChange={handleFileChange}
-            accept=".dwg,.dxf,.stl,.3mf,.glb,.pdf,.png,.jpg,.jpeg,.webp,.svg"
-          />
-        </label>
+        {!isMobile && (
+          <label className="cursor-pointer rounded-xl border border-white/10 bg-white/5 p-2 text-white/60 transition-colors hover:text-white">
+            <Upload size={18} />
+            <input
+              type="file"
+              className="hidden"
+              onChange={handleFileChange}
+              accept=".dwg,.dxf,.stl,.3mf,.glb,.pdf,.png,.jpg,.jpeg,.webp,.svg"
+            />
+          </label>
+        )}
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[1fr_320px]">

@@ -33,6 +33,7 @@ type TopBarProps = {
   onExportCsv?: () => void;
   pendingCount?: number;
   isMobile?: boolean;
+  onNotificationClick?: () => void;
 };
 
 export function TopBar({
@@ -44,6 +45,7 @@ export function TopBar({
   onExportCsv,
   pendingCount = 0,
   isMobile = false,
+  onNotificationClick,
 }: TopBarProps) {
   const roleColor = roleColors[session.user.role] ?? "#6b7280";
   const canExport =
@@ -103,6 +105,7 @@ export function TopBar({
             className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 text-white/60 transition-colors hover:bg-white/5"
             aria-label="Notifications"
             title={pendingCount > 0 ? `${pendingCount} evidence item(s) pending review` : "No notifications"}
+            onClick={onNotificationClick}
           >
             <Bell size={16} />
           </button>

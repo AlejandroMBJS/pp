@@ -674,8 +674,12 @@ export function FinancialControl({ project, session, tasks }: FinancialControlPr
                 </div>
               </div>
 
-              <button className="w-full py-4 rounded-2xl bg-white/5 border border-white/10 text-xs font-black uppercase tracking-[0.2em] text-white/60 hover:bg-white/10 transition-all active:scale-95">
-                Generate PDF Report
+              <button
+                className="w-full py-4 rounded-2xl bg-white/5 border border-white/10 text-xs font-black uppercase tracking-[0.2em] text-white/60 hover:bg-white/10 transition-all active:scale-95 opacity-40 cursor-not-allowed"
+                disabled
+                title="Próximamente"
+              >
+                Generate PDF Report (Próximamente)
               </button>
             </div>
           </div>

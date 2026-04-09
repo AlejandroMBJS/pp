@@ -26,6 +26,7 @@ services:
       UPLOAD_DIR: "/app/data/uploads"
       JWT_SECRET: ${JWT_SECRET}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
     depends_on:
       db:
         condition: service_healthy

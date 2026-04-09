@@ -41,12 +41,14 @@ func (s *Server) Routes() http.Handler {
 	r.Post("/api/v1/auth/setup-account", s.handleSetupAccount)
 	r.Post("/api/v1/auth/verify-email", s.handleVerifyEmail)
 	r.Post("/api/v1/auth/resend-verification", s.handleResendVerification)
-	r.Post("/api/convert-dwg", s.handleConvertDwg)
+	// Stripe webhook is unauthenticated — verified by signature.
+	r.Post("/api/v1/billing/webhook", s.handleStripeWebhook)
 	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir(s.service.UploadDir()))))
-	r.Put("/uploads/{sessionID}", s.handleSignedUpload)
+	r.Put("/uploads/{sessionID}", s.handleSignedUpload) // Auth via signed token in query param, not JWT
 
 	r.Group(func(protected chi.Router) {
 		protected.Use(s.authMiddleware)
+		protected.Post("/api/convert-dwg", s.handleConvertDwg)
 		protected.Get("/api/v1/me", s.handleMe)
 		protected.Get("/api/v1/admin/tenants", s.handleAdminTenants)
 		protected.Get("/api/v1/admin/rbac", s.handleRBACList)
@@ -104,6 +106,11 @@ func (s *Server) Routes() http.Handler {
 		protected.Delete("/api/v1/messages/{messageID}", s.handleDeleteMessage)
 		protected.Get("/api/v1/projects/{projectID}/budget-adjustments", s.handleListBudgetAdjustments)
 		protected.Post("/api/v1/projects/{projectID}/budget-adjustments", s.handleCreateBudgetAdjustment)
+
+		// Billing
+		protected.Get("/api/v1/billing/subscription", s.handleGetSubscription)
+		protected.Post("/api/v1/billing/checkout", s.handleCreateCheckout)
+		protected.Post("/api/v1/billing/portal", s.handleOpenPortal)
 	})
 	return r
 }
@@ -295,6 +302,9 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	user, err := s.service.CreateUser(r.Context(), s.actor(r), req.FullName, req.Email, req.Password, req.Role)
 	if err != nil {
+		if writeBillingError(w, err) {
+			return
+		}
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "forbidden") {
 			status = http.StatusForbidden
@@ -316,6 +326,9 @@ func (s *Server) handleInviteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	invite, err := s.service.InviteUser(r.Context(), s.actor(r), req.FullName, req.Email, req.Role)
 	if err != nil {
+		if writeBillingError(w, err) {
+			return
+		}
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "forbidden") {
 			status = http.StatusForbidden
@@ -385,6 +398,9 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 	project, err := s.service.CreateProject(r.Context(), s.actor(r), req)
 	if err != nil {
+		if writeBillingError(w, err) {
+			return
+		}
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "forbidden") {
 			status = http.StatusForbidden
@@ -873,9 +889,23 @@ func (s *Server) handleCreateBudgetAdjustment(w http.ResponseWriter, r *http.Req
 
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		// Allow known origins and same-origin requests (empty origin)
+		allowed := origin == "" ||
+			origin == "https://projpul.com" ||
+			origin == "https://www.projpul.com" ||
+			origin == "http://localhost:3000" ||
+			origin == "http://localhost:1212"
+		if allowed && origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		} else if origin != "" {
+			// Deny unknown origins
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		w.Header().Set("Vary", "Origin")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -885,6 +915,7 @@ func withCORS(next http.Handler) http.Handler {
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
 	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json"})
@@ -989,6 +1020,9 @@ func (s *Server) handleBlueprintRegister(w http.ResponseWriter, r *http.Request)
 	}
 	bp, err := s.service.RegisterBlueprint(r.Context(), actor, body.UploadSessionID)
 	if err != nil {
+		if writeBillingError(w, err) {
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}

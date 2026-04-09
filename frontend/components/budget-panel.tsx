@@ -28,10 +28,10 @@ function money(value: number) {
 }
 
 export function BudgetPanel({ project, tasks }: { project: Project; tasks: Task[] }) {
-  const total = project.budget_total_cents || 1;
+  const total = project.budget_total_cents;
   const spent = project.spent_total_cents || 0;
   const remaining = Math.max(0, total - spent);
-  const pct = Math.round((spent / total) * 100);
+  const pct = total > 0 ? Math.round((spent / total) * 100) : 0;
 
   const pieData = [
     { name: "Spent", value: spent },

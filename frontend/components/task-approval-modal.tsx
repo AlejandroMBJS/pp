@@ -71,10 +71,11 @@ export function TaskApprovalModal({
     try {
       if (action === "approve") await onApprove(evidence.id);
       else await onReject(evidence.id);
-      setDecided((prev) => ({ ...prev, [evidence.id]: action }));
+      const currentEvidenceId = evidence.id;
+      setDecided((prev) => ({ ...prev, [currentEvidenceId]: action }));
       setComment("");
-      // Auto-advance to next pending if available
-      const nextIdx = evidences.findIndex((e, i) => i > idx && e.status === "pending_approval" && !decided[e.id]);
+      // Auto-advance to next pending if available (include current ID in exclusion)
+      const nextIdx = evidences.findIndex((e, i) => i > idx && e.status === "pending_approval" && !decided[e.id] && e.id !== currentEvidenceId);
       if (nextIdx !== -1) setIdx(nextIdx);
     } finally {
       setDeciding(null);

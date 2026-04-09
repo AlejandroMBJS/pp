@@ -1,7 +1,7 @@
 "use client";
 
-import { X, Calendar, User, DollarSign, Activity, AlertCircle, CheckCircle2, Trash2, Plus } from "lucide-react";
-import { useEffect, useState } from "react";
+import { X, Calendar, User, DollarSign, Activity, AlertCircle, CheckCircle2, Trash2, Plus, ImageIcon, Upload } from "lucide-react";
+import { useEffect, useState, useRef, useCallback } from "react";
 
 type Task = {
   id: string;
@@ -14,6 +14,7 @@ type Task = {
   budget_cents: number;
   spent_cents: number;
   assigned_to_user_id: string;
+  comparison_photo_url?: string;
 };
 
 type UserType = {
@@ -27,9 +28,10 @@ type TaskEditModalProps = {
   onClose: () => void;
   task: Task | null;
   users: UserType[];
-  onSave: (taskId: string, data: Partial<Task>) => Promise<void>;
+  onSave: (taskId: string, data: Partial<Task>, comparisonFile?: File | null) => Promise<void>;
   onDelete?: (taskId: string) => Promise<void>;
   loading: boolean;
+  token?: string;
 };
 
 export function TaskEditModal({
@@ -40,9 +42,31 @@ export function TaskEditModal({
   onSave,
   onDelete,
   loading,
+  token,
 }: TaskEditModalProps) {
   const [formData, setFormData] = useState<Partial<Task>>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [comparisonEnabled, setComparisonEnabled] = useState(false);
+  const [comparisonFile, setComparisonFile] = useState<File | null>(null);
+  const [comparisonPreview, setComparisonPreview] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const comparisonInputRef = useRef<HTMLInputElement>(null);
+  const previewRef = useRef<string | null>(null);
+
+  const handleComparisonFile = useCallback((file: File | null) => {
+    setComparisonFile(file);
+    if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+    const url = file ? URL.createObjectURL(file) : null;
+    previewRef.current = url;
+    setComparisonPreview(url);
+  }, []);
+
+  // Cleanup preview URL on unmount
+  useEffect(() => {
+    return () => {
+      if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (task) {
@@ -56,7 +80,11 @@ export function TaskEditModal({
         budget_cents: task.budget_cents,
         spent_cents: task.spent_cents,
         assigned_to_user_id: task.assigned_to_user_id,
+        comparison_photo_url: task.comparison_photo_url,
       });
+      setComparisonEnabled(!!task.comparison_photo_url);
+      setComparisonFile(null);
+      setComparisonPreview(null);
     } else {
       setFormData({
         title: "",
@@ -68,7 +96,11 @@ export function TaskEditModal({
         budget_cents: 0,
         spent_cents: 0,
         assigned_to_user_id: "",
+        comparison_photo_url: "",
       });
+      setComparisonEnabled(false);
+      setComparisonFile(null);
+      setComparisonPreview(null);
     }
   }, [task]);
 
@@ -86,7 +118,7 @@ export function TaskEditModal({
       return;
     }
     setFormError(null);
-    onSave(isNew ? "" : (task as Task).id, formData);
+    onSave(isNew ? "" : (task as Task).id, formData, comparisonEnabled ? comparisonFile : null);
   };
 
   const money = (cents: number) => (cents / 100).toLocaleString("es-MX", { style: "currency", currency: "MXN" });
@@ -243,6 +275,131 @@ export function TaskEditModal({
                 />
               </div>
             </div>
+          </div>
+
+          {/* Comparison Photo */}
+          <div className="space-y-3 p-4 bg-white/5 rounded-2xl border border-white/5">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={comparisonEnabled}
+                onChange={(e) => {
+                  setComparisonEnabled(e.target.checked);
+                  if (!e.target.checked) {
+                    handleComparisonFile(null);
+                  }
+                }}
+                className="w-4 h-4 rounded border-white/20 bg-white/5 text-blue-500 focus:ring-blue-500/50 accent-blue-500"
+              />
+              <div className="flex items-center gap-2">
+                <ImageIcon size={16} className="text-blue-400" />
+                <span className="text-xs font-bold text-white/60 uppercase tracking-wider">Foto de comparaci&oacute;n (referencia/render)</span>
+              </div>
+            </label>
+
+            {comparisonEnabled && (
+              <div className="space-y-3 mt-2">
+                <p className="text-[11px] text-white/40">
+                  Sube una foto de referencia (render, dise&ntilde;o, modelo). La IA comparar&aacute; la evidencia del ayudante con esta imagen.
+                </p>
+
+                {/* Existing photo */}
+                {formData.comparison_photo_url && !comparisonPreview && (
+                  <div className="relative group">
+                    <img
+                      src={formData.comparison_photo_url}
+                      alt="Foto de comparación"
+                      className="w-full h-40 object-cover rounded-xl border border-white/10"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center">
+                      <button
+                        type="button"
+                        onClick={() => comparisonInputRef.current?.click()}
+                        className="px-4 py-2 bg-white/20 backdrop-blur-sm rounded-lg text-xs font-bold text-white"
+                      >
+                        Reemplazar imagen
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Preview of new file */}
+                {comparisonPreview && (
+                  <div className="relative group">
+                    <img
+                      src={comparisonPreview}
+                      alt="Preview"
+                      className="w-full h-40 object-cover rounded-xl border border-blue-500/30"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleComparisonFile(null)}
+                      className="absolute top-2 right-2 p-1.5 bg-black/60 rounded-lg text-white/80 hover:text-white"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Drag-and-drop zone */}
+                {!comparisonPreview && !formData.comparison_photo_url && (
+                  <label
+                    className={`block w-full cursor-pointer rounded-xl border-2 border-dashed transition-all py-6 ${
+                      dragOver
+                        ? "border-blue-500/60 bg-blue-500/10"
+                        : "border-white/10 hover:border-blue-500/30 hover:bg-white/[0.02]"
+                    }`}
+                    onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOver(false);
+                      const file = e.dataTransfer.files[0];
+                      if (file && file.type.startsWith("image/")) handleComparisonFile(file);
+                    }}
+                  >
+                    <input
+                      ref={comparisonInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif,image/tiff,image/avif,image/bmp,image/heic"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file && file.type.startsWith("image/")) handleComparisonFile(file);
+                        e.target.value = "";
+                      }}
+                    />
+                    <div className="flex flex-col items-center gap-2">
+                      <div className={`p-2.5 rounded-xl transition-colors ${dragOver ? "bg-blue-500/20" : "bg-white/5"}`}>
+                        <Upload size={20} className={dragOver ? "text-blue-400" : "text-white/30"} />
+                      </div>
+                      <div className="text-center">
+                        <p className={`text-xs font-bold ${dragOver ? "text-blue-400" : "text-white/50"}`}>
+                          Arrastra o selecciona la imagen de referencia
+                        </p>
+                        <p className="text-[10px] text-white/30 mt-1">PNG, JPG, WebP, GIF, TIFF, AVIF, BMP, HEIC</p>
+                      </div>
+                    </div>
+                  </label>
+                )}
+
+                {/* Replace button when existing photo is shown */}
+                {!comparisonPreview && formData.comparison_photo_url && (
+                  <input
+                    ref={comparisonInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif,image/tiff,image/avif,image/bmp,image/heic"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file && file.type.startsWith("image/")) handleComparisonFile(file);
+                      e.target.value = "";
+                    }}
+                  />
+                )}
+              </div>
+            )}
           </div>
         </form>
 

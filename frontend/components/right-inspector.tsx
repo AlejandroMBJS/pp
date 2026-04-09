@@ -394,7 +394,57 @@ export function RightInspector({
               />
               <Input placeholder="Deliverable title" value={newTask.deliverable_title} onChange={(v) => setNewTask({ ...newTask, deliverable_title: v })} />
               <Input placeholder="Deliverable date" value={newTask.deliverable_due_date} onChange={(v) => setNewTask({ ...newTask, deliverable_due_date: v })} />
-              <button className="btn-primary w-full" disabled={loading || !newTask.title || !currentProject}>
+
+              {/* VisionCheck: requires comparison checkbox */}
+              <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={!!newTask.requires_comparison}
+                    onChange={(e) => setNewTask({ ...newTask, requires_comparison: e.target.checked, comparison_file: e.target.checked ? newTask.comparison_file : null })}
+                    className="w-4 h-4 rounded border-white/20 bg-white/5 accent-blue-500"
+                  />
+                  <span className="text-[11px] font-bold text-white/70 uppercase tracking-wide">Requiere comparación con IA (VisionCheck)</span>
+                </label>
+                {newTask.requires_comparison && (
+                  <>
+                    <p className="text-[10px] text-white/40 leading-snug">
+                      Sube la foto de referencia (render/objetivo). La IA comparará la evidencia del helper contra esta imagen y rechazará automáticamente si la similitud es menor al 80%.
+                    </p>
+                    {newTask.comparison_file ? (
+                      <div className="flex items-center justify-between gap-2 text-[11px] bg-blue-500/10 border border-blue-500/30 rounded-lg px-3 py-2">
+                        <span className="text-blue-300 truncate font-semibold">{newTask.comparison_file.name}</span>
+                        <button type="button" onClick={() => setNewTask({ ...newTask, comparison_file: null })} className="text-white/50 hover:text-white">✕</button>
+                      </div>
+                    ) : (
+                      <label
+                        className="block w-full cursor-pointer rounded-lg border-2 border-dashed border-white/15 hover:border-blue-500/40 hover:bg-blue-500/5 transition-all py-4 text-center"
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const f = e.dataTransfer.files[0];
+                          if (f && f.type.startsWith("image/")) setNewTask({ ...newTask, comparison_file: f });
+                        }}
+                      >
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/gif,image/tiff,image/avif,image/bmp,image/heic"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f && f.type.startsWith("image/")) setNewTask({ ...newTask, comparison_file: f });
+                            e.target.value = "";
+                          }}
+                        />
+                        <p className="text-[11px] font-bold text-white/50">Arrastra o selecciona la imagen de referencia</p>
+                        <p className="text-[9px] text-white/30 mt-0.5">PNG, JPG, WebP, GIF, TIFF, AVIF, BMP, HEIC</p>
+                      </label>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <button className="btn-primary w-full" disabled={loading || !newTask.title || !currentProject || (newTask.requires_comparison && !newTask.comparison_file)}>
                 {loading ? <><Loader2 size={14} className="animate-spin" /> Creating...</> : "Create task"}
               </button>
             </form>

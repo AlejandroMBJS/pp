@@ -222,7 +222,7 @@ export function PhotoUploadModal({
                         Drag or choose an image
                       </p>
                       <p className="text-xs mt-1" style={{ color: "var(--text-tertiary)" }}>
-                        JPG, PNG, HEIC · Max 50MB
+                        Todos los formatos de imagen · Max 50MB
                       </p>
                     </div>
                     <div
@@ -243,7 +243,7 @@ export function PhotoUploadModal({
               >
                 <MapPin size={13} style={{ color: "#10b981" }} />
                 <span style={{ color: "#065f46" }}>
-                  Coordenadas demo (19.43°N, 99.13°W) · geofence activo
+                  Ubicación GPS se captura automáticamente
                 </span>
               </div>
 

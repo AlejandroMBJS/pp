@@ -23,6 +23,9 @@ import { MessagingHub } from "./messaging-hub";
 import { PlanViewer } from "./plan-viewer";
 import { CapturesCanvas } from "./captures-canvas";
 import { AuthTokenProvider } from "./auth-context";
+import { BillingProvider } from "./billing-context";
+import { TrialBanner } from "./trial-banner";
+import { UpgradeModal } from "./upgrade-modal";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -66,6 +69,7 @@ type Task = {
   spent_cents: number;
   progress_percent: number;
   predecessor_task_id?: string;
+  comparison_photo_url?: string;
 };
 
 type Deliverable = {
@@ -212,6 +216,14 @@ async function api<T = any>(
     }
     throw new Error("Session expired. Please sign in again.");
   }
+  if (response.status === 402) {
+    // Payment required — feature locked, quota exceeded, or trial ended.
+    const payload = await response.json().catch(() => ({ error: "payment required", type: "feature_locked" }));
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("billing:paywall", { detail: payload }));
+    }
+    throw new Error(payload.error ?? "payment required");
+  }
   if (!response.ok) {
     const payload = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
     throw new Error(payload.error ?? `HTTP ${response.status}`);
@@ -274,6 +286,19 @@ export function ControlCenter() {
 
   // Modal state
   const [settingsGeneralOpen, setSettingsGeneralOpen] = useState(false);
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const [upgradeReason, setUpgradeReason] = useState<{ type?: string; error?: string } | null>(null);
+
+  // Listen for billing:paywall events dispatched by api() on HTTP 402 responses.
+  useEffect(() => {
+    function onPaywall(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      setUpgradeReason(detail ?? null);
+      setUpgradeModalOpen(true);
+    }
+    window.addEventListener("billing:paywall", onPaywall);
+    return () => window.removeEventListener("billing:paywall", onPaywall);
+  }, []);
   const [settingsProjectOpen, setSettingsProjectOpen] = useState(false);
   const [taskApprovalOpen, setTaskApprovalOpen] = useState(false);
   const [taskApprovalIndex, setTaskApprovalIndex] = useState(0);
@@ -318,6 +343,8 @@ export function ControlCenter() {
     progress_percent: 0,
     deliverable_title: "",
     deliverable_due_date: "2026-04-10",
+    requires_comparison: false,
+    comparison_file: null as File | null,
   });
   const [timelineForm, setTimelineForm] = useState({
     start_date: "",
@@ -715,7 +742,7 @@ export function ControlCenter() {
     if (newTask.start_date > newTask.end_date) { toast.error("La fecha de inicio debe ser anterior a la fecha de fin."); return; }
     setLoading(true);
     try {
-      await api(`/api/v1/projects/${selectedProjectId}/tasks`, {
+      const created = await api<{ task: Task }>(`/api/v1/projects/${selectedProjectId}/tasks`, {
         method: "POST",
         token: session.access_token,
         body: {
@@ -741,6 +768,23 @@ export function ControlCenter() {
           },
         },
       });
+      // Upload comparison reference photo if checkbox enabled and file provided
+      if (newTask.requires_comparison && newTask.comparison_file && created.task?.id) {
+        const tId = toast.loading("Subiendo foto de referencia...");
+        try {
+          const photoUrl = await uploadComparisonPhoto(newTask.comparison_file, selectedProjectId);
+          await api(`/api/v1/tasks/${created.task.id}`, {
+            method: "PATCH",
+            token: session.access_token,
+            body: { comparison_photo_url: photoUrl },
+          });
+          toast.dismiss(tId);
+          toast.success("Foto de referencia guardada — la IA comparará evidencias contra ella.");
+        } catch (err) {
+          toast.dismiss(tId);
+          toast.error("Error subiendo foto de referencia: " + messageOf(err));
+        }
+      }
       setNewTask({
         title: "",
         description: "",
@@ -755,6 +799,8 @@ export function ControlCenter() {
         progress_percent: 0,
         deliverable_title: "",
         deliverable_due_date: "2026-04-10",
+        requires_comparison: false,
+        comparison_file: null,
       });
       await loadProjectContext(selectedProjectId);
       setActiveView("projects");
@@ -807,7 +853,7 @@ export function ControlCenter() {
         }
       );
 
-      const uploadResponse = await fetch(uploadSession.upload_url, {
+      const uploadResponse = await fetch(browserSafeURL(uploadSession.upload_url), {
         method: "PUT",
         headers: { "Content-Type": uploadFile.type || "image/png" },
         body: uploadFile,
@@ -848,10 +894,46 @@ export function ControlCenter() {
     }
   }
 
-  async function handleTaskEditSave(taskId: string, data: Partial<Task>) {
+  async function uploadComparisonPhoto(file: File, projectId: string): Promise<string> {
+    if (!session) throw new Error("No session");
+    // 3-phase upload using SYSTEM task (project-level upload)
+    const uploadSession = await api<{ id: string; upload_url: string }>(
+      `/api/v1/tasks/SYSTEM/evidence/upload-url`,
+      {
+        method: "POST",
+        token: session.access_token,
+        body: {
+          file_name: file.name,
+          content_type: file.type || "image/png",
+          file_size_bytes: file.size,
+          latitude: 0,
+          longitude: 0,
+          project_id: projectId,
+        },
+      }
+    );
+    const uploadResponse = await fetch(browserSafeURL(uploadSession.upload_url), {
+      method: "PUT",
+      headers: { "Content-Type": file.type || "image/png" },
+      body: file,
+    });
+    if (!uploadResponse.ok) throw new Error("Failed to upload comparison photo.");
+    const evidence = await api<{ id: string }>(`/api/v1/evidence/confirm-upload`, {
+      method: "POST",
+      token: session.access_token,
+      body: {
+        upload_session_id: uploadSession.id,
+        metadata_exif: JSON.stringify({ type: "comparison_reference", device: "browser" }),
+      },
+    });
+    return `/api/v1/files/${evidence.id}`;
+  }
+
+  async function handleTaskEditSave(taskId: string, data: Partial<Task>, comparisonFile?: File | null) {
     if (!session) return;
     setLoading(true);
     try {
+      let savedTaskId = taskId;
       if (taskId) {
         await api(`/api/v1/tasks/${taskId}`, {
           method: "PATCH",
@@ -861,7 +943,7 @@ export function ControlCenter() {
         toast.success("Task updated successfully.");
       } else {
         // Map data to the format handleCreateTask expects
-        await api(`/api/v1/projects/${selectedProjectId}/tasks`, {
+        const result = await api<{ task: Task }>(`/api/v1/projects/${selectedProjectId}/tasks`, {
           method: "POST",
           token: session.access_token,
           body: {
@@ -880,7 +962,26 @@ export function ControlCenter() {
             }
           }
         });
+        savedTaskId = result.task?.id || "";
         toast.success("Task and deliverable created.");
+      }
+
+      // Upload comparison photo if provided
+      if (comparisonFile && savedTaskId) {
+        const toastId = toast.loading("Subiendo foto de comparación...");
+        try {
+          const photoUrl = await uploadComparisonPhoto(comparisonFile, selectedProjectId);
+          await api(`/api/v1/tasks/${savedTaskId}`, {
+            method: "PATCH",
+            token: session.access_token,
+            body: { comparison_photo_url: photoUrl },
+          });
+          toast.dismiss(toastId);
+          toast.success("Foto de comparación guardada.");
+        } catch (err) {
+          toast.dismiss(toastId);
+          toast.error("Error subiendo foto de comparación: " + messageOf(err));
+        }
       }
     } catch (err) {
       toast.error(messageOf(err));
@@ -1339,6 +1440,10 @@ export function ControlCenter() {
           tenants={tenants}
           rbac={rbac}
           token={session.access_token}
+          onRefresh={async () => {
+            const rbacData = await api<RBACRule[]>("/api/v1/admin/rbac", { token: session.access_token });
+            setRbac(rbacData);
+          }}
         />
       );
     }
@@ -1348,7 +1453,15 @@ export function ControlCenter() {
 
   return (
     <AuthTokenProvider value={session?.access_token ?? null}>
+    <BillingProvider token={session?.access_token ?? null}>
     <div className="app-shell">
+      <TrialBanner onUpgrade={() => { setUpgradeReason(null); setUpgradeModalOpen(true); }} />
+      <UpgradeModal
+        isOpen={upgradeModalOpen}
+        onClose={() => { setUpgradeModalOpen(false); setUpgradeReason(null); }}
+        token={session?.access_token ?? null}
+        reason={upgradeReason}
+      />
       {/* ── Modals ─────────────────────────────────── */}
       <SettingsGeneralModal
         open={settingsGeneralOpen}
@@ -1397,6 +1510,7 @@ export function ControlCenter() {
         onSave={handleTaskEditSave}
         onDelete={handleTaskDelete}
         loading={loading}
+        token={session?.access_token}
       />
 
       {!isMobile && (
@@ -1429,6 +1543,7 @@ export function ControlCenter() {
           onExportCsv={handleExportCsv}
           pendingCount={pendingEvidenceCount}
           isMobile={isMobile}
+          onNotificationClick={() => setActiveView("review")}
         />
 
         <div className="app-content">
@@ -1483,6 +1598,7 @@ export function ControlCenter() {
         )}
       </div>
     </div>
+    </BillingProvider>
     </AuthTokenProvider>
   );
 }

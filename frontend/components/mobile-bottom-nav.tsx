@@ -120,7 +120,7 @@ export function MobileBottomNav({
       <nav className="mobile-bottom-nav">
         {menu.main.map((item) => {
           const isActive = activeView === item.id;
-          const showBadge = item.id === "review" || item.id === "ownergallery";
+          const showBadge = item.id === "review";
           const count = showBadge ? pendingCount : 0;
           
           return (

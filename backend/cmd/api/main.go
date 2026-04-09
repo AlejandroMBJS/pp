@@ -16,10 +16,20 @@ func main() {
 	slog.SetDefault(logger)
 
 	cfg := app.Config{
-		DatabaseURL: envOrDefault("DATABASE_URL", "postgres://projectpulse:projectpulse-password@localhost:5432/projectpulse?sslmode=disable"),
-		UploadDir:   envOrDefault("UPLOAD_DIR", "./data/uploads"),
-		JWTSecret:   os.Getenv("JWT_SECRET"),
-		PublicBase:  envOrDefault("PUBLIC_BASE_URL", ""),
+		DatabaseURL:  envOrDefault("DATABASE_URL", "postgres://projectpulse:projectpulse-password@localhost:5432/projectpulse?sslmode=disable"),
+		UploadDir:    envOrDefault("UPLOAD_DIR", "./data/uploads"),
+		JWTSecret:    os.Getenv("JWT_SECRET"),
+		PublicBase:   envOrDefault("PUBLIC_BASE_URL", ""),
+		GeminiAPIKey: os.Getenv("GEMINI_API_KEY"),
+
+		StripeSecretKey:         os.Getenv("STRIPE_SECRET_KEY"),
+		StripeWebhookSecret:     os.Getenv("STRIPE_WEBHOOK_SECRET"),
+		StripePublishableKey:    os.Getenv("STRIPE_PUBLISHABLE_KEY"),
+		StripePriceProfessional: os.Getenv("STRIPE_PRICE_PROFESSIONAL"),
+		StripePriceBusiness:     os.Getenv("STRIPE_PRICE_BUSINESS"),
+		StripePriceEnterprise:   os.Getenv("STRIPE_PRICE_ENTERPRISE"),
+		BillingSuccessURL:       envOrDefault("BILLING_SUCCESS_URL", "https://projpul.com/billing/success"),
+		BillingCancelURL:        envOrDefault("BILLING_CANCEL_URL", "https://projpul.com/billing"),
 	}
 	server, err := httpapi.NewServer(cfg)
 	if err != nil {
@@ -33,8 +43,8 @@ func main() {
 	srv := &http.Server{
 		Addr:         addr,
 		Handler:      server.Routes(),
-		ReadTimeout:  600 * time.Second,
-		WriteTimeout: 600 * time.Second,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 120 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 

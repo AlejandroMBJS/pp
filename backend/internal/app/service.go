@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -17,6 +18,9 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/google/generative-ai-go/genai"
+	"google.golang.org/api/option"
 )
 
 func (s *Service) PublicDemo(ctx context.Context) DemoPayload {
@@ -27,11 +31,11 @@ func (s *Service) PublicDemo(ctx context.Context) DemoPayload {
 		Product: "ProjectPulse",
 		Message: "Register your company, create your team, and start tracking projects without spreadsheets.",
 		DemoAccounts: []DemoAccount{
-			{Role: RoleAdmin, Email: adminEmail, Password: "demo123"},
-			{Role: RoleOwner, Email: "owner@demo.local", Password: "demo123"},
-			{Role: RoleSupervisor, Email: "supervisor@demo.local", Password: "demo123"},
-			{Role: RoleHelper, Email: "helper@demo.local", Password: "demo123"},
-			{Role: RoleClient, Email: "client@demo.local", Password: "demo123"},
+			{Role: RoleAdmin, Email: adminEmail},
+			{Role: RoleOwner, Email: "owner@demo.local"},
+			{Role: RoleSupervisor, Email: "supervisor@demo.local"},
+			{Role: RoleHelper, Email: "helper@demo.local"},
+			{Role: RoleClient, Email: "client@demo.local"},
 		},
 		SuggestedFlow: []string{
 			"Register owner and tenant",
@@ -83,6 +87,14 @@ func (s *Service) RegisterCompanyOwner(ctx context.Context, companyName, company
 		CreatedAt: now,
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO verifications (id, tenant_id, user_id, type, token, expires_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`, verification.ID, verification.TenantID, verification.UserID, verification.Type, verification.Token, verification.ExpiresAt, verification.CreatedAt); err != nil {
+		return LoginResponse{}, err
+	}
+	// 14-day trial subscription seeded at signup (no card required, industry standard).
+	trialEnd := time.Now().Add(14 * 24 * time.Hour)
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO subscriptions (id, tenant_id, plan, status, trial_ends_at) VALUES ($1, $2, 'starter', 'trialing', $3)`,
+		newID("sub"), tenant.ID, trialEnd,
+	); err != nil {
 		return LoginResponse{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -198,6 +210,12 @@ func (s *Service) InviteUser(ctx context.Context, actor Claims, fullName, email,
 	if s.permissionEffect(ctx, actor.Role, "user.manage") != "allow" {
 		return UserInviteResponse{}, errors.New("forbidden")
 	}
+	if err := s.RequireWriteAccess(ctx, actor.TenantID); err != nil {
+		return UserInviteResponse{}, err
+	}
+	if err := s.CheckUserQuota(ctx, actor.TenantID, role); err != nil {
+		return UserInviteResponse{}, err
+	}
 	fullName = strings.TrimSpace(fullName)
 	email = strings.TrimSpace(strings.ToLower(email))
 	role = strings.TrimSpace(role)
@@ -294,6 +312,9 @@ func (s *Service) RegisterBlueprint(ctx context.Context, actor Claims, sessionID
 	}
 	if status != "uploaded" || localPath == "" {
 		return Blueprint{}, errors.New("upload not completed")
+	}
+	if err := s.CheckBlueprintQuota(ctx, tenantID); err != nil {
+		return Blueprint{}, err
 	}
 	project, err := s.projectByID(ctx, projectID)
 	if err != nil {
@@ -679,7 +700,7 @@ func (s *Service) UserByID(ctx context.Context, userID string) (User, error) {
 }
 
 func (s *Service) ListUsers(ctx context.Context, actor Claims) ([]User, error) {
-	if actor.Role != RoleOwner {
+	if actor.Role != RoleOwner && actor.Role != RoleSupervisor {
 		return nil, errors.New("forbidden")
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, email, full_name, role FROM users WHERE tenant_id = $1 ORDER BY role, full_name`, actor.TenantID)
@@ -701,6 +722,12 @@ func (s *Service) ListUsers(ctx context.Context, actor Claims) ([]User, error) {
 func (s *Service) CreateUser(ctx context.Context, actor Claims, fullName, email, password, role string) (User, error) {
 	if s.permissionEffect(ctx, actor.Role, "user.manage") != "allow" {
 		return User{}, errors.New("forbidden")
+	}
+	if err := s.RequireWriteAccess(ctx, actor.TenantID); err != nil {
+		return User{}, err
+	}
+	if err := s.CheckUserQuota(ctx, actor.TenantID, role); err != nil {
+		return User{}, err
 	}
 	fullName = strings.TrimSpace(fullName)
 	email = strings.TrimSpace(strings.ToLower(email))
@@ -771,6 +798,12 @@ func (s *Service) CreateProject(ctx context.Context, actor Claims, project Proje
 	if s.permissionEffect(ctx, actor.Role, "project.create") != "allow" {
 		return Project{}, errors.New("forbidden")
 	}
+	if err := s.RequireWriteAccess(ctx, actor.TenantID); err != nil {
+		return Project{}, err
+	}
+	if err := s.CheckProjectQuota(ctx, actor.TenantID); err != nil {
+		return Project{}, err
+	}
 	if strings.TrimSpace(project.Name) == "" {
 		return Project{}, errors.New("project name is required")
 	}
@@ -824,8 +857,8 @@ func (s *Service) projectByID(ctx context.Context, projectID string) (Project, e
 
 func (s *Service) taskByID(ctx context.Context, taskID string) (Task, error) {
 	var task Task
-	err := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent FROM tasks WHERE id = $1`, taskID).
-		Scan(&task.ID, &task.TenantID, &task.ProjectID, &task.Title, &task.Description, &task.AssignedToUserID, &task.Status, &task.StartDate, &task.EndDate, &task.PredecessorTaskID, &task.ExpectedFinishQuality, &task.TechnicalSpecText, &task.BudgetCents, &task.SpentCents, &task.ProgressPercent)
+	err := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent, comparison_photo_url FROM tasks WHERE id = $1`, taskID).
+		Scan(&task.ID, &task.TenantID, &task.ProjectID, &task.Title, &task.Description, &task.AssignedToUserID, &task.Status, &task.StartDate, &task.EndDate, &task.PredecessorTaskID, &task.ExpectedFinishQuality, &task.TechnicalSpecText, &task.BudgetCents, &task.SpentCents, &task.ProgressPercent, &task.ComparisonPhotoURL)
 	return task, err
 }
 
@@ -850,7 +883,11 @@ func (s *Service) UpdateTask(ctx context.Context, actor Claims, taskID string, p
 	if patch.Description != "" {
 		task.Description = strings.TrimSpace(patch.Description)
 	}
-	if patch.AssignedToUserID != "" || patch.AssignedToUserID == "" {
+	if patch.AssignedToUserID != "" {
+		var assigneeTenant string
+		if err := s.db.QueryRowContext(ctx, `SELECT tenant_id FROM users WHERE id = $1`, patch.AssignedToUserID).Scan(&assigneeTenant); err != nil || assigneeTenant != actor.TenantID {
+			return Task{}, errors.New("assigned user must belong to same organization")
+		}
 		task.AssignedToUserID = patch.AssignedToUserID
 	}
 	if patch.Status != "" {
@@ -868,9 +905,8 @@ func (s *Service) UpdateTask(ctx context.Context, actor Claims, taskID string, p
 	if patch.TechnicalSpecText != "" {
 		task.TechnicalSpecText = patch.TechnicalSpecText
 	}
-	if patch.PredecessorTaskID != "" || patch.PredecessorTaskID == "" {
-		task.PredecessorTaskID = patch.PredecessorTaskID
-	}
+	// PredecessorTaskID is set explicitly via the patch — empty string clears it
+	task.PredecessorTaskID = patch.PredecessorTaskID
 	if patch.BudgetCents != 0 || task.BudgetCents == 0 {
 		task.BudgetCents = patch.BudgetCents
 	}
@@ -880,8 +916,11 @@ func (s *Service) UpdateTask(ctx context.Context, actor Claims, taskID string, p
 	if patch.ProgressPercent >= 0 {
 		task.ProgressPercent = patch.ProgressPercent
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE tasks SET title = $1, description = $2, assigned_to_user_id = $3, status = $4, start_date = $5, end_date = $6, expected_finish_quality = $7, technical_spec_text = $8, budget_cents = $9, spent_cents = $10, progress_percent = $11, predecessor_task_id = $12, updated_at = $13 WHERE id = $14`,
-		task.Title, task.Description, task.AssignedToUserID, task.Status, task.StartDate, task.EndDate, task.ExpectedFinishQuality, task.TechnicalSpecText, task.BudgetCents, task.SpentCents, task.ProgressPercent, task.PredecessorTaskID, nowText(), taskID)
+	if patch.ComparisonPhotoURL != "" {
+		task.ComparisonPhotoURL = patch.ComparisonPhotoURL
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE tasks SET title = $1, description = $2, assigned_to_user_id = $3, status = $4, start_date = $5, end_date = $6, expected_finish_quality = $7, technical_spec_text = $8, budget_cents = $9, spent_cents = $10, progress_percent = $11, predecessor_task_id = $12, comparison_photo_url = $13, updated_at = $14 WHERE id = $15`,
+		task.Title, task.Description, task.AssignedToUserID, task.Status, task.StartDate, task.EndDate, task.ExpectedFinishQuality, task.TechnicalSpecText, task.BudgetCents, task.SpentCents, task.ProgressPercent, task.PredecessorTaskID, task.ComparisonPhotoURL, nowText(), taskID)
 	if err != nil {
 		return Task{}, err
 	}
@@ -946,7 +985,7 @@ func (s *Service) DeleteTask(ctx context.Context, actor Claims, taskID string) e
 }
 
 func (s *Service) CreateTask(ctx context.Context, actor Claims, projectID string, task Task, deliverable Deliverable) (Task, Deliverable, error) {
-	if s.permissionEffect(ctx, actor.Role, "project.create") != "allow" {
+	if actor.Role != RoleOwner && actor.Role != RoleSupervisor {
 		return Task{}, Deliverable{}, errors.New("forbidden")
 	}
 	if strings.TrimSpace(task.Title) == "" {
@@ -981,8 +1020,8 @@ func (s *Service) CreateTask(ctx context.Context, actor Claims, projectID string
 		return Task{}, Deliverable{}, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO tasks (id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`, task.ID, task.TenantID, task.ProjectID, task.Title, task.Description, task.AssignedToUserID, task.Status, task.StartDate, task.EndDate, task.PredecessorTaskID, task.ExpectedFinishQuality, task.TechnicalSpecText, task.BudgetCents, task.SpentCents, task.ProgressPercent, now, now); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO tasks (id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent, comparison_photo_url, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`, task.ID, task.TenantID, task.ProjectID, task.Title, task.Description, task.AssignedToUserID, task.Status, task.StartDate, task.EndDate, task.PredecessorTaskID, task.ExpectedFinishQuality, task.TechnicalSpecText, task.BudgetCents, task.SpentCents, task.ProgressPercent, task.ComparisonPhotoURL, now, now); err != nil {
 		return Task{}, Deliverable{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO deliverables (id, tenant_id, project_id, task_id, title, description, due_date, status, client_visible, created_at, updated_at)
@@ -1034,7 +1073,7 @@ func (s *Service) ListAssignedTasks(ctx context.Context, actor Claims) ([]Task, 
 	if actor.Role != RoleHelper {
 		return []Task{}, nil
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent FROM tasks WHERE assigned_to_user_id = $1 ORDER BY end_date`, actor.UserID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent, comparison_photo_url FROM tasks WHERE assigned_to_user_id = $1 ORDER BY end_date`, actor.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -1042,7 +1081,7 @@ func (s *Service) ListAssignedTasks(ctx context.Context, actor Claims) ([]Task, 
 	tasks := make([]Task, 0)
 	for rows.Next() {
 		var task Task
-		if err := rows.Scan(&task.ID, &task.TenantID, &task.ProjectID, &task.Title, &task.Description, &task.AssignedToUserID, &task.Status, &task.StartDate, &task.EndDate, &task.PredecessorTaskID, &task.ExpectedFinishQuality, &task.TechnicalSpecText, &task.BudgetCents, &task.SpentCents, &task.ProgressPercent); err != nil {
+		if err := rows.Scan(&task.ID, &task.TenantID, &task.ProjectID, &task.Title, &task.Description, &task.AssignedToUserID, &task.Status, &task.StartDate, &task.EndDate, &task.PredecessorTaskID, &task.ExpectedFinishQuality, &task.TechnicalSpecText, &task.BudgetCents, &task.SpentCents, &task.ProgressPercent, &task.ComparisonPhotoURL); err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, task)
@@ -1116,7 +1155,7 @@ func (s *Service) SaveUploadedFile(ctx context.Context, sessionID, token, conten
 	if err := s.db.QueryRowContext(ctx, `SELECT upload_token, file_name, status, expires_at, intended_size_bytes FROM upload_sessions WHERE id = $1`, sessionID).Scan(&uploadToken, &fileName, &status, &expiresAt, &intendedSize); err != nil {
 		return err
 	}
-	if token != uploadToken {
+	if !constantTimeEqual(token, uploadToken) {
 		return errors.New("invalid upload token")
 	}
 	if status != "issued" {
@@ -1191,7 +1230,7 @@ func (s *Service) ListTaskEvidences(ctx context.Context, actor Claims, taskID st
 		return nil, errors.New("forbidden")
 	}
 	if actor.Role != RoleHelper {
-		if err := s.ensureProjectAccess(ctx, actor, project); err != nil && actor.Role != RoleOwner {
+		if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
 			return nil, err
 		}
 	}
@@ -1234,10 +1273,8 @@ func (s *Service) ListProjectEvidences(ctx context.Context, actor Claims, projec
 	if actor.Role == RoleHelper {
 		return nil, errors.New("forbidden")
 	}
-	if actor.Role != RoleOwner {
-		if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
-			return nil, err
-		}
+	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
+		return nil, err
 	}
 	var projEvidenceQuery string
 	switch actor.Role {
@@ -1327,7 +1364,10 @@ func (s *Service) ApproveEvidence(ctx context.Context, actor Claims, evidenceID,
 	if err != nil {
 		return Evidence{}, err
 	}
-	if err := s.ensureProjectAccess(ctx, actor, project); err != nil && actor.Role != RoleOwner {
+	if actor.TenantID != project.TenantID {
+		return Evidence{}, errors.New("forbidden")
+	}
+	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
 		return Evidence{}, err
 	}
 	updatedAt := nowText()
@@ -1338,7 +1378,7 @@ func (s *Service) ApproveEvidence(ctx context.Context, actor Claims, evidenceID,
 	select {
 	case s.auditJobs <- evidenceID:
 	default:
-		go s.processAudit(evidenceID)
+		log.Printf("audit queue full, evidence %s will remain in queued state for manual review", evidenceID)
 	}
 	return s.evidenceByID(ctx, evidenceID)
 }
@@ -1355,7 +1395,10 @@ func (s *Service) RejectEvidence(ctx context.Context, actor Claims, evidenceID, 
 	if err != nil {
 		return Evidence{}, err
 	}
-	if err := s.ensureProjectAccess(ctx, actor, project); err != nil && actor.Role != RoleOwner {
+	if actor.TenantID != project.TenantID {
+		return Evidence{}, errors.New("forbidden")
+	}
+	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
 		return Evidence{}, err
 	}
 	_, err = s.db.ExecContext(ctx, `UPDATE evidences SET status = $1, rejection_reason = $2, updated_at = $3 WHERE id = $4`, "rejected", reason, nowText(), evidenceID)
@@ -1376,13 +1419,15 @@ func (s *Service) evidenceByID(ctx context.Context, evidenceID string) (Evidence
 }
 
 func (s *Service) auditWorker() {
+	s.auditWg.Add(1)
+	defer s.auditWg.Done()
 	for evidenceID := range s.auditJobs {
 		s.processAudit(evidenceID)
 	}
 }
 
 func (s *Service) processAudit(evidenceID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	evidence, err := s.evidenceByID(ctx, evidenceID)
 	if err != nil {
@@ -1396,36 +1441,186 @@ func (s *Service) processAudit(evidenceID string) {
 	if err != nil {
 		return
 	}
-	defer rc.Close()
-	bytesRead, err := io.ReadAll(rc)
+	avanceBytes, err := io.ReadAll(rc)
+	rc.Close()
 	if err != nil {
 		return
 	}
-	feedback := AuditFeedback{
-		IsValidEvidence: true,
-		QualityScore:    92,
-		AnalysisSummary: "Consistent finish and valid supporting evidence.",
-		DetectedIssues:  []string{},
-		Recommendations: "Continue with the next scheduled inspection.",
-		StatusLogic:     "approved",
-	}
-	fileNameLower := strings.ToLower(evidence.FileName)
-	if len(bytesRead) < 100 || strings.Contains(fileNameLower, "blurry") {
+
+	var feedback AuditFeedback
+	modelVersion := "gemini-2.0-flash"
+
+	if s.cfg.GeminiAPIKey == "" {
+		// Fallback stub when no API key is configured
 		feedback = AuditFeedback{
-			IsValidEvidence: false,
-			QualityScore:    62,
-			AnalysisSummary: "The evidence is not clear enough for a reliable approval.",
-			DetectedIssues:  []string{"Insufficient or blurry evidence"},
-			Recommendations: "Recapture the image with better focus and framing.",
-			StatusLogic:     "critical_alert",
+			IsValidEvidence: true,
+			QualityScore:    92,
+			AnalysisSummary: "Consistent finish and valid supporting evidence.",
+			DetectedIssues:  []string{},
+			Recommendations: "Continue with the next scheduled inspection.",
+			StatusLogic:     "approved",
+		}
+		fileNameLower := strings.ToLower(evidence.FileName)
+		if len(avanceBytes) < 100 || strings.Contains(fileNameLower, "blurry") {
+			feedback = AuditFeedback{
+				IsValidEvidence: false,
+				QualityScore:    62,
+				AnalysisSummary: "The evidence is not clear enough for a reliable approval.",
+				DetectedIssues:  []string{"Insufficient or blurry evidence"},
+				Recommendations: "Recapture the image with better focus and framing.",
+				StatusLogic:     "critical_alert",
+			}
+		}
+		modelVersion = "stub-no-api-key"
+	} else {
+		// Look up comparison photo from task
+		var referenceBytes []byte
+		var refMime string
+		if evidence.TaskID != "" {
+			task, taskErr := s.taskByID(ctx, evidence.TaskID)
+			if taskErr == nil && task.ComparisonPhotoURL != "" {
+				// Extract evidence ID from URL like /api/v1/files/eviXXX
+				parts := strings.Split(task.ComparisonPhotoURL, "/")
+				if len(parts) > 0 {
+					refEviID := parts[len(parts)-1]
+					var refPath, refMimeType string
+					if err := s.db.QueryRowContext(ctx, `SELECT object_path, mime_type FROM evidences WHERE id = $1`, refEviID).Scan(&refPath, &refMimeType); err == nil {
+						refRC, refErr := s.storage.Open(ctx, refPath)
+						if refErr == nil {
+							referenceBytes, _ = io.ReadAll(refRC)
+							refRC.Close()
+							refMime = refMimeType
+						}
+					}
+				}
+			}
+		}
+
+		feedback, err = s.callGeminiVision(ctx, referenceBytes, avanceBytes, refMime, evidence.MimeType)
+		if err != nil {
+			log.Printf("gemini audit error for %s: %v", evidenceID, err)
+			// Fallback: mark as completed without score
+			feedback = AuditFeedback{
+				IsValidEvidence: true,
+				QualityScore:    0,
+				AnalysisSummary: "AI analysis unavailable: " + err.Error(),
+				DetectedIssues:  []string{},
+				Recommendations: "Manual review recommended.",
+				StatusLogic:     "approved",
+			}
+			modelVersion = "gemini-error-fallback"
 		}
 	}
+
 	payload, _ := json.Marshal(feedback)
-	_, _ = s.db.ExecContext(ctx, `INSERT INTO ia_audits (id, tenant_id, evidence_id, score, json_feedback, critical_alert, model_version, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, newID("audit"), evidence.TenantID, evidence.ID, feedback.QualityScore, string(payload), boolToInt(feedback.StatusLogic == "critical_alert"), "gemini-2.5-flash", nowText())
-	_, _ = s.db.ExecContext(ctx, `UPDATE evidences SET status = $1, ai_processing_status = $2, quality_score = $3, updated_at = $4 WHERE id = $5`, "approved", "completed", feedback.QualityScore, nowText(), evidence.ID)
-	if feedback.QualityScore < 80 {
-		_, _ = s.db.ExecContext(ctx, `INSERT INTO quality_alerts (id, tenant_id, project_id, task_id, evidence_id, severity, title, description, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, newID("alt"), evidence.TenantID, evidence.ProjectID, evidence.TaskID, evidence.ID, "red", "Quality below threshold", feedback.AnalysisSummary, "open", nowText())
+	_, _ = s.db.ExecContext(ctx, `INSERT INTO ia_audits (id, tenant_id, evidence_id, score, json_feedback, critical_alert, model_version, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, newID("audit"), evidence.TenantID, evidence.ID, feedback.QualityScore, string(payload), boolToInt(feedback.StatusLogic == "critical_alert"), modelVersion, nowText())
+
+	if feedback.QualityScore < 80 && feedback.QualityScore > 0 {
+		// Auto-reject: score below threshold
+		_, _ = s.db.ExecContext(ctx, `UPDATE evidences SET status = $1, ai_processing_status = $2, quality_score = $3, rejection_reason = $4, updated_at = $5 WHERE id = $6`,
+			"rejected", "completed", feedback.QualityScore, fmt.Sprintf("Calificación IA: %d%% — %s", feedback.QualityScore, feedback.AnalysisSummary), nowText(), evidence.ID)
+		_, _ = s.db.ExecContext(ctx, `INSERT INTO quality_alerts (id, tenant_id, project_id, task_id, evidence_id, severity, title, description, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+			newID("alt"), evidence.TenantID, evidence.ProjectID, evidence.TaskID, evidence.ID, "red", "Calidad por debajo del umbral (< 80%)", feedback.AnalysisSummary, "open", nowText())
+	} else {
+		// Approve
+		_, _ = s.db.ExecContext(ctx, `UPDATE evidences SET status = $1, ai_processing_status = $2, quality_score = $3, updated_at = $4 WHERE id = $5`,
+			"approved", "completed", feedback.QualityScore, nowText(), evidence.ID)
 	}
+}
+
+func (s *Service) callGeminiVision(ctx context.Context, referenceImage, avanceImage []byte, refMime, avanceMime string) (AuditFeedback, error) {
+	client, err := genai.NewClient(ctx, option.WithAPIKey(s.cfg.GeminiAPIKey))
+	if err != nil {
+		return AuditFeedback{}, fmt.Errorf("gemini client: %w", err)
+	}
+	defer client.Close()
+
+	model := client.GenerativeModel("gemini-2.0-flash")
+	model.SetTemperature(0.2)
+	model.ResponseMIMEType = "application/json"
+
+	var parts []genai.Part
+
+	if len(referenceImage) > 0 {
+		// Comparison mode: render vs avance
+		if refMime == "" {
+			refMime = http.DetectContentType(referenceImage)
+		}
+		parts = append(parts, genai.Blob{MIMEType: refMime, Data: referenceImage})
+		parts = append(parts, genai.Blob{MIMEType: avanceMime, Data: avanceImage})
+		parts = append(parts, genai.Text(`Actúa como un Inspector de Calidad Experto en arquitectura, mecanizado, joyería y modelado 3D. Tu tarea es comparar dos imágenes y evaluar objetivamente el progreso de un proyecto.
+
+Se te proporcionan dos imágenes:
+1. "Render/Referencia": El diseño final y objetivo del proyecto.
+2. "Avance": Una fotografía del estado actual del proyecto en el mundo real.
+
+Instrucciones de análisis:
+- IGNORA el ruido del entorno en la imagen de "Avance" (ej. herramientas, andamios, personas, iluminación del taller o fondo).
+- ENFÓCATE estrictamente en la geometría, proporciones, ensamblaje, materiales visibles y detalles estructurales de la pieza o proyecto principal.
+- COMPARA las similitudes y diferencias clave entre el "Render" y el "Avance".
+- CALCULA un porcentaje de similitud del 0 al 100%.
+
+Responde ÚNICAMENTE con un objeto JSON:
+{
+  "is_valid_evidence": true,
+  "quality_score": 85,
+  "analysis_summary": "Descripción detallada de las similitudes y diferencias",
+  "detected_issues": ["lista de problemas encontrados"],
+  "recommendations": "Recomendaciones para mejorar",
+  "status_logic": "approved"
+}
+
+status_logic debe ser "approved" si quality_score >= 80, o "critical_alert" si < 80.`))
+	} else {
+		// Single image quality evaluation
+		parts = append(parts, genai.Blob{MIMEType: avanceMime, Data: avanceImage})
+		parts = append(parts, genai.Text(`Actúa como un Inspector de Calidad. Evalúa la calidad de esta imagen como evidencia fotográfica de un proyecto (construcción, manufactura, joyería, etc).
+
+Evalúa:
+- Claridad y enfoque de la imagen
+- Si muestra evidencia útil del progreso del trabajo
+- Calidad general como documentación profesional
+
+Responde ÚNICAMENTE con un objeto JSON:
+{
+  "is_valid_evidence": true,
+  "quality_score": 85,
+  "analysis_summary": "Descripción de la evaluación",
+  "detected_issues": ["lista de problemas"],
+  "recommendations": "Recomendaciones",
+  "status_logic": "approved"
+}
+
+status_logic debe ser "approved" si quality_score >= 80, o "critical_alert" si < 80.`))
+	}
+
+	resp, err := model.GenerateContent(ctx, parts...)
+	if err != nil {
+		return AuditFeedback{}, fmt.Errorf("gemini generate: %w", err)
+	}
+
+	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
+		return AuditFeedback{}, errors.New("gemini returned empty response")
+	}
+
+	text, ok := resp.Candidates[0].Content.Parts[0].(genai.Text)
+	if !ok {
+		return AuditFeedback{}, errors.New("gemini response is not text")
+	}
+
+	var feedback AuditFeedback
+	if err := json.Unmarshal([]byte(text), &feedback); err != nil {
+		return AuditFeedback{}, fmt.Errorf("gemini json parse: %w (raw: %s)", err, string(text))
+	}
+
+	// Ensure status_logic is consistent with score
+	if feedback.QualityScore < 80 {
+		feedback.StatusLogic = "critical_alert"
+	} else {
+		feedback.StatusLogic = "approved"
+	}
+
+	return feedback, nil
 }
 
 func (s *Service) OwnerDashboard(ctx context.Context, actor Claims) (Dashboard, error) {
@@ -1514,6 +1709,19 @@ func (s *Service) UpdateProject(ctx context.Context, actor Claims, projectID str
 	if actor.TenantID != project.TenantID {
 		return Project{}, errors.New("forbidden")
 	}
+	// Validate assigned users belong to same tenant
+	if patch.SupervisorUserID != "" {
+		var supTenant string
+		if err := s.db.QueryRowContext(ctx, `SELECT tenant_id FROM users WHERE id = $1`, patch.SupervisorUserID).Scan(&supTenant); err != nil || supTenant != actor.TenantID {
+			return Project{}, errors.New("supervisor must belong to same organization")
+		}
+	}
+	if patch.ClientUserID != "" {
+		var cliTenant string
+		if err := s.db.QueryRowContext(ctx, `SELECT tenant_id FROM users WHERE id = $1`, patch.ClientUserID).Scan(&cliTenant); err != nil || cliTenant != actor.TenantID {
+			return Project{}, errors.New("client must belong to same organization")
+		}
+	}
 	now := nowText()
 	_, err = s.db.ExecContext(ctx,
 		`UPDATE projects SET name=$1, description=$2, status=$3, start_date=$4, planned_end_date=$5, supervisor_user_id=$6, client_user_id=$7, latitude_center=$8, longitude_center=$9, geofence_radius_m=$10, updated_at=$11 WHERE id=$12`,
@@ -1531,6 +1739,9 @@ func (s *Service) UpdateProject(ctx context.Context, actor Claims, projectID str
 func (s *Service) UpdateProjectBudget(ctx context.Context, actor Claims, projectID string, budgetTotal, spentTotal int64) (Project, error) {
 	if s.permissionEffect(ctx, actor.Role, "budget.manage") != "allow" {
 		return Project{}, errors.New("forbidden")
+	}
+	if budgetTotal < 0 || spentTotal < 0 {
+		return Project{}, errors.New("budget values cannot be negative")
 	}
 	project, err := s.projectByID(ctx, projectID)
 	if err != nil {
@@ -1628,11 +1839,18 @@ func (s *Service) EvidenceFile(ctx context.Context, actor Claims, evidenceID str
 	}
 	switch actor.Role {
 	case RoleOwner, RoleSupervisor:
-		if err := s.ensureProjectAccess(ctx, actor, project); err != nil && actor.Role != RoleOwner {
+		if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
 			return nil, "", err
 		}
 	case RoleHelper:
-		return nil, "", errors.New("forbidden")
+		// Helpers can view evidence they uploaded
+		var uploaderID string
+		if err := s.db.QueryRowContext(ctx, `SELECT uploaded_by_user_id FROM evidences WHERE id = $1`, evidenceID).Scan(&uploaderID); err != nil {
+			return nil, "", err
+		}
+		if uploaderID != actor.UserID {
+			return nil, "", errors.New("forbidden")
+		}
 	case RoleClient:
 		if !intToBool(visible) {
 			return nil, "", errors.New("forbidden")
@@ -1655,10 +1873,8 @@ func (s *Service) ExportProjectCSV(ctx context.Context, actor Claims, projectID 
 	if err != nil {
 		return nil, err
 	}
-	if actor.Role == RoleSupervisor {
-		if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
-			return nil, err
-		}
+	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
+		return nil, err
 	}
 	buf := &bytes.Buffer{}
 	writer := csv.NewWriter(buf)
@@ -1742,12 +1958,10 @@ func (s *Service) ListProjectTasks(ctx context.Context, actor Claims, projectID 
 	if actor.Role == RoleHelper {
 		return nil, errors.New("forbidden")
 	}
-	if actor.Role != RoleOwner {
-		if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
-			return nil, err
-		}
+	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
+		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent FROM tasks WHERE project_id = $1 ORDER BY created_at`, projectID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent, comparison_photo_url FROM tasks WHERE project_id = $1 ORDER BY created_at`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -1755,7 +1969,7 @@ func (s *Service) ListProjectTasks(ctx context.Context, actor Claims, projectID 
 	tasks := make([]Task, 0)
 	for rows.Next() {
 		var task Task
-		if err := rows.Scan(&task.ID, &task.TenantID, &task.ProjectID, &task.Title, &task.Description, &task.AssignedToUserID, &task.Status, &task.StartDate, &task.EndDate, &task.PredecessorTaskID, &task.ExpectedFinishQuality, &task.TechnicalSpecText, &task.BudgetCents, &task.SpentCents, &task.ProgressPercent); err != nil {
+		if err := rows.Scan(&task.ID, &task.TenantID, &task.ProjectID, &task.Title, &task.Description, &task.AssignedToUserID, &task.Status, &task.StartDate, &task.EndDate, &task.PredecessorTaskID, &task.ExpectedFinishQuality, &task.TechnicalSpecText, &task.BudgetCents, &task.SpentCents, &task.ProgressPercent, &task.ComparisonPhotoURL); err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, task)
@@ -1849,13 +2063,21 @@ func (s *Service) CreateExpense(ctx context.Context, actor Claims, exp Expense) 
 	}
 	now := nowText()
 	exp.CreatedAt = now
-	_, err = s.db.ExecContext(ctx, `INSERT INTO expenses (id, tenant_id, project_id, task_id, title, amount_cents, category, vendor, status, evidence_id, uploaded_by_user_id, date, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`, exp.ID, exp.TenantID, exp.ProjectID, exp.TaskID, exp.Title, exp.AmountCents, exp.Category, exp.Vendor, exp.Status, exp.EvidenceID, actor.UserID, exp.Date, exp.CreatedAt)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Expense{}, err
 	}
-	// Update project spent total
-	_, _ = s.db.ExecContext(ctx, `UPDATE projects SET spent_total_cents = spent_total_cents + $1, updated_at = $2 WHERE id = $3`, exp.AmountCents, now, project.ID)
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO expenses (id, tenant_id, project_id, task_id, title, amount_cents, category, vendor, status, evidence_id, uploaded_by_user_id, date, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`, exp.ID, exp.TenantID, exp.ProjectID, exp.TaskID, exp.Title, exp.AmountCents, exp.Category, exp.Vendor, exp.Status, exp.EvidenceID, actor.UserID, exp.Date, exp.CreatedAt); err != nil {
+		return Expense{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE projects SET spent_total_cents = spent_total_cents + $1, updated_at = $2 WHERE id = $3`, exp.AmountCents, now, project.ID); err != nil {
+		return Expense{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Expense{}, err
+	}
 	return exp, nil
 }
 
@@ -1896,14 +2118,23 @@ func (s *Service) UpdateExpense(ctx context.Context, actor Claims, expenseID str
 	if patch.TaskID != "" {
 		exp.TaskID = patch.TaskID
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE expenses SET task_id = $1, title = $2, amount_cents = $3, category = $4, vendor = $5, status = $6, date = $7 WHERE id = $8`,
-		exp.TaskID, exp.Title, exp.AmountCents, exp.Category, exp.Vendor, exp.Status, exp.Date, expenseID)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		return Expense{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE expenses SET task_id = $1, title = $2, amount_cents = $3, category = $4, vendor = $5, status = $6, date = $7 WHERE id = $8`,
+		exp.TaskID, exp.Title, exp.AmountCents, exp.Category, exp.Vendor, exp.Status, exp.Date, expenseID); err != nil {
 		return Expense{}, err
 	}
 	delta := exp.AmountCents - oldAmount
 	if delta != 0 {
-		_, _ = s.db.ExecContext(ctx, `UPDATE projects SET spent_total_cents = spent_total_cents + $1, updated_at = $2 WHERE id = $3`, delta, nowText(), project.ID)
+		if _, err := tx.ExecContext(ctx, `UPDATE projects SET spent_total_cents = spent_total_cents + $1, updated_at = $2 WHERE id = $3`, delta, nowText(), project.ID); err != nil {
+			return Expense{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return Expense{}, err
 	}
 	return s.expenseByID(ctx, expenseID)
 }
@@ -1923,11 +2154,18 @@ func (s *Service) DeleteExpense(ctx context.Context, actor Claims, expenseID str
 	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
 		return err
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM expenses WHERE id = $1`, expenseID); err != nil {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
-	_, _ = s.db.ExecContext(ctx, `UPDATE projects SET spent_total_cents = spent_total_cents - $1, updated_at = $2 WHERE id = $3`, exp.AmountCents, nowText(), project.ID)
-	return nil
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM expenses WHERE id = $1`, expenseID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE projects SET spent_total_cents = spent_total_cents - $1, updated_at = $2 WHERE id = $3`, exp.AmountCents, nowText(), project.ID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Service) ListDailyLogs(ctx context.Context, actor Claims, projectID string) ([]DailyLog, error) {
@@ -2329,12 +2567,20 @@ func (s *Service) CreateBudgetAdjustment(ctx context.Context, actor Claims, ba B
 	if ba.Date == "" {
 		ba.Date = nowText()[:10]
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO budget_adjustments (id, tenant_id, project_id, amount_cents, reason, approved_by_user_id, date, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, ba.ID, ba.TenantID, ba.ProjectID, ba.AmountCents, ba.Reason, ba.ApprovedByUserID, ba.Date, ba.CreatedAt)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return BudgetAdjustment{}, err
 	}
-	// Update project total budget
-	_, _ = s.db.ExecContext(ctx, `UPDATE projects SET budget_total_cents = budget_total_cents + $1, updated_at = $2 WHERE id = $3`, ba.AmountCents, ba.CreatedAt, project.ID)
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO budget_adjustments (id, tenant_id, project_id, amount_cents, reason, approved_by_user_id, date, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, ba.ID, ba.TenantID, ba.ProjectID, ba.AmountCents, ba.Reason, ba.ApprovedByUserID, ba.Date, ba.CreatedAt); err != nil {
+		return BudgetAdjustment{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE projects SET budget_total_cents = budget_total_cents + $1, updated_at = $2 WHERE id = $3`, ba.AmountCents, ba.CreatedAt, project.ID); err != nil {
+		return BudgetAdjustment{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return BudgetAdjustment{}, err
+	}
 	return ba, nil
 }

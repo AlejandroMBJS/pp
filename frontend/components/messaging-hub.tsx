@@ -108,9 +108,14 @@ export function MessagingHub({
   }
 
   useEffect(() => {
-    void fetchMessages();
-    const interval = setInterval(() => void fetchMessages(), 5000);
-    return () => clearInterval(interval);
+    let timer: ReturnType<typeof setTimeout>;
+    let cancelled = false;
+    async function poll() {
+      await fetchMessages();
+      if (!cancelled) timer = setTimeout(poll, 5000);
+    }
+    void poll();
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [project.id, session.access_token]);
 
   useEffect(() => {

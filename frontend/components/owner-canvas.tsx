@@ -243,7 +243,7 @@ export function OwnerCanvas({
                 </div>
                 <div className="text-[10px] font-bold uppercase tracking-widest text-white/30">RFI requests</div>
               </div>
-              <div className="text-2xl font-black text-white tracking-tight">2 Pending</div>
+              <div className="text-2xl font-black text-white tracking-tight">{evidences.filter(e => e.status === "pending_approval").length} Pending</div>
               <div className="mt-2 text-[10px] font-bold uppercase text-slate-300/70 tracking-wider">Open message hub →</div>
             </div>
           </div>

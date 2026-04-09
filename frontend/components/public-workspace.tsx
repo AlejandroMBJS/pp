@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, useRef, type FormEvent } from "react";
 import { Input } from "./ui/form-input";
 import { Briefcase, Building2, ChevronRight, Key, Mail, ShieldCheck, User } from "lucide-react";
 
 type DemoPayload = {
   product: string;
   message: string;
-  demo_accounts: Array<{ role: string; email: string; password: string }>;
+  demo_accounts: Array<{ role: string; email: string }>;
   suggested_flow: string[];
 };
 
@@ -53,6 +53,8 @@ export function PublicWorkspace({
   loading,
 }: PublicWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<"login" | "register">("login");
+  const [demoFilled, setDemoFilled] = useState(false);
+  const loginFormRef = useRef<HTMLFormElement>(null);
 
   return (
     <div
@@ -124,8 +126,15 @@ export function PublicWorkspace({
                   type="button"
                   className="flex flex-col gap-2 rounded-2xl border border-white/5 bg-white/[0.02] p-4 text-left transition-all hover:bg-white/10 hover:border-white/10 active:scale-95 group overflow-hidden relative"
                   onClick={() => {
-                    setAuthForm({ ...authForm, email: account.email, password: account.password });
+                    setAuthForm({ ...authForm, email: account.email, password: "demo123" });
                     setActiveTab("login");
+                    setDemoFilled(true);
+                    setTimeout(() => {
+                      loginFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      const pwInput = loginFormRef.current?.querySelector<HTMLInputElement>('input[type="password"]');
+                      pwInput?.focus();
+                      setTimeout(() => setDemoFilled(false), 2000);
+                    }, 100);
                   }}
                 >
                   <div className="absolute -right-2 -bottom-2 opacity-5 group-hover:opacity-10 transition-opacity h-12 w-12 bg-white rounded-full blur-xl" />
@@ -201,9 +210,12 @@ export function PublicWorkspace({
                         onChange={(v) => setInviteSetupForm({ ...inviteSetupForm, confirmPassword: v })}
                       />
                     </div>
+                    {inviteSetupForm.confirmPassword && inviteSetupForm.password !== inviteSetupForm.confirmPassword && (
+                      <p className="text-xs text-red-400/80 font-semibold">Passwords do not match</p>
+                    )}
                     <button
                       className="btn-primary w-full py-5 text-sm font-black uppercase tracking-[0.2em] shadow-xl shadow-emerald-500/20 active:scale-98 transition-transform disabled:opacity-50 mt-4 rounded-3xl"
-                      disabled={loading || !inviteSetupForm.password.trim() || !inviteSetupForm.confirmPassword.trim()}
+                      disabled={loading || !inviteSetupForm.password.trim() || !inviteSetupForm.confirmPassword.trim() || inviteSetupForm.password !== inviteSetupForm.confirmPassword}
                     >
                       {loading ? "Activating..." : "Activate account"}
                     </button>
@@ -222,7 +234,7 @@ export function PublicWorkspace({
                     <h2 className="text-2xl font-black text-white tracking-tight">Welcome back</h2>
                     <p className="mt-2 text-sm text-white/30 font-medium">Access your project control dashboard.</p>
                   </div>
-                  <form onSubmit={onLogin} className="grid gap-5">
+                  <form ref={loginFormRef} onSubmit={onLogin} className="grid gap-5">
                     <div className="relative group">
                       <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-white/10 group-focus-within:text-blue-400 transition-colors" size={18} />
                       <Input
@@ -243,10 +255,10 @@ export function PublicWorkspace({
                       />
                     </div>
                     <button
-                      className="btn-primary w-full py-5 text-sm font-black uppercase tracking-[0.2em] shadow-xl shadow-blue-500/20 active:scale-98 transition-transform disabled:opacity-50 mt-4 rounded-3xl"
+                      className={`btn-primary w-full py-5 text-sm font-black uppercase tracking-[0.2em] active:scale-98 transition-all disabled:opacity-50 mt-4 rounded-3xl ${demoFilled ? "shadow-2xl shadow-blue-500/50 ring-2 ring-blue-400/60 scale-[1.02]" : "shadow-xl shadow-blue-500/20"}`}
                       disabled={loading || !authForm.email.trim() || !authForm.password.trim()}
                     >
-                      {loading ? "Validating..." : "Enter console"}
+                      {loading ? "Validating..." : demoFilled ? "Tap to enter" : "Enter console"}
                     </button>
                   </form>
                 </div>

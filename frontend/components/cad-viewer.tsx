@@ -143,6 +143,7 @@ export function CadViewer({ fileUrl, fileType, fileName, rawPreviewUrl, token }:
     const canLoad = (fileUrl || (fileType.toLowerCase() === "dwg" && rawPreviewUrl));
     if (!canLoad || !sceneRef.current || !cameraRef.current || !controlsRef.current) return;
 
+    const abortController = new AbortController();
     const load = async () => {
       setError(null);
       setLoading(true);
@@ -216,6 +217,7 @@ export function CadViewer({ fileUrl, fileType, fileName, rawPreviewUrl, token }:
     };
 
     void load();
+    return () => abortController.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileUrl, fileType, rawPreviewUrl, token, showGrid, showAxes]);
 

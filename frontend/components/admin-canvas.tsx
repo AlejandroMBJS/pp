@@ -12,6 +12,7 @@ type AdminCanvasProps = {
   tenants: Array<{ id: string; name: string; slug: string }>;
   rbac: RBACRule[];
   token?: string;
+  onRefresh?: () => void;
 };
 
 const effectColor: Record<string, "green" | "red"> = {
@@ -19,7 +20,7 @@ const effectColor: Record<string, "green" | "red"> = {
   deny:  "red",
 };
 
-export function AdminCanvas({ activeView, tenants, rbac, token }: AdminCanvasProps) {
+export function AdminCanvas({ activeView, tenants, rbac, token, onRefresh }: AdminCanvasProps) {
   if (activeView === "platform") {
     return (
       <div className="space-y-6">
@@ -101,7 +102,8 @@ export function AdminCanvas({ activeView, tenants, rbac, token }: AdminCanvasPro
           body: JSON.stringify({ ...rule, effect: nextEffect }),
         });
         if (res.ok) {
-          window.location.reload(); 
+          toast.success("Regla RBAC actualizada.");
+          onRefresh?.();
         }
       } catch (e) {
         console.error(e);

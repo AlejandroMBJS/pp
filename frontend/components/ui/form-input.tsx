@@ -6,19 +6,23 @@ type InputProps = {
   label?: string;
   required?: boolean;
   className?: string;
+  autoFocus?: boolean;
+  id?: string;
 };
 
-export function Input({ placeholder, value, onChange, type = "text", label, required, className }: InputProps) {
+export function Input({ placeholder, value, onChange, type = "text", label, required, className, autoFocus, id }: InputProps) {
   return (
     <div className={`flex flex-col gap-1 ${className || ""}`}>
       {label && <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</label>}
       <input
+        id={id}
         className="form-input"
         placeholder={placeholder}
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         required={required}
+        autoFocus={autoFocus}
       />
     </div>
   );

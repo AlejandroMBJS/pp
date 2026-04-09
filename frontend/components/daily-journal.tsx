@@ -31,6 +31,10 @@ const emptyForm = {
   status: "submitted",
 };
 
+function safeParseJSON(s: string | undefined): Record<string, number> {
+  try { return JSON.parse(s || "{}"); } catch { return {}; }
+}
+
 export function DailyJournal({ project, session }: { project: Project; session: any }) {
   const [logs, setLogs] = useState<DailyLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,7 +55,8 @@ export function DailyJournal({ project, session }: { project: Project; session: 
       });
       const data = await res.json().catch(() => []);
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
-      setLogs(Array.isArray(data) ? data : []);
+      const sorted = Array.isArray(data) ? data.sort((a: DailyLog, b: DailyLog) => b.date.localeCompare(a.date)) : [];
+      setLogs(sorted);
     } catch (error) {
       console.error(error);
       toast.error("Could not load the daily log.");
@@ -185,7 +190,7 @@ export function DailyJournal({ project, session }: { project: Project; session: 
                         e.preventDefault();
                         const trade = (e.currentTarget as HTMLInputElement).value.trim();
                         if (trade) {
-                          const mp = JSON.parse(form.manpower_json || "{}");
+                          const mp = safeParseJSON(form.manpower_json);
                           mp[trade] = 1;
                           const total = Object.values(mp).reduce((a: any, b: any) => a + Number(b), 0);
                           setForm({ ...form, manpower_json: JSON.stringify(mp), headcount: Number(total) });
@@ -198,14 +203,14 @@ export function DailyJournal({ project, session }: { project: Project; session: 
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                {Object.entries(JSON.parse(form.manpower_json || "{}")).map(([trade, count]) => (
+                {Object.entries(safeParseJSON(form.manpower_json)).map(([trade, count]) => (
                   <div key={trade} className="flex items-center gap-3 bg-white/5 p-2 rounded-xl border border-white/5">
                     <span className="flex-1 text-[10px] font-bold text-white/60 uppercase truncate">{trade}</span>
                     <input
                       type="number"
                       value={Number(count)}
                       onChange={(e) => {
-                        const mp = JSON.parse(form.manpower_json || "{}");
+                        const mp = safeParseJSON(form.manpower_json);
                         mp[trade] = Number(e.target.value);
                         const total = Object.values(mp).reduce((a: any, b: any) => a + Number(b), 0);
                         setForm({ ...form, manpower_json: JSON.stringify(mp), headcount: Number(total) });
@@ -215,7 +220,7 @@ export function DailyJournal({ project, session }: { project: Project; session: 
                     <button
                       type="button"
                       onClick={() => {
-                        const mp = JSON.parse(form.manpower_json || "{}");
+                        const mp = safeParseJSON(form.manpower_json);
                         delete mp[trade];
                         const total = Object.values(mp).reduce((a: any, b: any) => a + Number(b), 0);
                         setForm({ ...form, manpower_json: JSON.stringify(mp), headcount: Number(total) });

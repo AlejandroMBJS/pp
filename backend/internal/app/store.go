@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -9,9 +10,12 @@ import (
 	"math"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/lib/pq"
+
+	"arquicheck/backend/internal/billing"
 )
 
 type Service struct {
@@ -22,6 +26,8 @@ type Service struct {
 	cfg       Config
 	jwtSecret []byte
 	auditJobs chan string
+	auditWg   sync.WaitGroup
+	stripe    *billing.Client
 }
 
 func NewService(cfg Config) (*Service, error) {
@@ -52,6 +58,7 @@ func NewService(cfg Config) (*Service, error) {
 		cfg:       cfg,
 		jwtSecret: []byte(cfg.JWTSecret),
 		auditJobs: make(chan string, 128),
+		stripe:    billing.NewClient(cfg.StripeSecretKey, cfg.StripeWebhookSecret),
 	}
 	if err := svc.initSchema(context.Background()); err != nil {
 		return nil, err
@@ -68,6 +75,7 @@ func NewService(cfg Config) (*Service, error) {
 
 func (s *Service) Close() error {
 	close(s.auditJobs)
+	s.auditWg.Wait()
 	return s.db.Close()
 }
 
@@ -294,6 +302,39 @@ func (s *Service) initSchema(ctx context.Context) error {
 			created_at TEXT NOT NULL,
 			UNIQUE(token)
 		);`,
+		`CREATE TABLE IF NOT EXISTS subscriptions (
+			id TEXT PRIMARY KEY,
+			tenant_id TEXT NOT NULL UNIQUE REFERENCES tenants(id),
+			stripe_customer_id TEXT NOT NULL DEFAULT '',
+			stripe_subscription_id TEXT NOT NULL DEFAULT '',
+			plan TEXT NOT NULL DEFAULT 'starter',
+			status TEXT NOT NULL DEFAULT 'trialing',
+			trial_ends_at TIMESTAMPTZ,
+			current_period_ends_at TIMESTAMPTZ,
+			cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);`,
+		`CREATE TABLE IF NOT EXISTS payment_events (
+			id TEXT PRIMARY KEY,
+			tenant_id TEXT NOT NULL DEFAULT '',
+			stripe_event_id TEXT NOT NULL UNIQUE,
+			event_type TEXT NOT NULL,
+			amount_cents INTEGER NOT NULL DEFAULT 0,
+			currency TEXT NOT NULL DEFAULT 'usd',
+			status TEXT NOT NULL DEFAULT '',
+			raw_payload TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);`,
+		`CREATE TABLE IF NOT EXISTS usage_metrics (
+			id TEXT PRIMARY KEY,
+			tenant_id TEXT NOT NULL REFERENCES tenants(id),
+			metric_type TEXT NOT NULL,
+			value BIGINT NOT NULL DEFAULT 0,
+			period_start DATE NOT NULL,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE(tenant_id, metric_type, period_start)
+		);`,
 	}
 	for _, stmt := range schema {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
@@ -303,6 +344,36 @@ func (s *Service) initSchema(ctx context.Context) error {
 	// Migrations for development
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS predecessor_task_id TEXT NOT NULL DEFAULT ''`)
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS manpower_json TEXT NOT NULL DEFAULT '{}'`)
+	_, _ = s.db.ExecContext(ctx, `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS comparison_photo_url TEXT NOT NULL DEFAULT ''`)
+
+	// Performance indexes
+	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_projects_tenant ON projects(tenant_id)`)
+	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)`)
+	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to_user_id)`)
+	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_evidences_task ON evidences(task_id)`)
+	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_evidences_project ON evidences(project_id)`)
+	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id)`)
+	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`)
+	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status)`)
+	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions(stripe_subscription_id)`)
+	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_payment_events_tenant ON payment_events(tenant_id)`)
+	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_usage_metrics_tenant ON usage_metrics(tenant_id)`)
+
+	// Backfill: every existing tenant gets a 14-day trial subscription
+	// (idempotent — only inserts where missing).
+	_, _ = s.db.ExecContext(ctx, `
+		INSERT INTO subscriptions (id, tenant_id, plan, status, trial_ends_at)
+		SELECT 'sub_' || substr(md5(t.id), 1, 16), t.id, 'starter', 'trialing', NOW() + INTERVAL '14 days'
+		FROM tenants t
+		WHERE NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.tenant_id = t.id)
+	`)
+	// Demo tenant gets enterprise forever (skipped from billing flows).
+	_, _ = s.db.ExecContext(ctx, `
+		UPDATE subscriptions
+		SET plan='enterprise', status='active', trial_ends_at=NULL,
+		    current_period_ends_at = NOW() + INTERVAL '100 years', updated_at = NOW()
+		WHERE tenant_id IN (SELECT id FROM tenants WHERE slug='demo-operations-lab')
+	`)
 	return nil
 }
 
@@ -520,6 +591,10 @@ func (s *Service) distanceMeters(lat1, lon1, lat2, lon2 float64) float64 {
 }
 
 func fileNameSafe(name string) string {
-	replacer := strings.NewReplacer("/", "-", "..", "-", "\\", "-")
+	replacer := strings.NewReplacer("/", "-", "..", "-", "\\", "-", "\x00", "")
 	return replacer.Replace(name)
+}
+
+func constantTimeEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }

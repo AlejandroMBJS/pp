@@ -11,10 +11,35 @@ const (
 )
 
 type Config struct {
-	DatabaseURL string
-	UploadDir   string
-	JWTSecret   string
-	PublicBase  string
+	DatabaseURL  string
+	UploadDir    string
+	JWTSecret    string
+	PublicBase   string
+	GeminiAPIKey string
+
+	// Stripe billing — all optional. If StripeSecretKey is empty, billing
+	// is disabled and all tenants implicitly run in trial-forever mode.
+	StripeSecretKey         string
+	StripeWebhookSecret     string
+	StripePublishableKey    string
+	StripePriceProfessional string
+	StripePriceBusiness     string
+	StripePriceEnterprise   string
+	BillingSuccessURL       string
+	BillingCancelURL        string
+}
+
+type Subscription struct {
+	ID                   string     `json:"id"`
+	TenantID             string     `json:"tenant_id"`
+	StripeCustomerID     string     `json:"stripe_customer_id,omitempty"`
+	StripeSubscriptionID string     `json:"stripe_subscription_id,omitempty"`
+	Plan                 string     `json:"plan"`
+	Status               string     `json:"status"`
+	TrialEndsAt          *time.Time `json:"trial_ends_at,omitempty"`
+	CurrentPeriodEndsAt  *time.Time `json:"current_period_ends_at,omitempty"`
+	CancelAtPeriodEnd    bool       `json:"cancel_at_period_end"`
+	DaysUntilTrialEnd    int        `json:"days_until_trial_end"`
 }
 
 type Claims struct {
@@ -89,6 +114,7 @@ type Task struct {
 	BudgetCents           int64  `json:"budget_cents"`
 	SpentCents            int64  `json:"spent_cents"`
 	ProgressPercent       int    `json:"progress_percent"`
+	ComparisonPhotoURL    string `json:"comparison_photo_url,omitempty"`
 }
 
 type Deliverable struct {
@@ -251,7 +277,7 @@ type AuditFeedback struct {
 type DemoAccount struct {
 	Role     string `json:"role"`
 	Email    string `json:"email"`
-	Password string `json:"password"`
+	Password string `json:"-"`
 }
 
 type DemoPayload struct {

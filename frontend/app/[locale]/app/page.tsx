@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ControlCenter } from "../../components/control-center";
+import { ControlCenter } from "@/components/control-center";
 
 const STORAGE_KEY = "projectpulse-session";
 const LEGACY_STORAGE_KEY = "arquicheck-session";

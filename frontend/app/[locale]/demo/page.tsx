@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState, type FormEvent } from "react";
 import { CheckCircle2, Loader2, Mail } from "lucide-react";
-import { SiteHeader } from "../../components/site-header";
+import { SiteHeader } from "@/components/site-header";
 
 export default function DemoPage() {
   return (

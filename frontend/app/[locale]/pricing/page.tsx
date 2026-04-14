@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { Check } from "lucide-react";
-import { PLANS } from "../../lib/plans";
-import { SiteHeader } from "../../components/site-header";
-import { SiteFooter } from "../../components/site-footer";
+import { PLANS } from "@/lib/plans";
+import { SiteHeader } from "@/components/site-header";
+import { SiteFooter } from "@/components/site-footer";
 
 export const revalidate = 0;
 

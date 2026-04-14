@@ -18,10 +18,10 @@ import {
   DatabaseBackup,
   Lock,
 } from "lucide-react";
-import { LandingSeo } from "../components/landing-seo";
-import { SiteHeader } from "../components/site-header";
-import { SiteFooter } from "../components/site-footer";
-import { PLANS } from "../lib/plans";
+import { LandingSeo } from "@/components/landing-seo";
+import { SiteHeader } from "@/components/site-header";
+import { SiteFooter } from "@/components/site-footer";
+import { PLANS } from "@/lib/plans";
 
 // Bypass Cloudflare / CDN caching so landing edits ship instantly.
 export const revalidate = 0;

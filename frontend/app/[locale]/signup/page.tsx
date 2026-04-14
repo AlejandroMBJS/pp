@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { Loader2, UserPlus } from "lucide-react";
-import { SiteHeader } from "../../components/site-header";
+import { SiteHeader } from "@/components/site-header";
 
 const STORAGE_KEY = "projectpulse-session";
 

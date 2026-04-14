@@ -194,9 +194,42 @@ function browserSafeURL(rawUrl: string) {
   }
 }
 
-async function api<T = any>(
+// Mirror of backend whitelists in backend/internal/app/validation.go.
+// Keep in sync — rejecting here saves a round-trip on obvious misuse, but
+// the backend remains the source of truth.
+const EVIDENCE_MIME_WHITELIST = new Set([
+  "image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic", "image/heif",
+  "image/tiff", "image/gif", "application/pdf", "video/mp4", "video/quicktime",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
+
+const BLUEPRINT_MIME_WHITELIST = new Set([
+  "application/pdf", "image/png", "image/jpeg", "image/tiff",
+  "image/vnd.dxf", "image/vnd.dwg",
+  "application/acad", "application/x-dwg", "application/dxf",
+  "application/octet-stream", "application/vnd.ms-pki.stl",
+]);
+
+function validateEvidenceFile(file: File): string | null {
+  // Empty file.type can happen on older browsers or iOS .heic drag-drop.
+  // Let the backend be the source of truth in that case — rejecting here
+  // would block legitimate uploads.
+  const ct = (file.type || "").toLowerCase();
+  if (!ct) return null;
+  if (!EVIDENCE_MIME_WHITELIST.has(ct)) return `Unsupported file type: ${ct}`;
+  return null;
+}
+
+function validateBlueprintFile(file: File): string | null {
+  const ct = (file.type || "application/octet-stream").toLowerCase();
+  if (!BLUEPRINT_MIME_WHITELIST.has(ct)) return `Unsupported blueprint type: ${ct}`;
+  return null;
+}
+
+async function api<T = unknown>(
   path: string,
-  options: { method?: string; token?: string; body?: any; signal?: AbortSignal } = {}
+  options: { method?: string; token?: string; body?: unknown; signal?: AbortSignal } = {}
 ): Promise<T> {
   const response = await fetch(path, {
     method: options.method ?? "GET",
@@ -250,7 +283,7 @@ export function ControlCenter() {
     company_slug: "",
     owner_name: "",
     owner_email: "",
-    password: "demo123",
+    password: "",
     email: "",
   });
 
@@ -834,6 +867,11 @@ export function ControlCenter() {
   async function handleHelperUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!session || !selectedTaskId || !uploadFile) return;
+    const mimeError = validateEvidenceFile(uploadFile);
+    if (mimeError) {
+      toast.error(mimeError);
+      return;
+    }
     setLoading(true);
     setUploadMessage("");
     const toastId = toast.loading("Uploading evidence...");
@@ -896,6 +934,8 @@ export function ControlCenter() {
 
   async function uploadComparisonPhoto(file: File, projectId: string): Promise<string> {
     if (!session) throw new Error("No session");
+    const mimeError = validateEvidenceFile(file);
+    if (mimeError) throw new Error(mimeError);
     // 3-phase upload using SYSTEM task (project-level upload)
     const uploadSession = await api<{ id: string; upload_url: string }>(
       `/api/v1/tasks/SYSTEM/evidence/upload-url`,
@@ -1083,6 +1123,9 @@ export function ControlCenter() {
     setActiveView("overview");
     setHighlightedDeliverableId(null);
     toast.success("Session closed.");
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
   }
 
   async function handleExportCsv() {
@@ -1182,7 +1225,12 @@ export function ControlCenter() {
       toast.error(`The file exceeds the 500MB limit (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
       return;
     }
-    
+    const mimeError = validateBlueprintFile(file);
+    if (mimeError) {
+      toast.error(mimeError);
+      return;
+    }
+
     setLoading(true);
     const toastId = toast.loading("Preparing upload...");
     
@@ -1433,7 +1481,7 @@ export function ControlCenter() {
       );
     }
     
-    if (role === "admin") {
+    if (role === "admin" && !session.user.tenant_id) {
       return (
         <AdminCanvas
           activeView={activeView}
@@ -1441,8 +1489,12 @@ export function ControlCenter() {
           rbac={rbac}
           token={session.access_token}
           onRefresh={async () => {
-            const rbacData = await api<RBACRule[]>("/api/v1/admin/rbac", { token: session.access_token });
-            setRbac(rbacData);
+            try {
+              const rbacData = await api<RBACRule[]>("/api/v1/admin/rbac", { token: session.access_token });
+              setRbac(rbacData);
+            } catch (err) {
+              toast.error(messageOf(err));
+            }
           }}
         />
       );

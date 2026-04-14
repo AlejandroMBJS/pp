@@ -24,14 +24,16 @@ var (
 
 const demoTenantSlug = "demo-operations-lab"
 
-// isDemoTenant returns true if the tenant is the shared demo workspace,
-// which bypasses ALL billing checks (it's effectively on enterprise forever).
+// isDemoTenant returns true if the tenant is a demo workspace — either the
+// legacy shared one (slug demo-operations-lab) or an ephemeral per-request
+// tenant with slug prefix `demo-`. Demo tenants bypass ALL billing checks
+// (effectively enterprise forever) and are purged automatically on expiry.
 func (s *Service) isDemoTenant(ctx context.Context, tenantID string) bool {
 	var slug string
 	if err := s.db.QueryRowContext(ctx, `SELECT slug FROM tenants WHERE id = $1`, tenantID).Scan(&slug); err != nil {
 		return false
 	}
-	return slug == demoTenantSlug
+	return strings.HasPrefix(slug, "demo-")
 }
 
 // stripePriceMap returns the configured price ID for each paid plan.
@@ -47,6 +49,12 @@ func (s *Service) stripePriceMap() map[billing.Plan]string {
 // days-until-trial-end. If no row exists (shouldn't happen post-backfill), it
 // synthesizes a default trialing one.
 func (s *Service) GetSubscription(ctx context.Context, tenantID string) (Subscription, error) {
+	if s.isDemoTenant(ctx, tenantID) {
+		return Subscription{
+			ID: "demo", TenantID: tenantID,
+			Plan: "enterprise", Status: "active",
+		}, nil
+	}
 	var sub Subscription
 	var trialEnd, periodEnd sql.NullTime
 	err := s.db.QueryRowContext(ctx, `
@@ -238,6 +246,35 @@ func firstOfMonth(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
 }
 
+// UsageSnapshot is the per-tenant resource consumption against plan limits.
+// All fields are current; the frontend pairs them with PlanLimits to render
+// usage bars in the owner dashboard.
+type UsageSnapshot struct {
+	ActiveProjects    int   `json:"active_projects"`
+	InternalUsers     int   `json:"internal_users"`
+	ClientGuests      int   `json:"client_guests"`
+	CapturesThisMonth int64 `json:"captures_this_month"`
+	StorageBytes      int64 `json:"storage_bytes"`
+	BlueprintFiles    int   `json:"blueprint_files"`
+}
+
+// GetCurrentUsage computes a UsageSnapshot for the given tenant. Best-effort:
+// counts that fail silently default to 0 rather than bubbling an error, since
+// the dashboard should render even if one sub-query breaks.
+func (s *Service) GetCurrentUsage(ctx context.Context, tenantID string) UsageSnapshot {
+	var u UsageSnapshot
+	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE tenant_id = $1`, tenantID).Scan(&u.ActiveProjects)
+	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role IN ($2, $3, $4)`, tenantID, RoleOwner, RoleSupervisor, RoleHelper).Scan(&u.InternalUsers)
+	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role = $2`, tenantID, RoleClient).Scan(&u.ClientGuests)
+	_ = s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(value, 0) FROM usage_metrics WHERE tenant_id = $1 AND metric_type = 'captures_per_month' AND period_start = $2`,
+		tenantID, firstOfMonth(time.Now()),
+	).Scan(&u.CapturesThisMonth)
+	_ = s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(size_bytes), 0) FROM evidences WHERE tenant_id = $1`, tenantID).Scan(&u.StorageBytes)
+	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM blueprints WHERE tenant_id = $1`, tenantID).Scan(&u.BlueprintFiles)
+	return u
+}
+
 // StartCheckout creates (or fetches) the Stripe customer for a tenant and
 // returns a hosted Checkout Session URL for the requested plan.
 func (s *Service) StartCheckout(ctx context.Context, actor Claims, plan billing.Plan) (string, error) {
@@ -345,6 +382,9 @@ func (s *Service) HandleStripeWebhook(ctx context.Context, event stripe.Event) e
 				`UPDATE subscriptions SET stripe_customer_id = $1, updated_at = NOW() WHERE tenant_id = $2`,
 				cs.Customer.ID, tenantID)
 		}
+		s.notifyOwners(ctx, tenantID,
+			"¡Bienvenido a ProjectPulse!",
+			"Hola,\n\nTu suscripción a ProjectPulse está activa. Ya puedes usar todas las funciones de tu plan: subir planos, registrar capturas con geolocalización, invitar a tu equipo y recibir auditorías con IA.\n\nEntra a tu dashboard: "+s.cfg.PublicBase+"\n\nSi tienes dudas, responde este correo y te ayudamos.\n\n— ProjectPulse")
 
 	case "customer.subscription.created", "customer.subscription.updated":
 		var ss stripe.Subscription
@@ -375,13 +415,26 @@ func (s *Service) HandleStripeWebhook(ctx context.Context, event stripe.Event) e
 		if err := json.Unmarshal(event.Data.Raw, &inv); err != nil {
 			return err
 		}
+		custID := customerIDOf(&inv)
 		_, _ = s.db.ExecContext(ctx,
 			`UPDATE subscriptions SET status='past_due', updated_at=NOW() WHERE stripe_customer_id = $1`,
-			customerIDOf(&inv))
+			custID)
+		if tenantID := s.tenantIDFromCustomer(ctx, custID); tenantID != "" {
+			s.notifyOwners(ctx, tenantID,
+				"Pago fallido en ProjectPulse",
+				"Hola,\n\nIntentamos cobrar tu suscripción de ProjectPulse pero el pago falló. Por favor revisa tu método de pago para evitar la suspensión del servicio.\n\nPuedes actualizar tu tarjeta desde el portal de facturación dentro de la aplicación.\n\n— ProjectPulse")
+		}
 
 	case "customer.subscription.trial_will_end":
 		s.logger.Info("trial will end (3 days)", "event", event.ID)
-		// Email notification hook — wired to mailer in fase 2
+		var ss stripe.Subscription
+		if err := json.Unmarshal(event.Data.Raw, &ss); err == nil && ss.Customer != nil {
+			if tenantID := s.tenantIDFromCustomer(ctx, ss.Customer.ID); tenantID != "" {
+				s.notifyOwners(ctx, tenantID,
+					"Tu prueba de ProjectPulse termina en 3 días",
+					"Hola,\n\nTu prueba gratuita de ProjectPulse termina en 3 días. Si quieres seguir usando la plataforma sin interrupciones elige un plan desde la sección de facturación.\n\nSi no haces nada, tu cuenta quedará en modo solo lectura al finalizar el periodo de prueba.\n\n— ProjectPulse")
+			}
+		}
 	}
 	return nil
 }
@@ -410,7 +463,7 @@ func (s *Service) upsertSubscriptionFromStripe(ctx context.Context, ss *stripe.S
 	}
 
 	plan := billing.PlanStarter
-	if len(ss.Items.Data) > 0 && ss.Items.Data[0].Price != nil {
+	if ss.Items != nil && len(ss.Items.Data) > 0 && ss.Items.Data[0].Price != nil {
 		plan = billing.PlanFromPriceID(ss.Items.Data[0].Price.ID, s.stripePriceMap())
 	}
 
@@ -428,4 +481,87 @@ func (s *Service) upsertSubscriptionFromStripe(ctx context.Context, ss *stripe.S
 		WHERE tenant_id = $6
 	`, ss.ID, string(plan), status, periodEnd, ss.CancelAtPeriodEnd, tenantID)
 	return err
+}
+
+// notifyOwners sends a transactional email to every active owner of a tenant.
+// Best-effort: failures are logged but never propagated (a webhook must not
+// fail because Resend is down).
+func (s *Service) notifyOwners(ctx context.Context, tenantID, subject, body string) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT email FROM users WHERE tenant_id = $1 AND role = $2`,
+		tenantID, RoleOwner)
+	if err != nil {
+		s.logger.Warn("notifyOwners query failed", "tenant_id", tenantID, "err", err.Error())
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			continue
+		}
+		if err := s.mailer.Send(ctx, email, subject, body); err != nil {
+			s.logger.Warn("notifyOwners send failed", "to", email, "err", err.Error())
+		}
+	}
+}
+
+// ContactSalesInput is the payload for Enterprise lead requests.
+type ContactSalesInput struct {
+	Name    string `json:"name"`
+	Email   string `json:"email"`
+	Company string `json:"company"`
+	Phone   string `json:"phone,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// ContactSales handles Enterprise plan inquiries. Sends the lead to the sales
+// inbox (ResendFromAddr) and a confirmation to the requester. Best-effort on
+// the confirmation — a failure there does not fail the request.
+func (s *Service) ContactSales(ctx context.Context, in ContactSalesInput) error {
+	name := strings.TrimSpace(in.Name)
+	email := strings.TrimSpace(in.Email)
+	company := strings.TrimSpace(in.Company)
+	if name == "" || email == "" || company == "" {
+		return errors.New("name, email and company are required")
+	}
+	if !strings.Contains(email, "@") || len(email) > 320 {
+		return errors.New("invalid email")
+	}
+	if len(name) > 200 || len(company) > 200 || len(in.Phone) > 40 || len(in.Message) > 4000 {
+		return errors.New("field too long")
+	}
+
+	salesInbox := s.cfg.ResendFromAddr
+	if salesInbox == "" {
+		return errors.New("sales inbox not configured")
+	}
+	// Resend "From" addresses often look like `Name <addr@domain>` — extract the
+	// bare address for the To: field.
+	if i := strings.LastIndex(salesInbox, "<"); i >= 0 {
+		if j := strings.Index(salesInbox[i:], ">"); j > 0 {
+			salesInbox = strings.TrimSpace(salesInbox[i+1 : i+j])
+		}
+	}
+
+	leadBody := fmt.Sprintf(
+		"Nuevo lead Enterprise\n\nNombre: %s\nEmail: %s\nEmpresa: %s\nTeléfono: %s\n\nMensaje:\n%s\n",
+		name, email, company, in.Phone, in.Message,
+	)
+	if err := s.mailer.Send(ctx, salesInbox,
+		fmt.Sprintf("[Enterprise lead] %s — %s", company, name),
+		leadBody); err != nil {
+		s.logger.Error("ContactSales: sales inbox send failed", "err", err.Error())
+		return fmt.Errorf("no pudimos registrar tu solicitud, intenta de nuevo")
+	}
+
+	// Confirmation to requester — best-effort.
+	confirmation := fmt.Sprintf(
+		"Hola %s,\n\nRecibimos tu solicitud para el plan Enterprise de ProjectPulse. Un especialista de ventas te contactará en las próximas 24 horas.\n\nResumen:\n  Empresa: %s\n  Email: %s\n\nGracias,\n— Equipo ProjectPulse",
+		name, company, email,
+	)
+	if err := s.mailer.Send(ctx, email, "Recibimos tu solicitud — ProjectPulse Enterprise", confirmation); err != nil {
+		s.logger.Warn("ContactSales: confirmation send failed", "to", email, "err", err.Error())
+	}
+	return nil
 }

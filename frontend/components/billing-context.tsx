@@ -14,6 +14,15 @@ export type BillingLimits = {
   MaxBlueprintFiles: number;
 };
 
+export type BillingUsage = {
+  active_projects: number;
+  internal_users: number;
+  client_guests: number;
+  captures_this_month: number;
+  storage_bytes: number;
+  blueprint_files: number;
+};
+
 export type BillingState = {
   subscription: {
     id: string;
@@ -26,6 +35,7 @@ export type BillingState = {
   };
   features: Record<string, boolean>;
   limits: BillingLimits;
+  usage?: BillingUsage;
 };
 
 const BillingContext = createContext<BillingState | null>(null);

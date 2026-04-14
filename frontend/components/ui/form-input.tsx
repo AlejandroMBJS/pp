@@ -8,9 +8,14 @@ type InputProps = {
   className?: string;
   autoFocus?: boolean;
   id?: string;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  title?: string;
+  autoComplete?: string;
 };
 
-export function Input({ placeholder, value, onChange, type = "text", label, required, className, autoFocus, id }: InputProps) {
+export function Input({ placeholder, value, onChange, type = "text", label, required, className, autoFocus, id, minLength, maxLength, pattern, title, autoComplete }: InputProps) {
   return (
     <div className={`flex flex-col gap-1 ${className || ""}`}>
       {label && <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</label>}
@@ -23,6 +28,11 @@ export function Input({ placeholder, value, onChange, type = "text", label, requ
         onChange={(e) => onChange(e.target.value)}
         required={required}
         autoFocus={autoFocus}
+        minLength={minLength}
+        maxLength={maxLength}
+        pattern={pattern}
+        title={title}
+        autoComplete={autoComplete}
       />
     </div>
   );

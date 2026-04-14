@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,19 +32,38 @@ func (s *Server) Close() error {
 
 func (s *Server) Routes() http.Handler {
 	r := chi.NewRouter()
-	r.Use(withCORS)
+	r.Use(securityHeaders)
+	r.Use(corsWithOrigins(s.service.AllowedOrigins()))
+
+	// Rate limiter for unauthenticated auth endpoints: 5 req/min per IP,
+	// burst of 10. Enough for a human retrying, hostile to brute force.
+	authLimiter := newIPRateLimiter(5.0/60.0, 10).middleware()
 
 	r.Get("/healthz", s.handleHealth)
 	r.Get("/api/v1/public/demo", s.handlePublicDemo)
 	r.Get("/api/v1/public/dashboard", s.handlePublicDashboard)
-	r.Post("/api/v1/auth/register", s.handleRegister)
-	r.Post("/api/v1/auth/login", s.handleLogin)
-	r.Post("/api/v1/auth/setup-account", s.handleSetupAccount)
-	r.Post("/api/v1/auth/verify-email", s.handleVerifyEmail)
-	r.Post("/api/v1/auth/resend-verification", s.handleResendVerification)
+	r.Group(func(pub chi.Router) {
+		pub.Use(authLimiter)
+		pub.Post("/api/v1/auth/register", s.handleRegister)
+		pub.Post("/api/v1/auth/login", s.handleLogin)
+		pub.Post("/api/v1/auth/setup-account", s.handleSetupAccount)
+		pub.Post("/api/v1/auth/verify-email", s.handleVerifyEmail)
+		pub.Post("/api/v1/auth/resend-verification", s.handleResendVerification)
+	})
 	// Stripe webhook is unauthenticated — verified by signature.
 	r.Post("/api/v1/billing/webhook", s.handleStripeWebhook)
-	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir(s.service.UploadDir()))))
+	// Enterprise lead capture — public, rate limited to curb spam.
+	contactLimiter := newIPRateLimiter(3.0/60.0, 5).middleware()
+	r.Group(func(pub chi.Router) {
+		pub.Use(contactLimiter)
+		pub.Post("/api/v1/billing/contact-sales", s.handleContactSales)
+	})
+	// Demo workspace request — public, stricter limit (2/min, burst 3).
+	demoLimiter := newIPRateLimiter(2.0/60.0, 3).middleware()
+	r.Group(func(pub chi.Router) {
+		pub.Use(demoLimiter)
+		pub.Post("/api/v1/public/demo-request", s.handleDemoRequest)
+	})
 	r.Put("/uploads/{sessionID}", s.handleSignedUpload) // Auth via signed token in query param, not JWT
 
 	r.Group(func(protected chi.Router) {
@@ -53,6 +73,9 @@ func (s *Server) Routes() http.Handler {
 		protected.Get("/api/v1/admin/tenants", s.handleAdminTenants)
 		protected.Get("/api/v1/admin/rbac", s.handleRBACList)
 		protected.Put("/api/v1/admin/rbac", s.handleRBACUpsert)
+
+		protected.Get("/api/v1/platform/overview", s.handlePlatformOverview)
+		protected.Get("/api/v1/platform/tenants", s.handlePlatformTenants)
 
 		protected.Get("/api/v1/users", s.handleListUsers)
 		protected.Post("/api/v1/users", s.handleCreateUser)
@@ -149,7 +172,7 @@ func (s *Server) handlePublicDemo(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePublicDashboard(w http.ResponseWriter, r *http.Request) {
 	dashboard, err := s.service.DemoDashboard(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, dashboard)
@@ -234,7 +257,7 @@ func (s *Server) handleConvertDwg(w http.ResponseWriter, r *http.Request) {
 
 	dxf, err := s.service.ConvertDwgToDxf(r.Context(), file)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -254,7 +277,11 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAdminTenants(w http.ResponseWriter, r *http.Request) {
 	tenants, err := s.service.ListTenants(r.Context(), s.actor(r))
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		if errors.Is(err, app.ErrForbidden) {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden"})
+			return
+		}
+		writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, tenants)
@@ -263,7 +290,11 @@ func (s *Server) handleAdminTenants(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRBACList(w http.ResponseWriter, r *http.Request) {
 	rules, err := s.service.RBACMatrix(r.Context(), s.actor(r))
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		if errors.Is(err, app.ErrForbidden) {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden"})
+			return
+		}
+		writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, rules)
@@ -275,7 +306,11 @@ func (s *Server) handleRBACUpsert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.service.UpsertRBACRule(r.Context(), s.actor(r), rule); err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		if errors.Is(err, app.ErrForbidden) {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden"})
+			return
+		}
+		writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"updated": true})
@@ -887,33 +922,6 @@ func (s *Server) handleCreateBudgetAdjustment(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusCreated, created)
 }
 
-func withCORS(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		// Allow known origins and same-origin requests (empty origin)
-		allowed := origin == "" ||
-			origin == "https://projpul.com" ||
-			origin == "https://www.projpul.com" ||
-			origin == "http://localhost:3000" ||
-			origin == "http://localhost:1212"
-		if allowed && origin != "" {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-		} else if origin != "" {
-			// Deny unknown origins
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Vary", "Origin")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
 	defer r.Body.Close()
@@ -950,7 +958,7 @@ func (s *Server) handleProjectBlueprints(w http.ResponseWriter, r *http.Request)
 	actor := r.Context().Value(actorKey{}).(app.Claims)
 	blueprints, err := s.service.BlueprintsForProject(r.Context(), actor, id)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, blueprints)

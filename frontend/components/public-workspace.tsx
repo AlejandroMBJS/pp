@@ -126,7 +126,11 @@ export function PublicWorkspace({
                   type="button"
                   className="flex flex-col gap-2 rounded-2xl border border-white/5 bg-white/[0.02] p-4 text-left transition-all hover:bg-white/10 hover:border-white/10 active:scale-95 group overflow-hidden relative"
                   onClick={() => {
-                    setAuthForm({ ...authForm, email: account.email, password: "demo123" });
+                    setAuthForm({
+                      ...authForm,
+                      email: account.email,
+                      password: "",
+                    });
                     setActiveTab("login");
                     setDemoFilled(true);
                     setTimeout(() => {
@@ -239,6 +243,9 @@ export function PublicWorkspace({
                       <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-white/10 group-focus-within:text-blue-400 transition-colors" size={18} />
                       <Input
                         placeholder="Business email"
+                        type="email"
+                        autoComplete="email"
+                        required
                         value={authForm.email}
                         className="pl-12 bg-white/[0.03] border-white/5 py-4 h-auto rounded-2xl"
                         onChange={(v) => setAuthForm({ ...authForm, email: v })}
@@ -249,6 +256,8 @@ export function PublicWorkspace({
                       <Input
                         placeholder="Password"
                         type="password"
+                        autoComplete="current-password"
+                        required
                         value={authForm.password}
                         className="pl-12 bg-white/[0.03] border-white/5 py-4 h-auto rounded-2xl"
                         onChange={(v) => setAuthForm({ ...authForm, password: v })}
@@ -282,8 +291,11 @@ export function PublicWorkspace({
                       <Input
                         placeholder="slug-url"
                         value={authForm.company_slug}
+                        required
+                        pattern="^[a-z0-9]([a-z0-9-]{1,48}[a-z0-9])?$"
+                        title="lowercase letters, digits, hyphens; 3-50 chars"
                         className="bg-white/[0.03] border-white/5 py-3.5 h-auto rounded-xl"
-                        onChange={(v) => setAuthForm({ ...authForm, company_slug: v })}
+                        onChange={(v) => setAuthForm({ ...authForm, company_slug: v.toLowerCase() })}
                       />
                     </div>
                     <div className="relative group">
@@ -299,6 +311,9 @@ export function PublicWorkspace({
                       <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-white/10 group-focus-within:text-cyan-400 transition-colors" size={16} />
                       <Input
                         placeholder="Business email"
+                        type="email"
+                        autoComplete="email"
+                        required
                         value={authForm.owner_email}
                         className="pl-11 bg-white/[0.03] border-white/5 py-3.5 h-auto rounded-xl"
                         onChange={(v) => setAuthForm({ ...authForm, owner_email: v })}
@@ -307,8 +322,12 @@ export function PublicWorkspace({
                     <div className="relative group">
                       <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-white/10 group-focus-within:text-cyan-400 transition-colors" size={16} />
                       <Input
-                        placeholder="Password"
+                        placeholder="Password (min 8 chars)"
                         type="password"
+                        autoComplete="new-password"
+                        required
+                        minLength={8}
+                        maxLength={128}
                         value={authForm.password}
                         className="pl-11 bg-white/[0.03] border-white/5 py-3.5 h-auto rounded-xl"
                         onChange={(v) => setAuthForm({ ...authForm, password: v })}

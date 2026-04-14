@@ -18,12 +18,15 @@ import (
 )
 
 func TestRoleWorkflowsEndToEnd(t *testing.T) {
-	os.Setenv("JWT_SECRET", "projectpulse-test-secret")
+	const testJWTSecret = "projectpulse-test-secret-min-32-bytes-long-xxxx"
+	os.Setenv("JWT_SECRET", testJWTSecret)
 	tmp := t.TempDir()
 	server, err := httpapi.NewServer(app.Config{
-		DatabaseURL: "postgres://arquicheck:arquicheck-password@localhost:5432/arquicheck_test?sslmode=disable",
-		UploadDir:   filepath.Join(tmp, "uploads"),
-		JWTSecret:   "projectpulse-test-secret",
+		DatabaseURL:           "postgres://arquicheck:arquicheck-password@localhost:5432/arquicheck_test?sslmode=disable",
+		UploadDir:             filepath.Join(tmp, "uploads"),
+		JWTSecret:             testJWTSecret,
+		PlatformAdminEmail:    "admin@projectpulse.local",
+		PlatformAdminPassword: "demo123",
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -24,38 +24,22 @@ import (
 )
 
 func (s *Service) PublicDemo(ctx context.Context) DemoPayload {
-	adminEmail := "admin@projectpulse.local"
-	_ = s.db.QueryRowContext(ctx, `SELECT email FROM users WHERE role = $1 AND tenant_id = '' ORDER BY created_at LIMIT 1`, RoleAdmin).Scan(&adminEmail)
-
 	return DemoPayload{
-		Product: "ProjectPulse",
-		Message: "Register your company, create your team, and start tracking projects without spreadsheets.",
-		DemoAccounts: []DemoAccount{
-			{Role: RoleAdmin, Email: adminEmail},
-			{Role: RoleOwner, Email: "owner@demo.local"},
-			{Role: RoleSupervisor, Email: "supervisor@demo.local"},
-			{Role: RoleHelper, Email: "helper@demo.local"},
-			{Role: RoleClient, Email: "client@demo.local"},
-		},
-		SuggestedFlow: []string{
-			"Register owner and tenant",
-			"Create supervisor, helper and client users",
-			"Create project with budget, timeline and deliverables",
-			"Upload evidence from helper within geofence",
-			"Approve evidence and trigger AI audit",
-			"Review client portal and export CSV",
-		},
+		Product:        "ProjectPulse",
+		Message:        "Request a demo workspace at /demo — we'll email you temporary credentials valid for 72 hours.",
+		DemoAccounts:   []DemoAccount{},
+		SuggestedFlow:  []string{"Request a demo at /demo", "Check your inbox for credentials", "Log in and explore for 72 hours"},
 		GeneratedAtUTC: time.Now().UTC(),
 	}
 }
 
 func (s *Service) RegisterCompanyOwner(ctx context.Context, companyName, companySlug, ownerName, ownerEmail, password string) (LoginResponse, error) {
 	companyName = strings.TrimSpace(companyName)
-	companySlug = strings.TrimSpace(companySlug)
+	companySlug = strings.ToLower(strings.TrimSpace(companySlug))
 	ownerName = strings.TrimSpace(ownerName)
 	ownerEmail = strings.TrimSpace(strings.ToLower(ownerEmail))
-	if companyName == "" || companySlug == "" || ownerName == "" || ownerEmail == "" || password == "" {
-		return LoginResponse{}, errors.New("missing required fields")
+	if err := validateRegistration(companyName, companySlug, ownerName, ownerEmail, password); err != nil {
+		return LoginResponse{}, err
 	}
 	passwordHash, err := HashPassword(password)
 	if err != nil {
@@ -76,13 +60,17 @@ func (s *Service) RegisterCompanyOwner(ctx context.Context, companyName, company
 	if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, tenant_id, email, password_hash, full_name, role, email_verified, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, user.ID, user.TenantID, user.Email, passwordHash, user.FullName, user.Role, 0, now); err != nil {
 		return LoginResponse{}, err
 	}
-	// Generate verification token
+	// Generate verification token — cryptographically random, 32 bytes.
+	verifyToken, err := GenerateSecureToken(32)
+	if err != nil {
+		return LoginResponse{}, err
+	}
 	verification := Verification{
 		ID:        newID("ver"),
 		TenantID:  tenant.ID,
 		UserID:    user.ID,
 		Type:      "email_verification",
-		Token:     newID("tok"), // In prod, use random string
+		Token:     verifyToken,
 		ExpiresAt: time.Now().Add(24 * time.Hour).Format(time.RFC3339),
 		CreatedAt: now,
 	}
@@ -195,6 +183,9 @@ func (s *Service) createUserRecord(ctx context.Context, actor Claims, fullName, 
 		Role:     role,
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO users (id, tenant_id, email, password_hash, full_name, role, email_verified, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, user.ID, user.TenantID, user.Email, passwordHash, user.FullName, user.Role, 0, nowText())
+	if err == nil {
+		s.logger.Info("user.created", "actor_id", actor.UserID, "tenant_id", actor.TenantID, "user_id", user.ID, "role", role, "email", email)
+	}
 	return user, err
 }
 
@@ -543,6 +534,9 @@ func (s *Service) ConvertDwgToDxf(ctx context.Context, r io.Reader) ([]byte, err
 }
 
 func (s *Service) RequestBlueprintUpload(ctx context.Context, actor Claims, projectID, fileName, contentType string, intendedSize int64, baseURL string) (UploadSession, error) {
+	if err := validateBlueprintMIME(contentType); err != nil {
+		return UploadSession{}, err
+	}
 	project, err := s.projectByID(ctx, projectID)
 	if err != nil {
 		return UploadSession{}, err
@@ -554,7 +548,10 @@ func (s *Service) RequestBlueprintUpload(ctx context.Context, actor Claims, proj
 		return UploadSession{}, err
 	}
 	sessionID := newID("upl")
-	token := newID("sig")
+	token, err := GenerateSecureToken(32)
+	if err != nil {
+		return UploadSession{}, err
+	}
 	expiresAt := time.Now().Add(15 * time.Minute).UTC().Format(time.RFC3339)
 	if baseURL == "" {
 		baseURL = strings.TrimSuffix(s.cfg.PublicBase, "/")
@@ -675,12 +672,16 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 	// Delete any existing tokens
 	_, _ = s.db.ExecContext(ctx, `DELETE FROM verifications WHERE user_id = $1 AND type = 'email_verification'`, userID)
 
+	token, err := GenerateSecureToken(32)
+	if err != nil {
+		return err
+	}
 	verification := Verification{
 		ID:        newID("ver"),
 		TenantID:  tenantID,
 		UserID:    userID,
 		Type:      "email_verification",
-		Token:     newID("tok"),
+		Token:     token,
 		ExpiresAt: time.Now().Add(24 * time.Hour).Format(time.RFC3339),
 		CreatedAt: nowText(),
 	}
@@ -746,9 +747,23 @@ func (s *Service) CreateUser(ctx context.Context, actor Claims, fullName, email,
 	return s.createUserRecord(ctx, actor, fullName, email, passwordHash, role)
 }
 
+// ErrForbidden is returned when an actor lacks permission for an action.
+// HTTP handlers translate it to 403.
+var ErrForbidden = errors.New("forbidden")
+
+// requirePlatformAdmin enforces that the actor is a SaaS platform operator:
+// role must be admin AND tenant_id must be empty. Tenant-scoped admins get
+// rejected here even if they somehow carry role=admin in their token.
+func (s *Service) requirePlatformAdmin(actor Claims) error {
+	if actor.Role != RoleAdmin || actor.TenantID != "" {
+		return ErrForbidden
+	}
+	return nil
+}
+
 func (s *Service) ListTenants(ctx context.Context, actor Claims) ([]Tenant, error) {
-	if s.permissionEffect(ctx, actor.Role, "tenant.list") != "allow" {
-		return nil, errors.New("forbidden")
+	if err := s.requirePlatformAdmin(actor); err != nil {
+		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name, slug FROM tenants ORDER BY created_at`)
 	if err != nil {
@@ -767,8 +782,8 @@ func (s *Service) ListTenants(ctx context.Context, actor Claims) ([]Tenant, erro
 }
 
 func (s *Service) RBACMatrix(ctx context.Context, actor Claims) ([]RBACRule, error) {
-	if s.permissionEffect(ctx, actor.Role, "rbac.manage") != "allow" {
-		return nil, errors.New("forbidden")
+	if err := s.requirePlatformAdmin(actor); err != nil {
+		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT resource, role, effect FROM role_permissions ORDER BY resource, role`)
 	if err != nil {
@@ -787,10 +802,13 @@ func (s *Service) RBACMatrix(ctx context.Context, actor Claims) ([]RBACRule, err
 }
 
 func (s *Service) UpsertRBACRule(ctx context.Context, actor Claims, rule RBACRule) error {
-	if s.permissionEffect(ctx, actor.Role, "rbac.manage") != "allow" {
-		return errors.New("forbidden")
+	if err := s.requirePlatformAdmin(actor); err != nil {
+		return err
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO role_permissions (resource, role, effect) VALUES ($1, $2, $3) ON CONFLICT(resource, role) DO UPDATE SET effect = excluded.effect`, rule.Resource, rule.Role, rule.Effect)
+	if err == nil {
+		s.logger.Info("rbac.rule_upserted", "actor_id", actor.UserID, "tenant_id", actor.TenantID, "resource", rule.Resource, "role", rule.Role, "effect", rule.Effect)
+	}
 	return err
 }
 
@@ -1093,6 +1111,9 @@ func (s *Service) RequestUpload(ctx context.Context, actor Claims, taskID, fileN
 	if effect := s.permissionEffect(ctx, actor.Role, "evidence.upload"); effect == "deny" {
 		return UploadSession{}, errors.New("forbidden")
 	}
+	if err := validateEvidenceMIME(contentType); err != nil {
+		return UploadSession{}, err
+	}
 
 	var project Project
 	var task Task
@@ -1132,7 +1153,10 @@ func (s *Service) RequestUpload(ctx context.Context, actor Claims, taskID, fileN
 		}
 	}
 	sessionID := newID("upl")
-	token := newID("sig")
+	token, err := GenerateSecureToken(32)
+	if err != nil {
+		return UploadSession{}, err
+	}
 	expiresAt := time.Now().Add(15 * time.Minute).UTC().Format(time.RFC3339)
 	if baseURL == "" {
 		baseURL = strings.TrimSuffix(s.cfg.PublicBase, "/")
@@ -1346,6 +1370,7 @@ func (s *Service) DeleteEvidence(ctx context.Context, actor Claims, evidenceID s
 		return err
 	}
 	_ = s.storage.Delete(ctx, objectPath)
+	s.logger.Info("evidence.deleted", "actor_id", actor.UserID, "tenant_id", actor.TenantID, "evidence_id", evidenceID, "project_id", evidence.ProjectID)
 	return nil
 }
 
@@ -1380,6 +1405,7 @@ func (s *Service) ApproveEvidence(ctx context.Context, actor Claims, evidenceID,
 	default:
 		log.Printf("audit queue full, evidence %s will remain in queued state for manual review", evidenceID)
 	}
+	s.logger.Info("evidence.approved", "actor_id", actor.UserID, "tenant_id", actor.TenantID, "evidence_id", evidenceID, "project_id", evidence.ProjectID, "visible_to_client", visibleToClient)
 	return s.evidenceByID(ctx, evidenceID)
 }
 
@@ -1405,6 +1431,7 @@ func (s *Service) RejectEvidence(ctx context.Context, actor Claims, evidenceID, 
 	if err != nil {
 		return Evidence{}, err
 	}
+	s.logger.Info("evidence.rejected", "actor_id", actor.UserID, "tenant_id", actor.TenantID, "evidence_id", evidenceID, "project_id", evidence.ProjectID)
 	return s.evidenceByID(ctx, evidenceID)
 }
 
@@ -1451,26 +1478,11 @@ func (s *Service) processAudit(evidenceID string) {
 	modelVersion := "gemini-2.0-flash"
 
 	if s.cfg.GeminiAPIKey == "" {
-		// Fallback stub when no API key is configured
-		feedback = AuditFeedback{
-			IsValidEvidence: true,
-			QualityScore:    92,
-			AnalysisSummary: "Consistent finish and valid supporting evidence.",
-			DetectedIssues:  []string{},
-			Recommendations: "Continue with the next scheduled inspection.",
-			StatusLogic:     "approved",
-		}
-		fileNameLower := strings.ToLower(evidence.FileName)
-		if len(avanceBytes) < 100 || strings.Contains(fileNameLower, "blurry") {
-			feedback = AuditFeedback{
-				IsValidEvidence: false,
-				QualityScore:    62,
-				AnalysisSummary: "The evidence is not clear enough for a reliable approval.",
-				DetectedIssues:  []string{"Insufficient or blurry evidence"},
-				Recommendations: "Recapture the image with better focus and framing.",
-				StatusLogic:     "critical_alert",
-			}
-		}
+		// Fallback stub when no GEMINI_API_KEY is configured. We derive a
+		// deterministic-but-varied response from the evidence ID so demos do
+		// not show the same 92-score approval for every photo. A production
+		// deploy should set GEMINI_API_KEY for real audits.
+		feedback = stubAuditFeedback(evidence, len(avanceBytes))
 		modelVersion = "stub-no-api-key"
 	} else {
 		// Look up comparison photo from task
@@ -1830,7 +1842,7 @@ func (s *Service) ClientGallery(ctx context.Context, actor Claims, projectID str
 func (s *Service) EvidenceFile(ctx context.Context, actor Claims, evidenceID string) (io.ReadCloser, string, error) {
 	var projectID, objectPath, mimeType string
 	var visible int
-	if err := s.db.QueryRowContext(ctx, `SELECT project_id, object_path, mime_type, is_visible_to_client FROM evidences WHERE id = $1`, evidenceID).Scan(&projectID, &objectPath, &mimeType, &visible); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT project_id, object_path, mime_type, is_visible_to_client FROM evidences WHERE id = $1 AND tenant_id = $2`, evidenceID, actor.TenantID).Scan(&projectID, &objectPath, &mimeType, &visible); err != nil {
 		return nil, "", err
 	}
 	project, err := s.projectByID(ctx, projectID)

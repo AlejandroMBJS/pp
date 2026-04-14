@@ -11,11 +11,12 @@ const (
 )
 
 type Config struct {
-	DatabaseURL  string
-	UploadDir    string
-	JWTSecret    string
-	PublicBase   string
-	GeminiAPIKey string
+	DatabaseURL    string
+	UploadDir      string
+	JWTSecret      string
+	PublicBase     string
+	GeminiAPIKey   string
+	AllowedOrigins []string
 
 	// Stripe billing — all optional. If StripeSecretKey is empty, billing
 	// is disabled and all tenants implicitly run in trial-forever mode.
@@ -27,6 +28,53 @@ type Config struct {
 	StripePriceEnterprise   string
 	BillingSuccessURL       string
 	BillingCancelURL        string
+
+	// Resend transactional email — optional. If ResendAPIKey is empty,
+	// email falls back to ConsoleEmailSender (stdout logging).
+	ResendAPIKey   string
+	ResendFromAddr string
+	ResendReplyTo  string
+
+	// Resend Audiences (separate API key lets us rotate sending key
+	// without breaking lead sync). Optional; when empty the demo flow
+	// skips audience sync.
+	ResendAudiencesAPIKey string
+	ResendAudienceDemoID  string
+	ResendFromMarketing   string
+
+	// Webhook verification secret for /api/v1/webhooks/resend.
+	ResendWebhookSecret string
+
+	// DemoBaseURL is the public origin used inside demo credential emails.
+	DemoBaseURL string
+
+	// Platform admin — SaaS operator account with tenant_id="" and role=admin.
+	// Upserted on every boot. If empty, no platform admin is created.
+	PlatformAdminEmail    string
+	PlatformAdminPassword string
+}
+
+// DemoLead is the lead row for a demo request; persists beyond tenant purge
+// so we retain lead history for marketing campaigns.
+type DemoLead struct {
+	ID               string     `json:"id"`
+	Email            string     `json:"email"`
+	Name             string     `json:"name"`
+	Company          string     `json:"company,omitempty"`
+	Source           string     `json:"source,omitempty"`
+	IPAddress        string     `json:"-"`
+	UserAgent        string     `json:"-"`
+	TenantID         string     `json:"tenant_id,omitempty"`
+	DemoUserID       string     `json:"-"`
+	ExpiresAt        time.Time  `json:"expires_at"`
+	PurgedAt         *time.Time `json:"purged_at,omitempty"`
+	ResendContactID  string     `json:"-"`
+	Bounced          bool       `json:"bounced"`
+	Unsubscribed     bool       `json:"unsubscribed"`
+	OpenedCount      int        `json:"opened_count"`
+	ClickedCount     int        `json:"clicked_count"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 type Subscription struct {

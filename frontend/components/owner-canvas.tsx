@@ -8,6 +8,7 @@ import { ProgressBar } from "./ui/progress-bar";
 import { BudgetPanel } from "./budget-panel";
 import { GanttTimeline } from "./gantt-timeline";
 import { EvidenceGallery } from "./evidence-gallery";
+import { UsagePanel } from "./usage-panel";
 
 type Dashboard = {
   product_name: string;
@@ -307,6 +308,8 @@ export function OwnerCanvas({
             </div>
           )}
         </div>
+
+        <UsagePanel />
       </div>
     );
   }

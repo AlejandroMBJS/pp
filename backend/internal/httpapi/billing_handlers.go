@@ -13,14 +13,16 @@ func (s *Server) handleGetSubscription(w http.ResponseWriter, r *http.Request) {
 	actor := s.actor(r)
 	sub, err := s.service.GetSubscription(r.Context(), actor.TenantID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	plan := billing.Plan(sub.Plan)
+	usage := s.service.GetCurrentUsage(r.Context(), actor.TenantID)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"subscription": sub,
 		"features":     billing.PlanFeatures[plan],
 		"limits":       billing.PlanLimits[plan],
+		"usage":        usage,
 	})
 }
 
@@ -38,16 +40,28 @@ func (s *Server) handleCreateCheckout(w http.ResponseWriter, r *http.Request) {
 	}
 	url, err := s.service.StartCheckout(r.Context(), s.actor(r), plan)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"checkout_url": url})
 }
 
+func (s *Server) handleContactSales(w http.ResponseWriter, r *http.Request) {
+	var in app.ContactSalesInput
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	if err := s.service.ContactSales(r.Context(), in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (s *Server) handleOpenPortal(w http.ResponseWriter, r *http.Request) {
 	url, err := s.service.OpenBillingPortal(r.Context(), s.actor(r))
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"portal_url": url})
@@ -65,11 +79,12 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 	sig := r.Header.Get("Stripe-Signature")
 	event, err := s.service.ParseStripeWebhook(payload, sig)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid signature: " + err.Error()})
+		writeError(w, r, http.StatusBadRequest, errors.New("invalid signature"))
+		_ = err // signature details intentionally not leaked
 		return
 	}
 	if err := s.service.HandleStripeWebhook(r.Context(), event); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"received": true})

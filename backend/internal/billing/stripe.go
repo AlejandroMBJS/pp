@@ -88,5 +88,7 @@ func (c *Client) ParseWebhook(payload []byte, sigHeader string) (stripe.Event, e
 	if c.webhookSecret == "" {
 		return stripe.Event{}, fmt.Errorf("webhook secret not configured")
 	}
-	return webhook.ConstructEvent(payload, sigHeader, c.webhookSecret)
+	return webhook.ConstructEventWithOptions(payload, sigHeader, c.webhookSecret, webhook.ConstructEventOptions{
+		IgnoreAPIVersionMismatch: true,
+	})
 }

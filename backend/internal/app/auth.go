@@ -18,8 +18,13 @@ type JWTClaims struct {
 	jwt.RegisteredClaims
 }
 
+// bcryptCost is deliberately above bcrypt.DefaultCost (10). Cost 12 is the
+// modern minimum against GPU-assisted cracking and still hashes in ~250ms
+// on a modest server.
+const bcryptCost = 12
+
 func HashPassword(password string) (string, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
 	if err != nil {
 		return "", err
 	}

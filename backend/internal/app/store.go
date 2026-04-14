@@ -37,8 +37,8 @@ func NewService(cfg Config) (*Service, error) {
 	if cfg.UploadDir == "" {
 		cfg.UploadDir = filepath.Join("data", "uploads")
 	}
-	if cfg.JWTSecret == "" {
-		return nil, errors.New("JWT_SECRET is required")
+	if len(cfg.JWTSecret) < 32 {
+		return nil, errors.New("JWT_SECRET must be at least 32 bytes")
 	}
 	storage, err := NewLocalStorage(cfg.UploadDir)
 	if err != nil {
@@ -50,10 +50,14 @@ func NewService(cfg Config) (*Service, error) {
 		return nil, err
 	}
 
+	var mailer EmailSender = &ConsoleEmailSender{}
+	if cfg.ResendAPIKey != "" {
+		mailer = NewResendEmailSender(cfg.ResendAPIKey, cfg.ResendFromAddr, cfg.ResendReplyTo, slog.Default())
+	}
 	svc := &Service{
 		db:        db,
 		storage:   storage,
-		mailer:    &ConsoleEmailSender{},
+		mailer:    mailer,
 		logger:    slog.Default(),
 		cfg:       cfg,
 		jwtSecret: []byte(cfg.JWTSecret),
@@ -69,7 +73,11 @@ func NewService(cfg Config) (*Service, error) {
 	if err := svc.normalizeDemoContent(context.Background()); err != nil {
 		return nil, err
 	}
+	if err := svc.ensurePlatformAdmin(context.Background()); err != nil {
+		return nil, err
+	}
 	go svc.auditWorker()
+	go svc.demoPurgeWorker(context.Background())
 	return svc, nil
 }
 
@@ -85,6 +93,10 @@ func (s *Service) UploadDir() string {
 
 func (s *Service) JWTSecret() []byte {
 	return s.jwtSecret
+}
+
+func (s *Service) AllowedOrigins() []string {
+	return s.cfg.AllowedOrigins
 }
 
 func (s *Service) initSchema(ctx context.Context) error {
@@ -338,42 +350,106 @@ func (s *Service) initSchema(ctx context.Context) error {
 	}
 	for _, stmt := range schema {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-			return err
+			return fmt.Errorf("initial schema: %w", err)
 		}
 	}
-	// Migrations for development
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS predecessor_task_id TEXT NOT NULL DEFAULT ''`)
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS manpower_json TEXT NOT NULL DEFAULT '{}'`)
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS comparison_photo_url TEXT NOT NULL DEFAULT ''`)
+	return s.runMigrations(ctx)
+}
 
-	// Performance indexes
-	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_projects_tenant ON projects(tenant_id)`)
-	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)`)
-	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to_user_id)`)
-	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_evidences_task ON evidences(task_id)`)
-	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_evidences_project ON evidences(project_id)`)
-	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id)`)
-	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`)
-	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status)`)
-	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions(stripe_subscription_id)`)
-	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_payment_events_tenant ON payment_events(tenant_id)`)
-	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_usage_metrics_tenant ON usage_metrics(tenant_id)`)
+// runMigrations applies ordered, idempotent migrations and records each
+// successful step in schema_migrations. Fresh databases and upgraded ones
+// converge to the same end state because every step uses IF NOT EXISTS.
+func (s *Service) runMigrations(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			version INTEGER PRIMARY KEY,
+			name TEXT NOT NULL,
+			applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`); err != nil {
+		return fmt.Errorf("create schema_migrations: %w", err)
+	}
 
-	// Backfill: every existing tenant gets a 14-day trial subscription
-	// (idempotent — only inserts where missing).
-	_, _ = s.db.ExecContext(ctx, `
-		INSERT INTO subscriptions (id, tenant_id, plan, status, trial_ends_at)
-		SELECT 'sub_' || substr(md5(t.id), 1, 16), t.id, 'starter', 'trialing', NOW() + INTERVAL '14 days'
-		FROM tenants t
-		WHERE NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.tenant_id = t.id)
-	`)
-	// Demo tenant gets enterprise forever (skipped from billing flows).
-	_, _ = s.db.ExecContext(ctx, `
-		UPDATE subscriptions
-		SET plan='enterprise', status='active', trial_ends_at=NULL,
-		    current_period_ends_at = NOW() + INTERVAL '100 years', updated_at = NOW()
-		WHERE tenant_id IN (SELECT id FROM tenants WHERE slug='demo-operations-lab')
-	`)
+	type mig struct {
+		version int
+		name    string
+		sql     string
+	}
+	steps := []mig{
+		{1, "alter_tasks_predecessor", `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS predecessor_task_id TEXT NOT NULL DEFAULT ''`},
+		{2, "alter_daily_logs_manpower", `ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS manpower_json TEXT NOT NULL DEFAULT '{}'`},
+		{3, "alter_tasks_comparison_photo", `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS comparison_photo_url TEXT NOT NULL DEFAULT ''`},
+		{4, "idx_projects_tenant", `CREATE INDEX IF NOT EXISTS idx_projects_tenant ON projects(tenant_id)`},
+		{5, "idx_tasks_project", `CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)`},
+		{6, "idx_tasks_assigned", `CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to_user_id)`},
+		{7, "idx_evidences_task", `CREATE INDEX IF NOT EXISTS idx_evidences_task ON evidences(task_id)`},
+		{8, "idx_evidences_project", `CREATE INDEX IF NOT EXISTS idx_evidences_project ON evidences(project_id)`},
+		{9, "idx_users_tenant", `CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id)`},
+		{10, "idx_users_email", `CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`},
+		{11, "idx_subscriptions_status", `CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status)`},
+		{12, "idx_subscriptions_stripe_sub", `CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions(stripe_subscription_id)`},
+		{13, "idx_payment_events_tenant", `CREATE INDEX IF NOT EXISTS idx_payment_events_tenant ON payment_events(tenant_id)`},
+		{14, "idx_usage_metrics_tenant", `CREATE INDEX IF NOT EXISTS idx_usage_metrics_tenant ON usage_metrics(tenant_id)`},
+		{15, "idx_evidences_tenant", `CREATE INDEX IF NOT EXISTS idx_evidences_tenant ON evidences(tenant_id)`},
+		{16, "idx_tasks_tenant", `CREATE INDEX IF NOT EXISTS idx_tasks_tenant ON tasks(tenant_id)`},
+		{17, "idx_deliverables_task", `CREATE INDEX IF NOT EXISTS idx_deliverables_task ON deliverables(task_id)`},
+		{18, "idx_upload_sessions_status", `CREATE INDEX IF NOT EXISTS idx_upload_sessions_status ON upload_sessions(status, expires_at)`},
+		{19, "backfill_subscriptions", `
+			INSERT INTO subscriptions (id, tenant_id, plan, status, trial_ends_at)
+			SELECT 'sub_' || substr(md5(t.id), 1, 16), t.id, 'starter', 'trialing', NOW() + INTERVAL '14 days'
+			FROM tenants t
+			WHERE NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.tenant_id = t.id)
+		`},
+		{20, "demo_tenant_enterprise", `
+			UPDATE subscriptions
+			SET plan='enterprise', status='active', trial_ends_at=NULL,
+			    current_period_ends_at = NOW() + INTERVAL '100 years', updated_at = NOW()
+			WHERE tenant_id IN (SELECT id FROM tenants WHERE slug='demo-operations-lab')
+		`},
+		{21, "create_demo_leads", `
+			CREATE TABLE IF NOT EXISTS demo_leads (
+				id                 TEXT PRIMARY KEY,
+				email              TEXT NOT NULL,
+				name               TEXT NOT NULL,
+				company            TEXT NOT NULL DEFAULT '',
+				source             TEXT NOT NULL DEFAULT '',
+				ip_address         TEXT NOT NULL DEFAULT '',
+				user_agent         TEXT NOT NULL DEFAULT '',
+				tenant_id          TEXT NOT NULL DEFAULT '',
+				demo_user_id       TEXT NOT NULL DEFAULT '',
+				expires_at         TIMESTAMPTZ NOT NULL,
+				purged_at          TIMESTAMPTZ,
+				resend_contact_id  TEXT NOT NULL DEFAULT '',
+				bounced            BOOLEAN NOT NULL DEFAULT FALSE,
+				unsubscribed       BOOLEAN NOT NULL DEFAULT FALSE,
+				opened_count       INTEGER NOT NULL DEFAULT 0,
+				clicked_count      INTEGER NOT NULL DEFAULT 0,
+				created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+				updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			)
+		`},
+		{22, "idx_demo_leads_email", `CREATE INDEX IF NOT EXISTS idx_demo_leads_email ON demo_leads(email)`},
+		{23, "idx_demo_leads_expires", `CREATE INDEX IF NOT EXISTS idx_demo_leads_expires ON demo_leads(expires_at) WHERE purged_at IS NULL`},
+	}
+
+	for _, m := range steps {
+		var exists int
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT 1 FROM schema_migrations WHERE version = $1`, m.version).Scan(&exists); err == nil {
+			continue // already applied
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("check migration %d: %w", m.version, err)
+		}
+		if _, err := s.db.ExecContext(ctx, m.sql); err != nil {
+			s.logger.Error("migration failed", "version", m.version, "name", m.name, "err", err)
+			return fmt.Errorf("apply migration %d (%s): %w", m.version, m.name, err)
+		}
+		if _, err := s.db.ExecContext(ctx,
+			`INSERT INTO schema_migrations (version, name) VALUES ($1, $2)
+			 ON CONFLICT (version) DO NOTHING`, m.version, m.name); err != nil {
+			return fmt.Errorf("record migration %d: %w", m.version, err)
+		}
+		s.logger.Info("migration applied", "version", m.version, "name", m.name)
+	}
 	return nil
 }
 
@@ -386,10 +462,6 @@ func (s *Service) seedDefaults(ctx context.Context) error {
 		return nil
 	}
 
-	adminPassword, err := HashPassword("demo123")
-	if err != nil {
-		return err
-	}
 	ownerPassword, err := HashPassword("demo123")
 	if err != nil {
 		return err
@@ -417,7 +489,6 @@ func (s *Service) seedDefaults(ctx context.Context) error {
 	users := []struct {
 		id, tenantID, email, fullName, role, hash string
 	}{
-		{newID("usr"), "", "admin@projectpulse.local", "Platform Admin", RoleAdmin, adminPassword},
 		{ownerID, demoTenantID, "owner@demo.local", "Olivia Owner", RoleOwner, ownerPassword},
 		{supervisorID, demoTenantID, "supervisor@demo.local", "Sergio Supervisor", RoleSupervisor, ownerPassword},
 		{helperID, demoTenantID, "helper@demo.local", "Hector Helper", RoleHelper, ownerPassword},
@@ -484,13 +555,6 @@ func (s *Service) normalizeDemoContent(ctx context.Context) error {
 		args  []any
 	}{
 		{
-			query: `UPDATE users
-				SET email = $1
-				WHERE tenant_id = '' AND role = $2 AND email = $3
-				AND NOT EXISTS (SELECT 1 FROM users WHERE email = $1)`,
-			args: []any{"admin@projectpulse.local", RoleAdmin, "admin@arquicheck.local"},
-		},
-		{
 			query: `UPDATE projects SET name = $1, description = $2 WHERE name = $3`,
 			args:  []any{"Demo Product Launch", "Sample project with end-to-end tracking", "Demo Lobby Corporativo"},
 		},
@@ -516,6 +580,55 @@ func (s *Service) normalizeDemoContent(ctx context.Context) error {
 		}
 	}
 
+	return nil
+}
+
+// ensurePlatformAdmin upserts the SaaS operator account from env vars on every
+// boot. If PLATFORM_ADMIN_EMAIL is empty, any pre-existing platform admins are
+// deleted so no stale hardcoded credentials remain.
+func (s *Service) ensurePlatformAdmin(ctx context.Context) error {
+	email := strings.TrimSpace(strings.ToLower(s.cfg.PlatformAdminEmail))
+	password := s.cfg.PlatformAdminPassword
+
+	if email == "" || password == "" {
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE tenant_id = '' AND role = $1`, RoleAdmin); err != nil {
+			return fmt.Errorf("purge platform admins: %w", err)
+		}
+		s.logger.Warn("no PLATFORM_ADMIN_EMAIL configured; platform admin accounts purged")
+		return nil
+	}
+
+	hash, err := HashPassword(password)
+	if err != nil {
+		return err
+	}
+	now := nowText()
+
+	// Remove any other platform admin (e.g. stale hardcoded admin@projectpulse.local).
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE tenant_id = '' AND role = $1 AND email <> $2`, RoleAdmin, email); err != nil {
+		return fmt.Errorf("purge stale platform admins: %w", err)
+	}
+
+	var existingID string
+	err = s.db.QueryRowContext(ctx, `SELECT id FROM users WHERE email = $1`, email).Scan(&existingID)
+	if err == sql.ErrNoRows {
+		if _, err := s.db.ExecContext(ctx,
+			`INSERT INTO users (id, tenant_id, email, password_hash, full_name, role, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			newID("usr"), "", email, hash, "Platform Admin", RoleAdmin, now); err != nil {
+			return fmt.Errorf("insert platform admin: %w", err)
+		}
+		s.logger.Info("platform admin created", "email", email)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE users SET password_hash = $1, role = $2, tenant_id = '' WHERE id = $3`,
+		hash, RoleAdmin, existingID); err != nil {
+		return fmt.Errorf("update platform admin: %w", err)
+	}
+	s.logger.Info("platform admin upserted", "email", email)
 	return nil
 }
 

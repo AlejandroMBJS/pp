@@ -5,9 +5,42 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+
 	"arquicheck/backend/internal/app"
 	"arquicheck/backend/internal/billing"
 )
+
+func (s *Server) handleListNotifications(w http.ResponseWriter, r *http.Request) {
+	actor := s.actor(r)
+	unread := r.URL.Query().Get("unread") == "true"
+	notifs, err := s.service.ListNotificationsForUser(r.Context(), actor.TenantID, actor.UserID, unread)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, notifs)
+}
+
+func (s *Server) handleReadNotification(w http.ResponseWriter, r *http.Request) {
+	actor := s.actor(r)
+	id := chi.URLParam(r, "notificationID")
+	if err := s.service.MarkNotificationRead(r.Context(), actor.TenantID, id); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"read": true})
+}
+
+func (s *Server) handleReadAllNotifications(w http.ResponseWriter, r *http.Request) {
+	actor := s.actor(r)
+	n, err := s.service.MarkAllNotificationsRead(r.Context(), actor.TenantID, actor.UserID)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"read": n})
+}
 
 func (s *Server) handleGetSubscription(w http.ResponseWriter, r *http.Request) {
 	actor := s.actor(r)

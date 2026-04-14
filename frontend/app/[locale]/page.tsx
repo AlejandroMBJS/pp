@@ -1,4 +1,6 @@
 import Link from "next/link";
+import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 import {
   MapPin,
   Sparkles,
@@ -26,94 +28,43 @@ import { PLANS } from "@/lib/plans";
 // Bypass Cloudflare / CDN caching so landing edits ship instantly.
 export const revalidate = 0;
 
-export const metadata = {
-  title: "ProjectPulse — Control de calidad y evidencia geolocalizada para proyectos técnicos",
-  description:
-    "Plataforma SaaS multi-tenant para constructoras, supervisores y firmas técnicas. Evidencia geolocalizada, auditorías con IA y aprobación cliente en un solo lugar.",
-};
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "landing.meta" });
+  return { title: t("title"), description: t("description") };
+}
 
-const features = [
-  {
-    icon: MapPin,
-    title: "Evidencia geolocalizada",
-    body: "Cada captura con coordenadas, timestamp y responsable. Cero fotos sueltas sin contexto.",
-  },
-  {
-    icon: Sparkles,
-    title: "Auditorías con IA",
-    body: "Revisa calidad automáticamente contra la spec técnica. Score y feedback accionable antes de facturar.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "RBAC multi-tenant",
-    body: "Admin, owner, supervisor, helper, cliente. Aislamiento estricto por empresa — cero filtraciones.",
-  },
-  {
-    icon: Users,
-    title: "Portal de cliente",
-    body: "Tu cliente aprueba entregables y ve avance en su propio panel. Sin PDFs por WhatsApp.",
-  },
-  {
-    icon: FileText,
-    title: "Planos y CAD",
-    body: "Sube DWG/DXF/PDF y liga tareas a zonas del proyecto. Tu equipo en campo sabe exactamente dónde.",
-  },
-  {
-    icon: Download,
-    title: "Exportes y reportes",
-    body: "CSV y resúmenes ejecutivos listos para stakeholders. Traza completa para auditoría externa.",
-  },
-];
+const featureIcons = [MapPin, Sparkles, ShieldCheck, Users, FileText, Download];
+const statIcons = [Zap, Star, TrendingUp, Activity];
+const infraIcons = [Server, DatabaseBackup, Lock];
 
-const stats = [
-  { n: "72h", label: "Setup promedio hasta primer proyecto", icon: Zap },
-  { n: "4.8★", label: "NPS con supervisores en campo", icon: Star },
-  { n: "60%", label: "Reducción en retrabajos reportados", icon: TrendingUp },
-  { n: "24/7", label: "Captura offline-first desde móvil", icon: Activity },
-];
+type FeatureItem = { title: string; body: string };
+type StatItem = { n: string; label: string };
+type StepItem = { n: string; title: string; body: string };
+type FaqItem = { q: string; a: string };
+type Kpi = { v: string; l: string };
 
-const steps = [
-  { n: "01", title: "Registra tu empresa", body: "Alta en minutos. Trial de 14 días completo, sin tarjeta." },
-  { n: "02", title: "Invita a tu equipo", body: "Supervisores, helpers y clientes con rol y permisos propios." },
-  { n: "03", title: "Captura y aprueba", body: "Evidencia geolocalizada, auditoría con IA, cliente firma." },
-];
+export default async function HomePage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "landing" });
+  const tp = await getTranslations({ locale, namespace: "plans" });
 
-const faqs = [
-  {
-    q: "¿Cómo funciona el trial?",
-    a: "14 días gratis con todas las funciones del plan Professional. No pedimos tarjeta. Al final eliges plan o pasas a Starter gratis.",
-  },
-  {
-    q: "¿Puedo cancelar cuando quiera?",
-    a: "Sí. Desde tu portal de billing cancelas con un click y mantienes acceso hasta el final del período pagado.",
-  },
-  {
-    q: "¿Dónde guardan los datos?",
-    a: "Servidores propios en infra dedicada, con backups diarios encriptados. No compartimos datos entre tenants.",
-  },
-  {
-    q: "¿Puedo exportar mis datos?",
-    a: "Sí, exportes CSV/PDF en todos los planes pagos. Tu información es tuya, siempre.",
-  },
-  {
-    q: "¿Ofrecen SSO/SAML?",
-    a: "Sí, incluido en el plan Enterprise con integración a Okta, Azure AD y Google Workspace.",
-  },
-  {
-    q: "¿Cómo funciona la auditoría con IA?",
-    a: "Cuando subes una captura la analizamos contra la especificación técnica del entregable y devolvemos un score y puntos a corregir.",
-  },
-  {
-    q: "¿Qué pasa si excedo los límites de mi plan?",
-    a: "Te avisamos antes de llegar al límite y puedes hacer upgrade con un click — sin perder datos ni bloquear al equipo.",
-  },
-  {
-    q: "¿Hay descuento por pago anual?",
-    a: "Sí, en Professional y Business. Contacta ventas para el detalle y condiciones Enterprise.",
-  },
-];
+  const features = t.raw("features.items") as FeatureItem[];
+  const stats = t.raw("stats.items") as StatItem[];
+  const steps = t.raw("steps.items") as StepItem[];
+  const faqs = t.raw("faq.items") as FaqItem[];
+  const infraItems = t.raw("infra.items") as FeatureItem[];
+  const sidebarLabels = t.raw("hero.mockup.sidebar") as string[];
+  const kpis = t.raw("hero.mockup.kpis") as Kpi[];
 
-export default function HomePage() {
   return (
     <div className="min-h-screen bg-[#05070f] text-white overflow-hidden">
       <LandingSeo />
@@ -140,48 +91,43 @@ export default function HomePage() {
           <div className="max-w-3xl mx-auto text-center">
             <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 backdrop-blur text-[10px] uppercase tracking-[0.25em] font-black text-blue-300 mb-8">
               <ShieldCheck size={12} />
-              Strategic Control Console
+              {t("hero.badge")}
               <span className="mx-1 h-1 w-1 rounded-full bg-white/20" />
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
               </span>
-              Live en producción
+              {t("hero.liveBadge")}
             </div>
             <h1 className="text-5xl md:text-7xl font-black leading-[1.05] tracking-tight mb-6">
-              Building the
+              {t("hero.headlineLine1")}
               <br />
               <span className="bg-gradient-to-r from-blue-400 via-sky-400 to-cyan-400 bg-clip-text text-transparent animate-gradient-x">
-                future of projects.
+                {t("hero.headlineLine2")}
               </span>
             </h1>
             <p className="text-lg md:text-xl text-white/60 mb-4 leading-relaxed max-w-2xl mx-auto">
-              Digitiza, supervisa y escala cualquier operación de proyecto con una sola plataforma
-              técnica de control.
+              {t("hero.subheadline")}
             </p>
             <p className="text-sm md:text-base text-white/40 mb-10 leading-relaxed max-w-2xl mx-auto">
-              Reemplaza chats dispersos, carpetas de Drive y reportes manuales por evidencia
-              geolocalizada, auditorías con IA y aprobación del cliente — todo en un panel
-              multi-tenant.
+              {t("hero.subheadline2")}
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center mb-6">
               <Link
                 href="/signup"
                 className="group relative inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-sm font-black uppercase tracking-widest shadow-[0_0_40px_rgba(59,130,246,0.4)] transition-all"
               >
-                Empezar gratis
+                {t("hero.ctaPrimary")}
                 <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
               </Link>
               <Link
                 href="/demo"
                 className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-sm font-black uppercase tracking-widest backdrop-blur"
               >
-                Ver demo en vivo
+                {t("hero.ctaSecondary")}
               </Link>
             </div>
-            <p className="text-[11px] text-white/40">
-              14 días gratis · Sin tarjeta · Cancela cuando quieras
-            </p>
+            <p className="text-[11px] text-white/40">{t("hero.trustLine")}</p>
           </div>
 
           {/* Product mockup */}
@@ -207,41 +153,34 @@ export default function HomePage() {
                     <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]" />
                     <div className="h-3 w-24 bg-white/20 rounded" />
                   </div>
-                  {["Dashboard", "Proyectos", "Tareas", "Evidencia", "Reportes", "Equipo"].map(
-                    (label, i) => (
-                      <div
-                        key={label}
-                        className={`flex items-center gap-2 px-2 py-1.5 rounded ${
-                          i === 1 ? "bg-blue-500/15 text-blue-300" : "text-white/40"
-                        }`}
-                      >
-                        <div className="w-3 h-3 rounded bg-current opacity-50" />
-                        <div className="text-[10px] font-semibold">{label}</div>
-                      </div>
-                    ),
-                  )}
+                  {sidebarLabels.map((label, i) => (
+                    <div
+                      key={label}
+                      className={`flex items-center gap-2 px-2 py-1.5 rounded ${
+                        i === 1 ? "bg-blue-500/15 text-blue-300" : "text-white/40"
+                      }`}
+                    >
+                      <div className="w-3 h-3 rounded bg-current opacity-50" />
+                      <div className="text-[10px] font-semibold">{label}</div>
+                    </div>
+                  ))}
                 </aside>
                 {/* Main area */}
                 <main className="col-span-9 p-6 space-y-5">
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-[10px] uppercase tracking-widest text-cyan-400 font-black mb-1">
-                        Live Project
+                        {t("hero.mockup.liveProject")}
                       </div>
                       <div className="h-4 w-48 bg-white/20 rounded" />
                     </div>
                     <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-bold text-emerald-400">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      En progreso
+                      {t("hero.mockup.inProgress")}
                     </div>
                   </div>
                   <div className="grid grid-cols-4 gap-3">
-                    {[
-                      { v: "92%", l: "Avance" },
-                      { v: "24", l: "Tareas" },
-                      { v: "$1.8M", l: "Budget" },
-                      { v: "12", l: "Pendientes" },
-                    ].map((k) => (
+                    {kpis.map((k) => (
                       <div
                         key={k.l}
                         className="rounded-lg border border-white/10 bg-white/[0.02] p-3"
@@ -258,7 +197,9 @@ export default function HomePage() {
                   <div className="rounded-lg border border-white/10 bg-white/[0.02] p-4">
                     <div className="flex items-center justify-between mb-3">
                       <div className="h-3 w-32 bg-white/20 rounded" />
-                      <div className="text-[9px] text-white/40 font-bold">ÚLTIMA SEMANA</div>
+                      <div className="text-[9px] text-white/40 font-bold">
+                        {t("hero.mockup.lastWeek")}
+                      </div>
                     </div>
                     <div className="flex items-end gap-1.5 h-20">
                       {[30, 55, 42, 78, 65, 88, 72, 95, 70, 85, 60, 92].map((h, i) => (
@@ -296,19 +237,22 @@ export default function HomePage() {
       <section className="border-y border-white/10 bg-white/[0.02]">
         <div className="max-w-6xl mx-auto px-6 py-12">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-            {stats.map((s) => (
-              <div key={s.label} className="text-center">
-                <div className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-blue-500/10 text-blue-400 mb-3">
-                  <s.icon size={18} />
+            {stats.map((s, i) => {
+              const Icon = statIcons[i] ?? Zap;
+              return (
+                <div key={s.label} className="text-center">
+                  <div className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-blue-500/10 text-blue-400 mb-3">
+                    <Icon size={18} />
+                  </div>
+                  <div className="text-3xl md:text-4xl font-black bg-gradient-to-br from-white to-white/60 bg-clip-text text-transparent mb-1">
+                    {s.n}
+                  </div>
+                  <div className="text-[11px] text-white/50 uppercase tracking-widest font-bold">
+                    {s.label}
+                  </div>
                 </div>
-                <div className="text-3xl md:text-4xl font-black bg-gradient-to-br from-white to-white/60 bg-clip-text text-transparent mb-1">
-                  {s.n}
-                </div>
-                <div className="text-[11px] text-white/50 uppercase tracking-widest font-bold">
-                  {s.label}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
@@ -317,31 +261,32 @@ export default function HomePage() {
       <section id="features" className="max-w-6xl mx-auto px-6 py-24">
         <div className="text-center max-w-2xl mx-auto mb-16">
           <div className="text-[11px] uppercase tracking-widest font-bold text-cyan-400 mb-3">
-            Qué hace ProjectPulse
+            {t("features.eyebrow")}
           </div>
           <h2 className="text-4xl md:text-5xl font-black mb-4 leading-tight">
-            Todo lo que necesitas para cerrar proyectos a tiempo
+            {t("features.title")}
           </h2>
-          <p className="text-white/60 text-lg">
-            Diseñado por y para equipos que viven en campo — no por un PM que nunca pisó una obra.
-          </p>
+          <p className="text-white/60 text-lg">{t("features.subtitle")}</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {features.map((f) => (
-            <div
-              key={f.title}
-              className="group relative rounded-2xl border border-white/10 bg-white/[0.02] p-6 hover:border-white/20 hover:bg-white/[0.04] transition-all overflow-hidden"
-            >
-              <div className="absolute -top-12 -right-12 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl group-hover:bg-blue-500/20 transition-all" />
-              <div className="relative">
-                <div className="inline-flex p-3 rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/10 border border-blue-500/20 text-cyan-300 mb-5">
-                  <f.icon size={22} />
+          {features.map((f, i) => {
+            const Icon = featureIcons[i] ?? MapPin;
+            return (
+              <div
+                key={f.title}
+                className="group relative rounded-2xl border border-white/10 bg-white/[0.02] p-6 hover:border-white/20 hover:bg-white/[0.04] transition-all overflow-hidden"
+              >
+                <div className="absolute -top-12 -right-12 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl group-hover:bg-blue-500/20 transition-all" />
+                <div className="relative">
+                  <div className="inline-flex p-3 rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/10 border border-blue-500/20 text-cyan-300 mb-5">
+                    <Icon size={22} />
+                  </div>
+                  <h3 className="font-black text-xl mb-2">{f.title}</h3>
+                  <p className="text-sm text-white/60 leading-relaxed">{f.body}</p>
                 </div>
-                <h3 className="font-black text-xl mb-2">{f.title}</h3>
-                <p className="text-sm text-white/60 leading-relaxed">{f.body}</p>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
@@ -350,10 +295,10 @@ export default function HomePage() {
         <div className="max-w-6xl mx-auto px-6 py-24">
           <div className="text-center max-w-2xl mx-auto mb-16">
             <div className="text-[11px] uppercase tracking-widest font-bold text-cyan-400 mb-3">
-              Cómo funciona
+              {t("steps.eyebrow")}
             </div>
             <h2 className="text-4xl md:text-5xl font-black leading-tight">
-              De cero a producción en 72 horas
+              {t("steps.title")}
             </h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -383,21 +328,20 @@ export default function HomePage() {
           <div className="relative">
             <Quote size={40} className="text-blue-400/40 mb-6" />
             <blockquote className="text-2xl md:text-3xl font-black leading-snug mb-8">
-              "Pasamos de reportes en Excel y fotos por WhatsApp a tener evidencia auditada en
-              minutos. Nuestros clientes firman entregables{" "}
+              &ldquo;{t("testimonial.quotePart1")}{" "}
               <span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">
-                3x más rápido.
+                {t("testimonial.quoteHighlight")}
               </span>
-              "
+              &rdquo;
             </blockquote>
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center font-black text-lg">
-                AG
+                {t("testimonial.authorInitials")}
               </div>
               <div>
-                <div className="font-black">Arq. Ana García</div>
+                <div className="font-black">{t("testimonial.authorName")}</div>
                 <div className="text-[11px] text-white/50 uppercase tracking-widest font-bold">
-                  Dir. Operaciones · Constructora Monterrey
+                  {t("testimonial.authorRole")}
                 </div>
               </div>
             </div>
@@ -410,51 +354,36 @@ export default function HomePage() {
         <div className="max-w-6xl mx-auto px-6 py-24">
           <div className="text-center max-w-2xl mx-auto mb-16">
             <div className="text-[11px] uppercase tracking-widest font-bold text-cyan-400 mb-3">
-              Infraestructura
+              {t("infra.eyebrow")}
             </div>
             <h2 className="text-4xl md:text-5xl font-black mb-4 leading-tight">
-              Servidores dedicados,
+              {t("infra.titleLine1")}
               <br />
               <span className="bg-gradient-to-r from-blue-400 via-sky-400 to-cyan-400 bg-clip-text text-transparent">
-                no shared hosting.
+                {t("infra.titleLine2")}
               </span>
             </h2>
-            <p className="text-white/60 text-lg">
-              Military-grade infrastructure para equipos que no aceptan "lo que se pueda".
-            </p>
+            <p className="text-white/60 text-lg">{t("infra.subtitle")}</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {[
-              {
-                icon: Server,
-                title: "Infra propia",
-                body: "Servidores dedicados en México. Sin data residency extranjero, sin compartir CPU con otro SaaS. Latencia baja desde cualquier obra.",
-              },
-              {
-                icon: DatabaseBackup,
-                title: "Backups diarios",
-                body: "Snapshots encriptados cada 24h con retención de 30 días. Recuperación point-in-time si algo explota a las 3am.",
-              },
-              {
-                icon: Lock,
-                title: "Aislamiento por tenant",
-                body: "Row-level isolation con tenant_id en cada query. RBAC estricto: admin, owner, supervisor, helper, cliente. Cero filtraciones entre empresas.",
-              },
-            ].map((card) => (
-              <div
-                key={card.title}
-                className="group relative rounded-2xl border border-white/10 bg-[#05070f] p-6 hover:border-blue-500/30 transition-all overflow-hidden"
-              >
-                <div className="absolute -top-16 -right-16 w-40 h-40 bg-cyan-500/5 rounded-full blur-3xl group-hover:bg-cyan-500/15 transition-all" />
-                <div className="relative">
-                  <div className="inline-flex p-3 rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/10 border border-blue-500/20 text-cyan-300 mb-5">
-                    <card.icon size={22} />
+            {infraItems.map((card, i) => {
+              const Icon = infraIcons[i] ?? Server;
+              return (
+                <div
+                  key={card.title}
+                  className="group relative rounded-2xl border border-white/10 bg-[#05070f] p-6 hover:border-blue-500/30 transition-all overflow-hidden"
+                >
+                  <div className="absolute -top-16 -right-16 w-40 h-40 bg-cyan-500/5 rounded-full blur-3xl group-hover:bg-cyan-500/15 transition-all" />
+                  <div className="relative">
+                    <div className="inline-flex p-3 rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/10 border border-blue-500/20 text-cyan-300 mb-5">
+                      <Icon size={22} />
+                    </div>
+                    <h3 className="font-black text-xl mb-2">{card.title}</h3>
+                    <p className="text-sm text-white/60 leading-relaxed">{card.body}</p>
                   </div>
-                  <h3 className="font-black text-xl mb-2">{card.title}</h3>
-                  <p className="text-sm text-white/60 leading-relaxed">{card.body}</p>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
@@ -464,14 +393,12 @@ export default function HomePage() {
         <div className="max-w-6xl mx-auto px-6 py-24">
           <div className="text-center max-w-2xl mx-auto mb-16">
             <div className="text-[11px] uppercase tracking-widest font-bold text-cyan-400 mb-3">
-              Precios
+              {t("pricing.eyebrow")}
             </div>
             <h2 className="text-4xl md:text-5xl font-black mb-4 leading-tight">
-              Planes para cualquier tamaño
+              {t("pricing.title")}
             </h2>
-            <p className="text-white/60 text-lg">
-              Empieza gratis y escala cuando lo necesites. Sin sorpresas, sin costos ocultos.
-            </p>
+            <p className="text-white/60 text-lg">{t("pricing.subtitle")}</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
             {PLANS.map((plan) => (
@@ -485,21 +412,23 @@ export default function HomePage() {
               >
                 {plan.highlight && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-gradient-to-r from-blue-500 to-cyan-400 text-[9px] font-black uppercase tracking-widest">
-                    Más popular
+                    {t("pricing.mostPopular")}
                   </div>
                 )}
-                <h3 className="font-black text-lg">{plan.name}</h3>
+                <h3 className="font-black text-lg">{tp(`${plan.id}.name`)}</h3>
                 <div className="mt-2 mb-3 flex items-baseline gap-1">
-                  <span className="text-3xl font-black">{plan.priceDisplay}</span>
-                  {plan.priceSuffix && (
-                    <span className="text-[11px] text-white/40">{plan.priceSuffix}</span>
+                  <span className="text-3xl font-black">
+                    {plan.priceAmount === null ? tp("priceCustom") : plan.priceDisplay}
+                  </span>
+                  {plan.priceAmount !== null && (
+                    <span className="text-[11px] text-white/40">{tp("priceSuffix")}</span>
                   )}
                 </div>
                 <p className="text-[11px] text-white/50 mb-5 flex-1 leading-relaxed">
-                  {plan.tagline}
+                  {tp(`${plan.id}.tagline`)}
                 </p>
                 <ul className="space-y-2 mb-6 text-[11px] text-white/70">
-                  {plan.features.slice(0, 5).map((f) => (
+                  {(tp.raw(`${plan.id}.features`) as string[]).slice(0, 5).map((f) => (
                     <li key={f} className="flex gap-2">
                       <Check size={13} className="text-cyan-400 shrink-0 mt-0.5" /> {f}
                     </li>
@@ -513,7 +442,7 @@ export default function HomePage() {
                       : "bg-white/5 hover:bg-white/10 border border-white/10"
                   }`}
                 >
-                  {plan.id === "enterprise" ? "Contactar ventas" : "Empezar"}
+                  {plan.id === "enterprise" ? t("pricing.contactSales") : t("pricing.startCta")}
                 </Link>
               </div>
             ))}
@@ -523,7 +452,7 @@ export default function HomePage() {
               href="/pricing"
               className="inline-flex items-center gap-2 text-sm font-bold text-cyan-400 hover:text-cyan-300"
             >
-              Ver comparación completa <ArrowRight size={14} />
+              {t("pricing.compareAll")} <ArrowRight size={14} />
             </Link>
           </div>
         </div>
@@ -533,9 +462,9 @@ export default function HomePage() {
       <section id="faq" className="max-w-3xl mx-auto px-6 py-24">
         <div className="text-center mb-12">
           <div className="text-[11px] uppercase tracking-widest font-bold text-cyan-400 mb-3">
-            FAQ
+            {t("faq.eyebrow")}
           </div>
-          <h2 className="text-4xl md:text-5xl font-black leading-tight">Preguntas frecuentes</h2>
+          <h2 className="text-4xl md:text-5xl font-black leading-tight">{t("faq.title")}</h2>
         </div>
         <div className="space-y-3">
           {faqs.map((f) => (
@@ -559,30 +488,30 @@ export default function HomePage() {
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(59,130,246,0.15),transparent_60%)] pointer-events-none" />
           <div className="relative">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] uppercase tracking-widest font-bold text-cyan-300 mb-6">
-              <Building2 size={12} /> Hecho para equipos técnicos
+              <Building2 size={12} /> {t("finalCta.badge")}
             </div>
             <h2 className="text-4xl md:text-6xl font-black mb-6 leading-tight">
-              Deja de chatear.
+              {t("finalCta.titleLine1")}
               <br />
               <span className="bg-gradient-to-r from-blue-400 via-cyan-300 to-cyan-400 bg-clip-text text-transparent">
-                Empieza a entregar.
+                {t("finalCta.titleLine2")}
               </span>
             </h2>
             <p className="text-white/60 text-lg mb-10 max-w-xl mx-auto">
-              14 días gratis con todas las funciones. Sin tarjeta, sin compromiso.
+              {t("finalCta.subtitle")}
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <Link
                 href="/signup"
                 className="inline-flex items-center justify-center gap-2 px-10 py-5 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-sm font-black uppercase tracking-widest shadow-[0_0_40px_rgba(59,130,246,0.4)]"
               >
-                Crear cuenta gratis <ArrowRight size={16} />
+                {t("finalCta.ctaPrimary")} <ArrowRight size={16} />
               </Link>
               <Link
                 href="/demo"
                 className="inline-flex items-center justify-center gap-2 px-10 py-5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-sm font-black uppercase tracking-widest"
               >
-                Solicitar demo
+                {t("finalCta.ctaSecondary")}
               </Link>
             </div>
           </div>

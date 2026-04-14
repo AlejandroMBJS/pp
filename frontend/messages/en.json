@@ -2,7 +2,357 @@
   "meta": {
     "siteName": "ProjectPulse",
     "title": "ProjectPulse — Strategic control for technical projects",
-    "description": "Multi-tenant SaaS platform for construction firms, supervisors and technical teams. Geolocated evidence, AI-powered audits and client approvals in one place.",
-    "keywords": "project management,quality control,technical CRM,construction supervision,photo evidence,AI audit,field operations,ProjectPulse"
+    "description": "Multi-tenant SaaS platform for construction firms, supervisors and technical teams. Geolocated evidence, AI-powered audits and client approval in one place.",
+    "keywords": "project management,quality control,technical CRM,site supervision,photo evidence,AI audit,field operations,ProjectPulse"
+  },
+  "nav": {
+    "features": "Features",
+    "pricing": "Pricing",
+    "faq": "FAQ",
+    "demo": "Demo",
+    "login": "Sign in",
+    "signup": "Start free"
+  },
+  "footer": {
+    "tagline": "Quality control, geolocated evidence and AI audits for technical projects.",
+    "productHeading": "Product",
+    "companyHeading": "Company",
+    "legalHeading": "Legal",
+    "features": "Features",
+    "pricing": "Pricing",
+    "faq": "FAQ",
+    "login": "Sign in",
+    "signup": "Create account",
+    "contact": "Contact",
+    "terms": "Terms",
+    "privacy": "Privacy",
+    "copyright": "© {year} ProjectPulse. All rights reserved."
+  },
+  "landing": {
+    "meta": {
+      "title": "ProjectPulse — Quality control and geolocated evidence for technical projects",
+      "description": "Multi-tenant SaaS platform for construction firms, supervisors and technical teams. Geolocated evidence, AI-powered audits and client approval in one place."
+    },
+    "hero": {
+      "badge": "Strategic Control Console",
+      "liveBadge": "Live in production",
+      "headlineLine1": "Building the",
+      "headlineLine2": "future of projects.",
+      "subheadline": "Digitize, supervise and scale any project operation with a single technical control platform.",
+      "subheadline2": "Replace scattered chats, Drive folders and manual reports with geolocated evidence, AI-powered audits and client approval — all in one multi-tenant console.",
+      "ctaPrimary": "Start free",
+      "ctaSecondary": "See live demo",
+      "trustLine": "14-day free trial · No credit card · Cancel anytime",
+      "mockup": {
+        "liveProject": "Live Project",
+        "inProgress": "In progress",
+        "lastWeek": "LAST WEEK",
+        "sidebar": ["Dashboard", "Projects", "Tasks", "Evidence", "Reports", "Team"],
+        "kpis": [
+          { "v": "92%", "l": "Progress" },
+          { "v": "24", "l": "Tasks" },
+          { "v": "$1.8M", "l": "Budget" },
+          { "v": "12", "l": "Pending" }
+        ]
+      }
+    },
+    "stats": {
+      "items": [
+        { "n": "72h", "label": "Average setup to first project" },
+        { "n": "4.8★", "label": "NPS from supervisors in the field" },
+        { "n": "60%", "label": "Reduction in reported rework" },
+        { "n": "24/7", "label": "Offline-first mobile capture" }
+      ]
+    },
+    "features": {
+      "eyebrow": "What ProjectPulse does",
+      "title": "Everything you need to deliver projects on time",
+      "subtitle": "Built by and for teams that live in the field — not by a PM who never set foot on a job site.",
+      "items": [
+        {
+          "title": "Geolocated evidence",
+          "body": "Every capture with coordinates, timestamp and owner. No more orphan photos without context."
+        },
+        {
+          "title": "AI-powered (artificial intelligence) audits",
+          "body": "Quality reviewed automatically against the technical specification. Score and actionable feedback before you invoice."
+        },
+        {
+          "title": "Multi-tenant RBAC (Role-Based Access Control)",
+          "body": "Admin, owner, supervisor, helper, client. Strict per-company isolation — zero leakage."
+        },
+        {
+          "title": "Client portal",
+          "body": "Your client approves deliverables and tracks progress in their own console. No more PDFs over WhatsApp."
+        },
+        {
+          "title": "Blueprints and CAD (Computer-Aided Design)",
+          "body": "Upload DWG/DXF/PDF and link tasks to project zones. Your field team knows exactly where to go."
+        },
+        {
+          "title": "Exports and reports",
+          "body": "CSV and executive summaries ready for stakeholders. Full traceability for external audits."
+        }
+      ]
+    },
+    "steps": {
+      "eyebrow": "How it works",
+      "title": "From zero to production in 72 hours",
+      "items": [
+        { "n": "01", "title": "Register your company", "body": "Sign up in minutes. Full 14-day trial, no credit card required." },
+        { "n": "02", "title": "Invite your team", "body": "Supervisors, helpers and clients, each with their own role and permissions." },
+        { "n": "03", "title": "Capture and approve", "body": "Geolocated evidence, AI audit, client signs off." }
+      ]
+    },
+    "testimonial": {
+      "quotePart1": "We went from Excel reports and WhatsApp photos to auditable evidence in minutes. Our clients sign off on deliverables",
+      "quoteHighlight": "3x faster.",
+      "authorInitials": "AG",
+      "authorName": "Arch. Ana García",
+      "authorRole": "Head of Operations · Constructora Monterrey"
+    },
+    "infra": {
+      "eyebrow": "Infrastructure",
+      "titleLine1": "Dedicated servers,",
+      "titleLine2": "not shared hosting.",
+      "subtitle": "Military-grade infrastructure for teams that don't accept \"good enough\".",
+      "items": [
+        {
+          "title": "Our own infra",
+          "body": "Dedicated servers in Mexico. No foreign data residency, no CPU shared with another SaaS. Low latency from any job site."
+        },
+        {
+          "title": "Daily backups",
+          "body": "Encrypted snapshots every 24h with 30-day retention. Point-in-time recovery if something blows up at 3 a.m."
+        },
+        {
+          "title": "Per-tenant isolation",
+          "body": "Row-level isolation with tenant_id on every query. Strict RBAC (Role-Based Access Control): admin, owner, supervisor, helper, client. Zero cross-company leakage."
+        }
+      ]
+    },
+    "pricing": {
+      "eyebrow": "Pricing",
+      "title": "Plans for every team size",
+      "subtitle": "Start free and scale when you need to. No surprises, no hidden fees.",
+      "mostPopular": "Most popular",
+      "contactSales": "Contact sales",
+      "startCta": "Get started",
+      "compareAll": "See full comparison"
+    },
+    "faq": {
+      "eyebrow": "FAQ",
+      "title": "Frequently asked questions",
+      "items": [
+        { "q": "How does the trial work?", "a": "14 days free with every Professional-plan feature. No credit card required. At the end you pick a plan or drop to the free Starter tier." },
+        { "q": "Can I cancel anytime?", "a": "Yes. Cancel with one click from your billing portal and keep access until the end of the paid period." },
+        { "q": "Where is the data stored?", "a": "On our own dedicated infrastructure, with encrypted daily backups. We never share data across tenants." },
+        { "q": "Can I export my data?", "a": "Yes, CSV/PDF exports are included in every paid plan. Your data is yours, always." },
+        { "q": "Do you offer SSO/SAML?", "a": "Not yet. Today we only support local JWT auth. SSO/SAML is on the Enterprise roadmap — contact sales if it's a requirement for your organization." },
+        { "q": "How does the AI audit work?", "a": "When you upload a capture we analyze it against the deliverable's technical spec and return a score plus actionable items." },
+        { "q": "What happens if I exceed my plan limits?", "a": "We warn you before you hit the limit and you can upgrade with one click — without losing data or blocking the team." },
+        { "q": "Is there an annual discount?", "a": "Yes, on Professional and Business. Contact sales for details and Enterprise terms." }
+      ]
+    },
+    "finalCta": {
+      "badge": "Built for technical teams",
+      "titleLine1": "Stop chatting.",
+      "titleLine2": "Start delivering.",
+      "subtitle": "14 days free with every feature. No credit card, no commitment.",
+      "ctaPrimary": "Create free account",
+      "ctaSecondary": "Request a demo"
+    }
+  },
+  "pricing": {
+    "meta": {
+      "title": "Pricing — ProjectPulse",
+      "description": "ProjectPulse plans from free to custom enterprise. Quality control and geolocated evidence for technical projects."
+    },
+    "title": "Simple, transparent pricing",
+    "subtitle": "Pick the plan that fits your operation. No lock-in contracts, cancel anytime.",
+    "recommended": "Recommended",
+    "footnote": "Secure payments via Stripe. All prices in USD. VAT not included where applicable."
+  },
+  "plans": {
+    "priceSuffix": "USD/month",
+    "priceCustom": "Custom",
+    "starter": {
+      "name": "Starter",
+      "tagline": "Try the platform, no credit card",
+      "features": [
+        "1 active project",
+        "3 internal users",
+        "50 evidence captures/month",
+        "1 GB of storage",
+        "CSV exports"
+      ],
+      "ctaLabel": "Start free"
+    },
+    "professional": {
+      "name": "Professional",
+      "tagline": "For SMBs with 1–5 concurrent projects",
+      "features": [
+        "5 active projects",
+        "15 internal users",
+        "500 evidence captures/month",
+        "10 GB of storage",
+        "CAD (Computer-Aided Design) blueprints",
+        "AI-powered (artificial intelligence) quality audits",
+        "CSV and PDF exports"
+      ],
+      "ctaLabel": "Choose Professional"
+    },
+    "business": {
+      "name": "Business",
+      "tagline": "For mid-size firms with multiple projects",
+      "features": [
+        "20 active projects",
+        "50 internal users",
+        "2,000 evidence captures/month",
+        "50 GB of storage",
+        "Everything in Professional",
+        "Priority email support"
+      ],
+      "ctaLabel": "Choose Business"
+    },
+    "enterprise": {
+      "name": "Enterprise",
+      "tagline": "For large builders and technical firms",
+      "features": [
+        "Projects and users negotiated",
+        "Custom storage",
+        "Dedicated infrastructure on our own servers",
+        "Personalized onboarding and support",
+        "Custom SLA (Service Level Agreement)",
+        "MSA / NDA contracts available"
+      ],
+      "ctaLabel": "Contact sales"
+    }
+  },
+  "login": {
+    "title": "Welcome back",
+    "subtitle": "Sign in to your ProjectPulse console.",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@company.com",
+    "passwordLabel": "Password",
+    "passwordPlaceholder": "••••••••",
+    "submit": "Sign in",
+    "submitting": "Signing in...",
+    "noAccount": "Don't have an account?",
+    "createOne": "Create one free",
+    "tryDemo": "Want to try the platform? Request a demo →",
+    "errors": {
+      "required": "Email and password are required",
+      "invalid": "Invalid credentials",
+      "generic": "Error signing in"
+    }
+  },
+  "signup": {
+    "title": "Create your account",
+    "subtitle": "14 days free with every feature. No credit card.",
+    "companyName": "Company name",
+    "companyNamePlaceholder": "Example Builders Inc.",
+    "companySlug": "Company slug",
+    "companySlugPlaceholder": "example-builders",
+    "ownerName": "Your name",
+    "ownerNamePlaceholder": "Maria Perez",
+    "email": "Email",
+    "emailPlaceholder": "maria@company.com",
+    "password": "Password",
+    "passwordPlaceholder": "At least 8 characters",
+    "submit": "Create free account",
+    "submitting": "Creating...",
+    "haveAccount": "Already have an account?",
+    "signIn": "Sign in",
+    "legalPrefix": "By creating an account you agree to our",
+    "legalTerms": "Terms",
+    "legalAnd": "and",
+    "legalPrivacy": "Privacy policy",
+    "errors": {
+      "missing": "Missing {field}",
+      "generic": "Error creating account"
+    }
+  },
+  "demo": {
+    "title": "Request a demo",
+    "subtitle": "We'll spin up a private workspace with sample data and email you the credentials. Access is valid for 72 hours, no credit card needed.",
+    "nameLabel": "Full name",
+    "namePlaceholder": "Ana García",
+    "emailLabel": "Work email",
+    "emailPlaceholder": "you@company.com",
+    "companyLabel": "Company",
+    "companyOptional": "(optional)",
+    "companyPlaceholder": "Example Builders",
+    "submit": "Send me credentials",
+    "submitting": "Sending...",
+    "haveAccount": "Already have an account?",
+    "signIn": "Sign in",
+    "success": {
+      "title": "All set!",
+      "bodyPart1": "We sent the credentials to",
+      "bodyPart2": "Check your inbox (and spam folder just in case).",
+      "bodyPart3": "Access expires in",
+      "bodyPart4": "72 hours",
+      "bodyPart5": ".",
+      "goToLogin": "Go to login →"
+    },
+    "errors": {
+      "required": "Name and email are required",
+      "generic": "We couldn't process your request",
+      "unexpected": "Unexpected error"
+    }
+  },
+  "billingCancel": {
+    "meta": { "title": "Payment canceled — ProjectPulse" },
+    "title": "Payment canceled",
+    "subtitle": "No worries — nothing was charged. You can try again anytime from your billing panel.",
+    "backToDashboard": "Back to dashboard",
+    "viewPlans": "View plans"
+  },
+  "billingSuccess": {
+    "polling": {
+      "title": "Activating your plan…",
+      "body": "We're confirming the payment with Stripe. This takes a few seconds."
+    },
+    "active": {
+      "title": "Plan activated!",
+      "body": "Taking you to the dashboard…"
+    },
+    "timeout": {
+      "title": "Processing…",
+      "body": "The payment can take a couple of minutes to reflect. If the issue persists, contact support.",
+      "cta": "Go to dashboard"
+    }
+  },
+  "platform": {
+    "eyebrow": "Platform",
+    "title": "Operator Console",
+    "errors": {
+      "notOperator": "This section is only for platform operators.",
+      "denied": "Access denied.",
+      "loadOverview": "Error loading overview",
+      "loadTenants": "Error loading tenants",
+      "generic": "Error loading data"
+    },
+    "stats": {
+      "mrr": "MRR",
+      "tenants": "Tenants",
+      "users": "Users",
+      "activeSubs": "Active subs",
+      "trialing": "Trialing"
+    },
+    "byPlan": "By plan",
+    "tenantsCount": "Tenants ({count})",
+    "table": {
+      "tenant": "Tenant",
+      "slug": "Slug",
+      "plan": "Plan",
+      "status": "Status",
+      "users": "Users",
+      "projects": "Projects",
+      "evidence": "Evidence",
+      "empty": "No tenants yet"
+    },
+    "backToApp": "← Back to standard console"
   }
 }

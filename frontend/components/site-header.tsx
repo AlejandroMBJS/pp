@@ -1,6 +1,14 @@
-import Link from "next/link";
+"use client";
 
-export function SiteHeader({ current }: { current?: "home" | "pricing" | "login" | "signup" | "demo" }) {
+import Link from "next/link";
+import { useTranslations } from "next-intl";
+
+export function SiteHeader({
+  current,
+}: {
+  current?: "home" | "pricing" | "login" | "signup" | "demo";
+}) {
+  const t = useTranslations("nav");
   const linkClass = (key: string) =>
     current === key ? "text-white" : "text-white/70 hover:text-white";
   return (
@@ -12,25 +20,25 @@ export function SiteHeader({ current }: { current?: "home" | "pricing" | "login"
         </Link>
         <nav className="flex items-center gap-5 text-xs font-semibold">
           <Link href="/#features" className="text-white/70 hover:text-white hidden sm:inline">
-            Features
+            {t("features")}
           </Link>
           <Link href="/pricing" className={linkClass("pricing")}>
-            Precios
+            {t("pricing")}
           </Link>
           <Link href="/#faq" className="text-white/70 hover:text-white hidden sm:inline">
-            FAQ
+            {t("faq")}
           </Link>
           <Link href="/demo" className={linkClass("demo")}>
-            Demo
+            {t("demo")}
           </Link>
           <Link href="/login" className={linkClass("login")}>
-            Entrar
+            {t("login")}
           </Link>
           <Link
             href="/signup"
             className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white uppercase tracking-widest"
           >
-            Empezar gratis
+            {t("signup")}
           </Link>
         </nav>
       </div>

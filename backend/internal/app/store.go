@@ -338,6 +338,20 @@ func (s *Service) initSchema(ctx context.Context) error {
 			raw_payload TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,
+		`CREATE TABLE IF NOT EXISTS notifications (
+			id TEXT PRIMARY KEY,
+			tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+			user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+			kind TEXT NOT NULL,
+			severity TEXT NOT NULL,
+			title TEXT NOT NULL,
+			body TEXT NOT NULL,
+			resource TEXT,
+			threshold_pct INT,
+			read_at TIMESTAMPTZ,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_notifications_tenant_created ON notifications(tenant_id, created_at DESC);`,
 		`CREATE TABLE IF NOT EXISTS usage_metrics (
 			id TEXT PRIMARY KEY,
 			tenant_id TEXT NOT NULL REFERENCES tenants(id),

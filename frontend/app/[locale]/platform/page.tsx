@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Loader2, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 const STORAGE_KEY = "projectpulse-session";
 
@@ -39,6 +40,7 @@ function fmtMoney(cents: number) {
 
 export default function PlatformPage() {
   const router = useRouter();
+  const t = useTranslations("platform");
   const [session, setSession] = useState<Session | null>(null);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [tenants, setTenants] = useState<TenantRow[]>([]);
@@ -55,7 +57,7 @@ export default function PlatformPage() {
     try {
       const parsed: Session = JSON.parse(raw);
       if (parsed.user.role !== "admin" || parsed.user.tenant_id) {
-        setError("Esta sección es solo para operadores de la plataforma.");
+        setError(t("errors.notOperator"));
         setLoading(false);
         return;
       }
@@ -79,16 +81,16 @@ export default function PlatformPage() {
         fetch("/api/v1/platform/tenants", { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (overviewRes.status === 403 || tenantsRes.status === 403) {
-        setError("Acceso denegado.");
+        setError(t("errors.denied"));
         setLoading(false);
         return;
       }
-      if (!overviewRes.ok) throw new Error("Error cargando overview");
-      if (!tenantsRes.ok) throw new Error("Error cargando tenants");
+      if (!overviewRes.ok) throw new Error(t("errors.loadOverview"));
+      if (!tenantsRes.ok) throw new Error(t("errors.loadTenants"));
       setOverview(await overviewRes.json());
       setTenants((await tenantsRes.json()) ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error cargando datos");
+      setError(err instanceof Error ? err.message : t("errors.generic"));
     } finally {
       setLoading(false);
     }
@@ -107,9 +109,9 @@ export default function PlatformPage() {
             <ShieldCheck size={18} className="text-cyan-400" />
             <div>
               <div className="text-[10px] uppercase tracking-widest font-bold text-cyan-400">
-                Platform
+                {t("eyebrow")}
               </div>
-              <div className="text-sm font-black">Operator Console</div>
+              <div className="text-sm font-black">{t("title")}</div>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -147,16 +149,16 @@ export default function PlatformPage() {
         ) : overview ? (
           <>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-10">
-              <StatCard label="MRR" value={fmtMoney(overview.mrr_cents)} accent="cyan" />
-              <StatCard label="Tenants" value={String(overview.total_tenants)} />
-              <StatCard label="Users" value={String(overview.total_users)} />
-              <StatCard label="Active subs" value={String(overview.active_subs)} accent="emerald" />
-              <StatCard label="Trialing" value={String(overview.trialing_subs)} accent="amber" />
+              <StatCard label={t("stats.mrr")} value={fmtMoney(overview.mrr_cents)} accent="cyan" />
+              <StatCard label={t("stats.tenants")} value={String(overview.total_tenants)} />
+              <StatCard label={t("stats.users")} value={String(overview.total_users)} />
+              <StatCard label={t("stats.activeSubs")} value={String(overview.active_subs)} accent="emerald" />
+              <StatCard label={t("stats.trialing")} value={String(overview.trialing_subs)} accent="amber" />
             </div>
 
             <div className="mb-10">
               <h2 className="text-xs uppercase tracking-widest font-bold text-white/50 mb-3">
-                Por plan
+                {t("byPlan")}
               </h2>
               <div className="flex flex-wrap gap-2">
                 {Object.entries(overview.by_plan).map(([plan, count]) => (
@@ -173,19 +175,19 @@ export default function PlatformPage() {
 
             <div>
               <h2 className="text-xs uppercase tracking-widest font-bold text-white/50 mb-3">
-                Tenants ({tenants.length})
+                {t("tenantsCount", { count: tenants.length })}
               </h2>
               <div className="overflow-x-auto rounded-2xl border border-white/10">
                 <table className="w-full text-xs">
                   <thead className="bg-white/[0.02] text-white/50 uppercase tracking-widest text-[10px]">
                     <tr>
-                      <th className="text-left px-4 py-3 font-bold">Tenant</th>
-                      <th className="text-left px-4 py-3 font-bold">Slug</th>
-                      <th className="text-left px-4 py-3 font-bold">Plan</th>
-                      <th className="text-left px-4 py-3 font-bold">Status</th>
-                      <th className="text-right px-4 py-3 font-bold">Users</th>
-                      <th className="text-right px-4 py-3 font-bold">Projects</th>
-                      <th className="text-right px-4 py-3 font-bold">Evidence</th>
+                      <th className="text-left px-4 py-3 font-bold">{t("table.tenant")}</th>
+                      <th className="text-left px-4 py-3 font-bold">{t("table.slug")}</th>
+                      <th className="text-left px-4 py-3 font-bold">{t("table.plan")}</th>
+                      <th className="text-left px-4 py-3 font-bold">{t("table.status")}</th>
+                      <th className="text-right px-4 py-3 font-bold">{t("table.users")}</th>
+                      <th className="text-right px-4 py-3 font-bold">{t("table.projects")}</th>
+                      <th className="text-right px-4 py-3 font-bold">{t("table.evidence")}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
@@ -215,7 +217,7 @@ export default function PlatformPage() {
                     {tenants.length === 0 && (
                       <tr>
                         <td colSpan={7} className="px-4 py-10 text-center text-white/40">
-                          Sin tenants todavía
+                          {t("table.empty")}
                         </td>
                       </tr>
                     )}
@@ -226,7 +228,7 @@ export default function PlatformPage() {
 
             <div className="mt-10">
               <Link href="/app" className="text-xs text-white/50 hover:text-white">
-                ← Volver al panel estándar
+                {t("backToApp")}
               </Link>
             </div>
           </>

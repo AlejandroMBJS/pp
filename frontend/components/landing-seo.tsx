@@ -29,10 +29,17 @@ const features = [
   },
 ];
 
+const PLAN_SEO: Record<string, { name: string; blurb: string }> = {
+  starter: { name: "Starter", blurb: "Try the platform, no credit card." },
+  professional: { name: "Professional", blurb: "For SMBs with 1–5 concurrent projects." },
+  business: { name: "Business", blurb: "For mid-size firms with multiple projects." },
+  enterprise: { name: "Enterprise", blurb: "For large builders and technical firms." },
+};
+
 const plans = PLANS.map((p) => ({
-  name: p.name,
-  price: p.priceSuffix ? `${p.priceDisplay} ${p.priceSuffix}` : p.priceDisplay,
-  blurb: p.tagline,
+  name: PLAN_SEO[p.id].name,
+  price: p.priceAmount === null ? p.priceDisplay : `${p.priceDisplay} USD/month`,
+  blurb: PLAN_SEO[p.id].blurb,
 }));
 
 export function LandingSeo() {

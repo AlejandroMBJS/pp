@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { X, Check, Loader2, Sparkles, Mail } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useBilling } from "./billing-context";
 import { PAID_PLANS, type PlanId } from "../lib/plans";
 
@@ -16,6 +17,7 @@ type Props = {
 
 export function UpgradeModal({ isOpen, onClose, token, reason }: Props) {
   const billing = useBilling();
+  const tp = useTranslations("plans");
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showContact, setShowContact] = useState(false);
@@ -222,14 +224,18 @@ export function UpgradeModal({ isOpen, onClose, token, reason }: Props) {
                     Recomendado
                   </div>
                 )}
-                <h3 className="text-lg font-black text-white">{plan.name}</h3>
-                <p className="text-[11px] text-white/40 mt-0.5">{plan.tagline}</p>
+                <h3 className="text-lg font-black text-white">{tp(`${plan.id}.name`)}</h3>
+                <p className="text-[11px] text-white/40 mt-0.5">{tp(`${plan.id}.tagline`)}</p>
                 <div className="mt-3 mb-4">
-                  <span className="text-2xl font-black text-white">{plan.priceDisplay}</span>
-                  {plan.priceSuffix && <span className="text-xs text-white/40 ml-1">{plan.priceSuffix}</span>}
+                  <span className="text-2xl font-black text-white">
+                    {plan.priceAmount === null ? tp("priceCustom") : plan.priceDisplay}
+                  </span>
+                  {plan.priceAmount !== null && (
+                    <span className="text-xs text-white/40 ml-1">{tp("priceSuffix")}</span>
+                  )}
                 </div>
                 <ul className="space-y-2 mb-5 flex-1">
-                  {plan.features.map((h) => (
+                  {(tp.raw(`${plan.id}.features`) as string[]).map((h) => (
                     <li key={h} className="flex items-start gap-2 text-xs text-white/70">
                       <Check size={14} className="text-blue-400 shrink-0 mt-0.5" />
                       <span>{h}</span>

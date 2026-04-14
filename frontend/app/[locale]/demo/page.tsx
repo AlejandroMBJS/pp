@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState, type FormEvent } from "react";
 import { CheckCircle2, Loader2, Mail } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { SiteHeader } from "@/components/site-header";
 
 export default function DemoPage() {
@@ -18,6 +19,7 @@ type Status = "idle" | "submitting" | "success" | "error";
 
 function DemoInner() {
   const params = useSearchParams();
+  const t = useTranslations("demo");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [company, setCompany] = useState("");
@@ -27,7 +29,7 @@ function DemoInner() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!name.trim() || !email.trim()) {
-      setError("Nombre y email son requeridos");
+      setError(t("errors.required"));
       return;
     }
     setStatus("submitting");
@@ -46,11 +48,11 @@ function DemoInner() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.error ?? "No pudimos procesar tu solicitud");
+        throw new Error(data.error ?? t("errors.generic"));
       }
       setStatus("success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error inesperado");
+      setError(err instanceof Error ? err.message : t("errors.unexpected"));
       setStatus("error");
     }
   }
@@ -64,66 +66,65 @@ function DemoInner() {
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 mb-6">
               <CheckCircle2 size={32} className="text-emerald-400" />
             </div>
-            <h1 className="text-3xl font-black mb-3">¡Listo!</h1>
+            <h1 className="text-3xl font-black mb-3">{t("success.title")}</h1>
             <p className="text-sm text-white/60 leading-relaxed mb-8">
-              Te enviamos las credenciales a{" "}
+              {t("success.bodyPart1")}{" "}
               <strong className="text-white">{email}</strong>.
               <br />
-              Revisa tu bandeja (y spam por si acaso).
+              {t("success.bodyPart2")}
               <br />
-              El acceso expira en <strong className="text-white">72 horas</strong>.
+              {t("success.bodyPart3")}{" "}
+              <strong className="text-white">{t("success.bodyPart4")}</strong>
+              {t("success.bodyPart5")}
             </p>
             <Link
               href="/login"
               className="inline-block px-6 py-3 rounded-xl bg-white text-black text-sm font-black uppercase tracking-widest"
             >
-              Ir a Login →
+              {t("success.goToLogin")}
             </Link>
           </div>
         ) : (
           <>
-            <h1 className="text-3xl font-black mb-2">Solicita un demo</h1>
-            <p className="text-sm text-white/60 mb-8 leading-relaxed">
-              Te creamos un workspace privado con datos de ejemplo y te enviamos las
-              credenciales por email. Acceso válido por 72 horas, sin tarjeta.
-            </p>
+            <h1 className="text-3xl font-black mb-2">{t("title")}</h1>
+            <p className="text-sm text-white/60 mb-8 leading-relaxed">{t("subtitle")}</p>
             <form onSubmit={onSubmit} className="space-y-4">
               <div>
                 <label className="block text-[10px] uppercase tracking-widest font-bold text-white/50 mb-1.5">
-                  Nombre completo
+                  {t("nameLabel")}
                 </label>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-blue-500/50"
-                  placeholder="Ana García"
+                  placeholder={t("namePlaceholder")}
                   autoComplete="name"
                 />
               </div>
               <div>
                 <label className="block text-[10px] uppercase tracking-widest font-bold text-white/50 mb-1.5">
-                  Email corporativo
+                  {t("emailLabel")}
                 </label>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-blue-500/50"
-                  placeholder="tu@empresa.com"
+                  placeholder={t("emailPlaceholder")}
                   autoComplete="email"
                 />
               </div>
               <div>
                 <label className="block text-[10px] uppercase tracking-widest font-bold text-white/50 mb-1.5">
-                  Empresa <span className="text-white/30 normal-case tracking-normal">(opcional)</span>
+                  {t("companyLabel")} <span className="text-white/30 normal-case tracking-normal">{t("companyOptional")}</span>
                 </label>
                 <input
                   type="text"
                   value={company}
                   onChange={(e) => setCompany(e.target.value)}
                   className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-blue-500/50"
-                  placeholder="Constructora XYZ"
+                  placeholder={t("companyPlaceholder")}
                   autoComplete="organization"
                 />
               </div>
@@ -139,19 +140,19 @@ function DemoInner() {
               >
                 {status === "submitting" ? (
                   <>
-                    <Loader2 size={16} className="animate-spin" /> Enviando...
+                    <Loader2 size={16} className="animate-spin" /> {t("submitting")}
                   </>
                 ) : (
                   <>
-                    <Mail size={16} /> Enviarme credenciales
+                    <Mail size={16} /> {t("submit")}
                   </>
                 )}
               </button>
             </form>
             <p className="text-center text-xs text-white/50 mt-6">
-              ¿Ya tienes cuenta?{" "}
+              {t("haveAccount")}{" "}
               <Link href="/login" className="text-cyan-400 hover:text-cyan-300 font-bold">
-                Entrar
+                {t("signIn")}
               </Link>
             </p>
           </>

@@ -160,8 +160,10 @@ func (s *Service) CheckProjectQuota(ctx context.Context, tenantID string) error 
 		return nil
 	}
 	if !billing.AllowsCount(limits.MaxActiveProjects, current) {
+		s.notifyQuotaBlock(ctx, tenantID, "projects", int64(current+1), int64(limits.MaxActiveProjects))
 		return fmt.Errorf("%w: active_projects (limit %d, current %d)", ErrQuotaExceeded, limits.MaxActiveProjects, current)
 	}
+	s.maybeWarnQuotaInt(ctx, tenantID, "projects", current+1, limits.MaxActiveProjects)
 	return nil
 }
 
@@ -176,14 +178,18 @@ func (s *Service) CheckUserQuota(ctx context.Context, tenantID, role string) err
 		var current int
 		_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role = $2`, tenantID, RoleClient).Scan(&current)
 		if !billing.AllowsCount(limits.MaxClientGuests, current) {
+			s.notifyQuotaBlock(ctx, tenantID, "client_guests", int64(current+1), int64(limits.MaxClientGuests))
 			return fmt.Errorf("%w: client_guests (limit %d, current %d)", ErrQuotaExceeded, limits.MaxClientGuests, current)
 		}
+		s.maybeWarnQuotaInt(ctx, tenantID, "client_guests", current+1, limits.MaxClientGuests)
 	} else {
 		var current int
 		_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role IN ($2, $3, $4)`, tenantID, RoleOwner, RoleSupervisor, RoleHelper).Scan(&current)
 		if !billing.AllowsCount(limits.MaxInternalUsers, current) {
+			s.notifyQuotaBlock(ctx, tenantID, "internal_users", int64(current+1), int64(limits.MaxInternalUsers))
 			return fmt.Errorf("%w: internal_users (limit %d, current %d)", ErrQuotaExceeded, limits.MaxInternalUsers, current)
 		}
+		s.maybeWarnQuotaInt(ctx, tenantID, "internal_users", current+1, limits.MaxInternalUsers)
 	}
 	return nil
 }
@@ -201,8 +207,36 @@ func (s *Service) CheckBlueprintQuota(ctx context.Context, tenantID string) erro
 	var current int
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM blueprints WHERE tenant_id = $1`, tenantID).Scan(&current)
 	if !billing.AllowsCount(limits.MaxBlueprintFiles, current) {
+		s.notifyQuotaBlock(ctx, tenantID, "blueprints", int64(current+1), int64(limits.MaxBlueprintFiles))
 		return fmt.Errorf("%w: blueprint_files (limit %d, current %d)", ErrQuotaExceeded, limits.MaxBlueprintFiles, current)
 	}
+	s.maybeWarnQuotaInt(ctx, tenantID, "blueprints", current+1, limits.MaxBlueprintFiles)
+	return nil
+}
+
+// CheckStorageQuota validates the tenant has remaining storage bytes.
+// Sums file_size_bytes from evidences + blueprints and compares against the
+// plan's MaxStorageBytes. `incoming` is the size of the file about to be
+// stored — pass 0 for a "current state" check.
+func (s *Service) CheckStorageQuota(ctx context.Context, tenantID string, incoming int64) error {
+	if s.isDemoTenant(ctx, tenantID) {
+		return nil
+	}
+	plan := s.effectivePlan(ctx, tenantID)
+	limits := billing.PlanLimits[plan]
+	if limits.MaxStorageBytes == -1 {
+		return nil
+	}
+	var current int64
+	_ = s.db.QueryRowContext(ctx, `
+		SELECT COALESCE((SELECT SUM(file_size_bytes) FROM evidences WHERE tenant_id = $1), 0)
+		     + COALESCE((SELECT SUM(file_size_bytes) FROM blueprints WHERE tenant_id = $1), 0)
+	`, tenantID).Scan(&current)
+	if current+incoming > limits.MaxStorageBytes {
+		return fmt.Errorf("%w: storage_bytes (limit %d, current %d)", ErrQuotaExceeded, limits.MaxStorageBytes, current+incoming)
+	}
+	// Warning at 80%.
+	s.maybeWarnQuota(ctx, tenantID, "storage", current+incoming, limits.MaxStorageBytes)
 	return nil
 }
 
@@ -223,8 +257,10 @@ func (s *Service) CheckCaptureQuota(ctx context.Context, tenantID string) error 
 		tenantID, periodStart,
 	).Scan(&current)
 	if int(current) >= limits.MaxCapturesPerMonth {
+		s.notifyQuotaBlock(ctx, tenantID, "captures", current+1, int64(limits.MaxCapturesPerMonth))
 		return fmt.Errorf("%w: captures_per_month (limit %d, current %d)", ErrQuotaExceeded, limits.MaxCapturesPerMonth, current)
 	}
+	s.maybeWarnQuotaInt(ctx, tenantID, "captures", int(current)+1, limits.MaxCapturesPerMonth)
 	return nil
 }
 
@@ -270,7 +306,10 @@ func (s *Service) GetCurrentUsage(ctx context.Context, tenantID string) UsageSna
 		`SELECT COALESCE(value, 0) FROM usage_metrics WHERE tenant_id = $1 AND metric_type = 'captures_per_month' AND period_start = $2`,
 		tenantID, firstOfMonth(time.Now()),
 	).Scan(&u.CapturesThisMonth)
-	_ = s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(size_bytes), 0) FROM evidences WHERE tenant_id = $1`, tenantID).Scan(&u.StorageBytes)
+	_ = s.db.QueryRowContext(ctx, `
+		SELECT COALESCE((SELECT SUM(file_size_bytes) FROM evidences WHERE tenant_id = $1), 0)
+		     + COALESCE((SELECT SUM(file_size_bytes) FROM blueprints WHERE tenant_id = $1), 0)
+	`, tenantID).Scan(&u.StorageBytes)
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM blueprints WHERE tenant_id = $1`, tenantID).Scan(&u.BlueprintFiles)
 	return u
 }

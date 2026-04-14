@@ -96,6 +96,44 @@ func (r *ResendEmailSender) SendHTML(ctx context.Context, to, subject, html stri
 	return r.send(ctx, to, subject, map[string]any{"html": html})
 }
 
+// SendQuotaWarning sends a "you are at X%" email to a tenant owner. Best-
+// effort: failures are logged and swallowed (mirrors SendDemoCredentials).
+func SendQuotaWarning(ctx context.Context, mailer EmailSender, logger *slog.Logger, to, name, tenant, resource, plan string, pct int, current, limit int64, publicBase string) {
+	if mailer == nil {
+		return
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	subject := fmt.Sprintf("Aviso: %d%% del límite de %s en ProjectPulse", pct, resource)
+	body := fmt.Sprintf(
+		"Hola %s,\n\nTu workspace %s está al %d%% de su límite de %s en el plan %s (uso actual: %d / %d).\n\nConsidera upgradear tu plan para evitar interrupciones: %s/pricing\n\n— ProjectPulse",
+		name, tenant, pct, resource, plan, current, limit, publicBase,
+	)
+	if err := mailer.Send(ctx, to, subject, body); err != nil {
+		logger.Warn("quota warning email failed", "to", to, "err", err.Error())
+	}
+}
+
+// SendQuotaBlock notifies the owner that a quota has been hit and writes are
+// being rejected for that resource.
+func SendQuotaBlock(ctx context.Context, mailer EmailSender, logger *slog.Logger, to, name, tenant, resource, plan string, current, limit int64, publicBase string) {
+	if mailer == nil {
+		return
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	subject := fmt.Sprintf("Alcanzaste el límite de %s en ProjectPulse", resource)
+	body := fmt.Sprintf(
+		"Hola %s,\n\nTu workspace %s alcanzó el límite de %s en el plan %s (%d / %d). Las nuevas operaciones para este recurso quedarán bloqueadas hasta que upgrades el plan.\n\nUpgrade aquí: %s/pricing\n\n— ProjectPulse",
+		name, tenant, resource, plan, current, limit, publicBase,
+	)
+	if err := mailer.Send(ctx, to, subject, body); err != nil {
+		logger.Warn("quota block email failed", "to", to, "err", err.Error())
+	}
+}
+
 // RenderDemoCredentialsEmail builds the HTML body for a demo-credentials email.
 // Kept as a standalone func so the demo service can reuse it without an interface bump.
 func RenderDemoCredentialsEmail(name, loginURL, email, password string, expiresAt time.Time) (subject, html string) {

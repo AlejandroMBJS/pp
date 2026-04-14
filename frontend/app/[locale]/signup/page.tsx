@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { Loader2, UserPlus } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { SiteHeader } from "@/components/site-header";
 
 const STORAGE_KEY = "projectpulse-session";
@@ -19,6 +20,7 @@ function slugify(s: string) {
 
 export default function SignupPage() {
   const router = useRouter();
+  const t = useTranslations("signup");
   const [form, setForm] = useState({
     company_name: "",
     company_slug: "",
@@ -51,7 +53,7 @@ export default function SignupPage() {
     e.preventDefault();
     for (const [k, v] of Object.entries(form)) {
       if (!v.trim()) {
-        setError(`Falta ${k.replace("_", " ")}`);
+        setError(t("errors.missing", { field: k.replace("_", " ") }));
         return;
       }
     }
@@ -64,11 +66,11 @@ export default function SignupPage() {
         body: JSON.stringify(form),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Error creando cuenta");
+      if (!res.ok) throw new Error(data.error ?? t("errors.generic"));
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
       router.replace("/app");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error creando cuenta");
+      setError(err instanceof Error ? err.message : t("errors.generic"));
       setLoading(false);
     }
   }
@@ -77,45 +79,43 @@ export default function SignupPage() {
     <div className="min-h-screen bg-[#0a0e1a] text-white">
       <SiteHeader current="signup" />
       <main className="max-w-md mx-auto px-6 py-16">
-        <h1 className="text-3xl font-black mb-2">Crea tu cuenta</h1>
-        <p className="text-sm text-white/60 mb-8">
-          14 días gratis con todas las funciones. Sin tarjeta.
-        </p>
+        <h1 className="text-3xl font-black mb-2">{t("title")}</h1>
+        <p className="text-sm text-white/60 mb-8">{t("subtitle")}</p>
         <form onSubmit={onSubmit} className="space-y-4">
           <Field
-            label="Nombre de empresa"
+            label={t("companyName")}
             value={form.company_name}
             onChange={(v) => update("company_name", v)}
-            placeholder="Constructora Ejemplo S.A."
+            placeholder={t("companyNamePlaceholder")}
           />
           <Field
-            label="Slug de empresa"
+            label={t("companySlug")}
             value={form.company_slug}
             onChange={(v) => {
               setSlugTouched(true);
               update("company_slug", slugify(v));
             }}
-            placeholder="constructora-ejemplo"
+            placeholder={t("companySlugPlaceholder")}
           />
           <Field
-            label="Tu nombre"
+            label={t("ownerName")}
             value={form.owner_name}
             onChange={(v) => update("owner_name", v)}
-            placeholder="María Pérez"
+            placeholder={t("ownerNamePlaceholder")}
           />
           <Field
-            label="Email"
+            label={t("email")}
             type="email"
             value={form.owner_email}
             onChange={(v) => update("owner_email", v)}
-            placeholder="maria@empresa.com"
+            placeholder={t("emailPlaceholder")}
           />
           <Field
-            label="Contraseña"
+            label={t("password")}
             type="password"
             value={form.password}
             onChange={(v) => update("password", v)}
-            placeholder="Mínimo 8 caracteres"
+            placeholder={t("passwordPlaceholder")}
           />
           {error && (
             <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-semibold">
@@ -129,29 +129,29 @@ export default function SignupPage() {
           >
             {loading ? (
               <>
-                <Loader2 size={16} className="animate-spin" /> Creando...
+                <Loader2 size={16} className="animate-spin" /> {t("submitting")}
               </>
             ) : (
               <>
-                <UserPlus size={16} /> Crear cuenta gratis
+                <UserPlus size={16} /> {t("submit")}
               </>
             )}
           </button>
         </form>
         <p className="text-center text-xs text-white/50 mt-6">
-          ¿Ya tienes cuenta?{" "}
+          {t("haveAccount")}{" "}
           <Link href="/login" className="text-cyan-400 hover:text-cyan-300 font-bold">
-            Entrar
+            {t("signIn")}
           </Link>
         </p>
         <p className="text-center text-[10px] text-white/30 mt-4">
-          Al crear tu cuenta aceptas nuestros{" "}
+          {t("legalPrefix")}{" "}
           <Link href="/legal/terms" className="underline">
-            Términos
+            {t("legalTerms")}
           </Link>{" "}
-          y{" "}
+          {t("legalAnd")}{" "}
           <Link href="/legal/privacy" className="underline">
-            Privacidad
+            {t("legalPrivacy")}
           </Link>
           .
         </p>

@@ -307,6 +307,9 @@ func (s *Service) RegisterBlueprint(ctx context.Context, actor Claims, sessionID
 	if err := s.CheckBlueprintQuota(ctx, tenantID); err != nil {
 		return Blueprint{}, err
 	}
+	if err := s.CheckStorageQuota(ctx, tenantID, intendedSize); err != nil {
+		return Blueprint{}, err
+	}
 	project, err := s.projectByID(ctx, projectID)
 	if err != nil {
 		return Blueprint{}, err
@@ -1213,6 +1216,13 @@ func (s *Service) ConfirmUpload(ctx context.Context, actor Claims, sessionID, me
 	if status != "uploaded" || localPath == "" {
 		return Evidence{}, errors.New("upload not completed")
 	}
+	// Enforce monthly capture quota and total storage quota before persisting.
+	if err := s.CheckCaptureQuota(ctx, tenantID); err != nil {
+		return Evidence{}, err
+	}
+	if err := s.CheckStorageQuota(ctx, tenantID, intendedSize); err != nil {
+		return Evidence{}, err
+	}
 	evidence := Evidence{
 		ID:                 newID("evi"),
 		TenantID:           tenantID,
@@ -1238,6 +1248,7 @@ func (s *Service) ConfirmUpload(ctx context.Context, actor Claims, sessionID, me
 		return Evidence{}, err
 	}
 	_, _ = s.db.ExecContext(ctx, `UPDATE upload_sessions SET status = $1 WHERE id = $2`, "confirmed", sessionID)
+	s.IncrementUsage(ctx, tenantID, "captures_per_month", 1)
 	return evidence, nil
 }
 
@@ -1719,7 +1730,7 @@ func (s *Service) UpdateProject(ctx context.Context, actor Claims, projectID str
 		return Project{}, err
 	}
 	if actor.TenantID != project.TenantID {
-		return Project{}, errors.New("forbidden")
+		return Project{}, sql.ErrNoRows
 	}
 	// Validate assigned users belong to same tenant
 	if patch.SupervisorUserID != "" {

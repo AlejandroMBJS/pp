@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { Loader2, LogIn } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { SiteHeader } from "@/components/site-header";
 
 const STORAGE_KEY = "projectpulse-session";
@@ -19,6 +20,7 @@ export default function LoginPage() {
 function LoginInner() {
   const router = useRouter();
   const params = useSearchParams();
+  const t = useTranslations("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -38,7 +40,7 @@ function LoginInner() {
       body: JSON.stringify(creds),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error ?? "Credenciales inválidas");
+    if (!res.ok) throw new Error(data.error ?? t("errors.invalid"));
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     const rawNext = params.get("next");
     const next = rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/app";
@@ -48,7 +50,7 @@ function LoginInner() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!email.trim() || !password.trim()) {
-      setError("Email y contraseña son requeridos");
+      setError(t("errors.required"));
       return;
     }
     setLoading(true);
@@ -56,7 +58,7 @@ function LoginInner() {
     try {
       await doLogin({ email: email.trim(), password });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error iniciando sesión");
+      setError(err instanceof Error ? err.message : t("errors.generic"));
       setLoading(false);
     }
   }
@@ -65,14 +67,12 @@ function LoginInner() {
     <div className="min-h-screen bg-[#0a0e1a] text-white">
       <SiteHeader current="login" />
       <main className="max-w-md mx-auto px-6 py-16">
-        <h1 className="text-3xl font-black mb-2">Bienvenido de vuelta</h1>
-        <p className="text-sm text-white/60 mb-8">
-          Entra a tu panel de ProjectPulse.
-        </p>
+        <h1 className="text-3xl font-black mb-2">{t("title")}</h1>
+        <p className="text-sm text-white/60 mb-8">{t("subtitle")}</p>
         <form onSubmit={onSubmit} className="space-y-4">
           <div>
             <label className="block text-[10px] uppercase tracking-widest font-bold text-white/50 mb-1.5">
-              Email
+              {t("emailLabel")}
             </label>
             <input
               type="email"
@@ -80,12 +80,12 @@ function LoginInner() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-blue-500/50"
-              placeholder="tu@empresa.com"
+              placeholder={t("emailPlaceholder")}
             />
           </div>
           <div>
             <label className="block text-[10px] uppercase tracking-widest font-bold text-white/50 mb-1.5">
-              Contraseña
+              {t("passwordLabel")}
             </label>
             <input
               type="password"
@@ -93,7 +93,7 @@ function LoginInner() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-blue-500/50"
-              placeholder="••••••••"
+              placeholder={t("passwordPlaceholder")}
             />
           </div>
           {error && (
@@ -108,19 +108,19 @@ function LoginInner() {
           >
             {loading ? (
               <>
-                <Loader2 size={16} className="animate-spin" /> Entrando...
+                <Loader2 size={16} className="animate-spin" /> {t("submitting")}
               </>
             ) : (
               <>
-                <LogIn size={16} /> Entrar
+                <LogIn size={16} /> {t("submit")}
               </>
             )}
           </button>
         </form>
         <p className="text-center text-xs text-white/50 mt-6">
-          ¿No tienes cuenta?{" "}
+          {t("noAccount")}{" "}
           <Link href="/signup" className="text-cyan-400 hover:text-cyan-300 font-bold">
-            Crear una gratis
+            {t("createOne")}
           </Link>
         </p>
         <div className="mt-8 pt-6 border-t border-white/5 text-center">
@@ -128,7 +128,7 @@ function LoginInner() {
             href="/demo"
             className="text-[11px] text-white/40 hover:text-white/70 font-semibold uppercase tracking-widest"
           >
-            ¿Quieres probar la plataforma? Solicita un demo →
+            {t("tryDemo")}
           </Link>
         </div>
       </main>

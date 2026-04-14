@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -129,6 +130,11 @@ func (s *Server) Routes() http.Handler {
 		protected.Delete("/api/v1/messages/{messageID}", s.handleDeleteMessage)
 		protected.Get("/api/v1/projects/{projectID}/budget-adjustments", s.handleListBudgetAdjustments)
 		protected.Post("/api/v1/projects/{projectID}/budget-adjustments", s.handleCreateBudgetAdjustment)
+
+		// Notifications (in-app)
+		protected.Get("/api/v1/notifications", s.handleListNotifications)
+		protected.Post("/api/v1/notifications/{notificationID}/read", s.handleReadNotification)
+		protected.Post("/api/v1/notifications/read-all", s.handleReadAllNotifications)
 
 		// Billing
 		protected.Get("/api/v1/billing/subscription", s.handleGetSubscription)
@@ -646,6 +652,9 @@ func (s *Server) handleConfirmUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	evidence, err := s.service.ConfirmUpload(r.Context(), s.actor(r), req.UploadSessionID, req.MetadataEXIF)
 	if err != nil {
+		if writeBillingError(w, err) {
+			return
+		}
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "forbidden") {
 			status = http.StatusForbidden
@@ -882,7 +891,9 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	updated, err := s.service.UpdateProject(r.Context(), s.actor(r), chi.URLParam(r, "projectID"), patch)
 	if err != nil {
 		status := http.StatusBadRequest
-		if strings.Contains(err.Error(), "forbidden") {
+		if errors.Is(err, sql.ErrNoRows) {
+			status = http.StatusNotFound
+		} else if strings.Contains(err.Error(), "forbidden") {
 			status = http.StatusForbidden
 		}
 		writeJSON(w, status, map[string]any{"error": err.Error()})

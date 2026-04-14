@@ -5,6 +5,7 @@ import { X, Check, Loader2, Sparkles, Mail } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useBilling } from "./billing-context";
 import { PAID_PLANS, type PlanId } from "../lib/plans";
+import { PlanCard } from "./pricing/plan-card";
 
 const MODAL_PLANS = PAID_PLANS;
 
@@ -209,59 +210,32 @@ export function UpgradeModal({ isOpen, onClose, token, reason }: Props) {
             )}
           </div>
         ) : (
-          <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4 overflow-y-auto max-h-[70vh]">
+          <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4 overflow-y-auto max-h-[70vh] items-stretch">
             {MODAL_PLANS.map((plan) => (
-              <div
+              <PlanCard
                 key={plan.id}
-                className={`relative rounded-2xl border p-5 flex flex-col ${
-                  plan.highlight
-                    ? "border-blue-500/50 bg-blue-500/[0.04] shadow-[0_0_20px_rgba(59,130,246,0.15)]"
-                    : "border-white/10 bg-white/[0.02]"
-                }`}
-              >
-                {plan.highlight && (
-                  <div className="absolute -top-3 left-5 px-2 py-0.5 bg-blue-500 rounded-full text-[9px] font-black uppercase tracking-widest text-white">
-                    Recomendado
-                  </div>
-                )}
-                <h3 className="text-lg font-black text-white">{tp(`${plan.id}.name`)}</h3>
-                <p className="text-[11px] text-white/40 mt-0.5">{tp(`${plan.id}.tagline`)}</p>
-                <div className="mt-3 mb-4">
-                  <span className="text-2xl font-black text-white">
-                    {plan.priceAmount === null ? tp("priceCustom") : plan.priceDisplay}
-                  </span>
-                  {plan.priceAmount !== null && (
-                    <span className="text-xs text-white/40 ml-1">{tp("priceSuffix")}</span>
-                  )}
-                </div>
-                <ul className="space-y-2 mb-5 flex-1">
-                  {(tp.raw(`${plan.id}.features`) as string[]).map((h) => (
-                    <li key={h} className="flex items-start gap-2 text-xs text-white/70">
-                      <Check size={14} className="text-blue-400 shrink-0 mt-0.5" />
-                      <span>{h}</span>
-                    </li>
-                  ))}
-                </ul>
-                <button
-                  onClick={() => (plan.cta === "contact" ? setShowContact(true) : startCheckout(plan.id))}
-                  disabled={loading !== null}
-                  className={`w-full py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
-                    plan.highlight
-                      ? "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20"
-                      : "bg-white/10 hover:bg-white/15 text-white"
-                  } disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2`}
-                >
-                  {loading === plan.id ? (
-                    <>
-                      <Loader2 size={14} className="animate-spin" /> Cargando...
-                    </>
-                  ) : plan.cta === "contact" ? (
-                    "Contactar ventas"
-                  ) : (
-                    "Elegir plan"
-                  )}
-                </button>
-              </div>
+                plan={plan}
+                variant="full"
+                texts={{
+                  name: tp(`${plan.id}.name`),
+                  tagline: tp(`${plan.id}.tagline`),
+                  features: tp.raw(`${plan.id}.features`) as string[],
+                  ctaLabel:
+                    loading === plan.id
+                      ? "Cargando..."
+                      : plan.cta === "contact"
+                        ? "Contactar ventas"
+                        : "Elegir plan",
+                  priceCustom: tp("priceCustom"),
+                  priceSuffix: tp("priceSuffix"),
+                  badgeLabel: tp("mostPopular"),
+                }}
+                onCta={() =>
+                  plan.cta === "contact" ? setShowContact(true) : startCheckout(plan.id)
+                }
+                loading={loading === plan.id}
+                disabled={loading !== null}
+              />
             ))}
           </div>
         )}

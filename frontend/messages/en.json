@@ -192,6 +192,7 @@
   "plans": {
     "priceSuffix": "USD/month",
     "priceCustom": "Custom",
+    "mostPopular": "Most popular",
     "starter": {
       "name": "Starter",
       "tagline": "Try the platform, no credit card",

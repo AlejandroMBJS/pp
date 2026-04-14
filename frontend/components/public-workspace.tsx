@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, type FormEvent } from "react";
+import { useEffect, useState, useRef, type FormEvent } from "react";
 import { Input } from "./ui/form-input";
 import { Briefcase, Building2, ChevronRight, Key, Mail, ShieldCheck, User } from "lucide-react";
 
@@ -55,6 +55,48 @@ export function PublicWorkspace({
   const [activeTab, setActiveTab] = useState<"login" | "register">("login");
   const [demoFilled, setDemoFilled] = useState(false);
   const loginFormRef = useRef<HTMLFormElement>(null);
+  const [inviteInfo, setInviteInfo] = useState<{
+    email: string;
+    full_name: string;
+    role: string;
+    company_name: string;
+  } | null>(null);
+  const [inviteLookupState, setInviteLookupState] = useState<"idle" | "loading" | "ok" | "error">(
+    inviteToken ? "loading" : "idle"
+  );
+
+  useEffect(() => {
+    if (!inviteToken) {
+      setInviteInfo(null);
+      setInviteLookupState("idle");
+      return;
+    }
+    let cancelled = false;
+    setInviteLookupState("loading");
+    fetch(`/api/v1/auth/invite/${encodeURIComponent(inviteToken)}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error("lookup failed");
+        return res.json();
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setInviteInfo({
+          email: data.email,
+          full_name: data.full_name,
+          role: data.role,
+          company_name: data.company_name,
+        });
+        setInviteLookupState("ok");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setInviteInfo(null);
+        setInviteLookupState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [inviteToken]);
 
   return (
     <div
@@ -186,9 +228,25 @@ export function PublicWorkspace({
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                   <div className="mb-8">
                     <h2 className="text-2xl font-black text-white tracking-tight">Activate your account</h2>
-                    <p className="mt-2 text-sm text-white/30 font-medium">
-                      Set your password to enter the ProjectPulse workspace. Your invite link is single-use and expires automatically.
-                    </p>
+                    {inviteLookupState === "loading" && (
+                      <p className="mt-2 text-sm text-white/30 font-medium">Loading invite…</p>
+                    )}
+                    {inviteLookupState === "error" && (
+                      <p className="mt-2 text-sm text-red-400 font-medium">
+                        This invite link is invalid or has expired. Ask your administrator to send a new one.
+                      </p>
+                    )}
+                    {inviteLookupState === "ok" && inviteInfo && (
+                      <div className="mt-3 rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3">
+                        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-300 mb-1">
+                          Setting password for
+                        </div>
+                        <div className="text-sm font-bold text-white truncate">{inviteInfo.email}</div>
+                        <div className="text-xs text-white/50 mt-0.5">
+                          {inviteInfo.full_name} · {inviteInfo.company_name} · <span className="capitalize">{inviteInfo.role}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <form onSubmit={onSetupAccount} className="grid gap-5">
                     <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-xs leading-relaxed text-emerald-100/85">
@@ -219,7 +277,7 @@ export function PublicWorkspace({
                     )}
                     <button
                       className="btn-primary w-full py-5 text-sm font-black uppercase tracking-[0.2em] shadow-xl shadow-emerald-500/20 active:scale-98 transition-transform disabled:opacity-50 mt-4 rounded-3xl"
-                      disabled={loading || !inviteSetupForm.password.trim() || !inviteSetupForm.confirmPassword.trim() || inviteSetupForm.password !== inviteSetupForm.confirmPassword}
+                      disabled={loading || inviteLookupState !== "ok" || !inviteSetupForm.password.trim() || !inviteSetupForm.confirmPassword.trim() || inviteSetupForm.password !== inviteSetupForm.confirmPassword}
                     >
                       {loading ? "Activating..." : "Activate account"}
                     </button>

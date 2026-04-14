@@ -48,6 +48,7 @@ func (s *Server) Routes() http.Handler {
 		pub.Post("/api/v1/auth/register", s.handleRegister)
 		pub.Post("/api/v1/auth/login", s.handleLogin)
 		pub.Post("/api/v1/auth/setup-account", s.handleSetupAccount)
+		pub.Get("/api/v1/auth/invite/{token}", s.handleLookupInvite)
 		pub.Post("/api/v1/auth/verify-email", s.handleVerifyEmail)
 		pub.Post("/api/v1/auth/resend-verification", s.handleResendVerification)
 	})
@@ -81,6 +82,13 @@ func (s *Server) Routes() http.Handler {
 		protected.Get("/api/v1/users", s.handleListUsers)
 		protected.Post("/api/v1/users", s.handleCreateUser)
 		protected.Post("/api/v1/users/invite", s.handleInviteUser)
+		protected.Patch("/api/v1/users/{userID}", s.handleAdminPatchUser)
+		protected.Post("/api/v1/users/{userID}/set-password", s.handleAdminSetPassword)
+		protected.Post("/api/v1/users/{userID}/resend-invite", s.handleAdminResendInvite)
+		protected.Delete("/api/v1/users/{userID}", s.handleAdminDeleteUser)
+
+		protected.Get("/api/v1/me/notifications", s.handleGetNotificationPrefs)
+		protected.Patch("/api/v1/me/notifications", s.handleUpdateNotificationPrefs)
 
 		protected.Get("/api/v1/projects", s.handleListProjects)
 		protected.Get("/api/v1/projects/{projectID}/tasks", s.handleProjectTasks)
@@ -162,6 +170,15 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		if err != nil {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid token"})
 			return
+		}
+		// Block tokens belonging to users that have been suspended or deleted
+		// since the JWT was issued. Platform admins (no tenant) bypass the check.
+		if claims.UserID != "" && claims.TenantID != "" {
+			u, uerr := s.service.UserByID(r.Context(), claims.UserID)
+			if uerr != nil || !u.IsActive {
+				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "account is suspended or deleted"})
+				return
+			}
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), actorKey{}, claims)))
 	})
@@ -380,6 +397,16 @@ func (s *Server) handleInviteUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, invite)
 }
 
+func (s *Server) handleLookupInvite(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	info, err := s.service.LookupInvite(r.Context(), token)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "invalid or expired invite"})
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
 func (s *Server) handleSetupAccount(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Token    string `json:"token"`
@@ -394,6 +421,100 @@ func (s *Server) handleSetupAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, login)
+}
+
+func (s *Server) handleGetNotificationPrefs(w http.ResponseWriter, r *http.Request) {
+	actor := s.actor(r)
+	prefs, err := s.service.GetNotificationPrefs(r.Context(), actor.UserID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"preferences": prefs})
+}
+
+func (s *Server) handleUpdateNotificationPrefs(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Preferences map[string]bool `json:"preferences"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	actor := s.actor(r)
+	prefs, err := s.service.UpdateNotificationPrefs(r.Context(), actor.UserID, req.Preferences)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"preferences": prefs})
+}
+
+func (s *Server) handleAdminPatchUser(w http.ResponseWriter, r *http.Request) {
+	var patch app.AdminUserPatch
+	if !decodeJSON(w, r, &patch) {
+		return
+	}
+	user, err := s.service.AdminUpdateUser(r.Context(), s.actor(r), chi.URLParam(r, "userID"), patch)
+	if err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "forbidden") {
+			status = http.StatusForbidden
+		} else if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, user)
+}
+
+func (s *Server) handleAdminSetPassword(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Password string `json:"password"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if err := s.service.AdminSetUserPassword(r.Context(), s.actor(r), chi.URLParam(r, "userID"), req.Password); err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "forbidden") {
+			status = http.StatusForbidden
+		} else if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleAdminResendInvite(w http.ResponseWriter, r *http.Request) {
+	invite, err := s.service.AdminResendInvite(r.Context(), s.actor(r), chi.URLParam(r, "userID"))
+	if err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "forbidden") {
+			status = http.StatusForbidden
+		} else if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, invite)
+}
+
+func (s *Server) handleAdminDeleteUser(w http.ResponseWriter, r *http.Request) {
+	if err := s.service.AdminDeleteUser(r.Context(), s.actor(r), chi.URLParam(r, "userID")); err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "forbidden") {
+			status = http.StatusForbidden
+		} else if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {

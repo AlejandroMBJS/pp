@@ -105,14 +105,19 @@ func (s *Service) RegisterCompanyOwner(ctx context.Context, companyName, company
 
 func (s *Service) Login(ctx context.Context, email, password string) (LoginResponse, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
-	row := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, email, password_hash, full_name, role, email_verified FROM users WHERE email = $1`, email)
+	row := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, email, password_hash, full_name, role, email_verified, COALESCE(is_active, TRUE), deleted_at FROM users WHERE email = $1`, email)
 	var user User
 	var passwordHash string
-	if err := row.Scan(&user.ID, &user.TenantID, &user.Email, &passwordHash, &user.FullName, &user.Role, &user.EmailVerified); err != nil {
+	var deletedAt sql.NullString
+	if err := row.Scan(&user.ID, &user.TenantID, &user.Email, &passwordHash, &user.FullName, &user.Role, &user.EmailVerified, &user.IsActive, &deletedAt); err != nil {
 		return LoginResponse{}, errors.New("invalid credentials")
 	}
 	if err := ComparePassword(passwordHash, password); err != nil {
 		s.logger.Warn("invalid login attempt", "email", email)
+		return LoginResponse{}, errors.New("invalid credentials")
+	}
+	if !user.IsActive || deletedAt.Valid {
+		s.logger.Warn("login blocked: inactive user", "email", email)
 		return LoginResponse{}, errors.New("invalid credentials")
 	}
 	s.logger.Info("user logged in", "email", user.Email, "user_id", user.ID)
@@ -148,6 +153,19 @@ func validateInviteRole(role string) error {
 		return errors.New("cannot create this role from owner flow")
 	}
 	if role != RoleSupervisor && role != RoleHelper && role != RoleClient {
+		return errors.New("invalid role")
+	}
+	return nil
+}
+
+// validateManagedRole allows role promotion/demotion within a tenant, including
+// to owner. The platform admin role is still forbidden — it is never tenant-
+// scoped.
+func validateManagedRole(role string) error {
+	if role == RoleAdmin {
+		return errors.New("cannot assign platform admin role")
+	}
+	if role != RoleOwner && role != RoleSupervisor && role != RoleHelper && role != RoleClient {
 		return errors.New("invalid role")
 	}
 	return nil
@@ -194,7 +212,7 @@ func (s *Service) inviteURLForToken(token string) string {
 	if baseURL == "" {
 		baseURL = "http://localhost:1212"
 	}
-	return fmt.Sprintf("%s/?invite=%s", baseURL, url.QueryEscape(token))
+	return fmt.Sprintf("%s/app?invite=%s", baseURL, url.QueryEscape(token))
 }
 
 func (s *Service) InviteUser(ctx context.Context, actor Claims, fullName, email, role string) (UserInviteResponse, error) {
@@ -249,6 +267,34 @@ func (s *Service) InviteUser(ctx context.Context, actor Claims, fullName, email,
 		User:            user,
 		InviteURL:       inviteURL,
 		InviteExpiresAt: expiresAt,
+	}, nil
+}
+
+func (s *Service) LookupInvite(ctx context.Context, token string) (InviteLookupResponse, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return InviteLookupResponse{}, errors.New("invalid or expired invite")
+	}
+	var email, fullName, role, companyName, expiresAt string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT u.email, u.full_name, u.role, t.name, v.expires_at
+		FROM verifications v
+		JOIN users u ON u.id = v.user_id
+		JOIN tenants t ON t.id = v.tenant_id
+		WHERE v.token = $1 AND v.type = 'account_setup'
+	`, token).Scan(&email, &fullName, &role, &companyName, &expiresAt)
+	if err != nil {
+		return InviteLookupResponse{}, errors.New("invalid or expired invite")
+	}
+	if time.Now().UTC().After(parseTime(expiresAt)) {
+		return InviteLookupResponse{}, errors.New("invalid or expired invite")
+	}
+	return InviteLookupResponse{
+		Email:       email,
+		FullName:    fullName,
+		Role:        role,
+		CompanyName: companyName,
+		ExpiresAt:   expiresAt,
 	}, nil
 }
 
@@ -699,7 +745,7 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 
 func (s *Service) UserByID(ctx context.Context, userID string) (User, error) {
 	var user User
-	err := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, email, full_name, role FROM users WHERE id = $1`, userID).Scan(&user.ID, &user.TenantID, &user.Email, &user.FullName, &user.Role)
+	err := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, email, full_name, role, COALESCE(is_active, TRUE) FROM users WHERE id = $1`, userID).Scan(&user.ID, &user.TenantID, &user.Email, &user.FullName, &user.Role, &user.IsActive)
 	return user, err
 }
 
@@ -707,7 +753,7 @@ func (s *Service) ListUsers(ctx context.Context, actor Claims) ([]User, error) {
 	if actor.Role != RoleOwner && actor.Role != RoleSupervisor {
 		return nil, errors.New("forbidden")
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, email, full_name, role FROM users WHERE tenant_id = $1 ORDER BY role, full_name`, actor.TenantID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, email, full_name, role, COALESCE(is_active, TRUE) FROM users WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY role, full_name`, actor.TenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -715,7 +761,7 @@ func (s *Service) ListUsers(ctx context.Context, actor Claims) ([]User, error) {
 	users := make([]User, 0)
 	for rows.Next() {
 		var user User
-		if err := rows.Scan(&user.ID, &user.TenantID, &user.Email, &user.FullName, &user.Role); err != nil {
+		if err := rows.Scan(&user.ID, &user.TenantID, &user.Email, &user.FullName, &user.Role, &user.IsActive); err != nil {
 			return nil, err
 		}
 		users = append(users, user)
@@ -748,6 +794,229 @@ func (s *Service) CreateUser(ctx context.Context, actor Claims, fullName, email,
 		return User{}, err
 	}
 	return s.createUserRecord(ctx, actor, fullName, email, passwordHash, role)
+}
+
+// AdminUpdateUser updates role/full_name/is_active for a user in the same tenant.
+// Guards: only owner/admin can manage; can't modify self; can't demote the last
+// active owner of a tenant.
+func (s *Service) AdminUpdateUser(ctx context.Context, actor Claims, userID string, patch AdminUserPatch) (User, error) {
+	if s.permissionEffect(ctx, actor.Role, "user.manage") != "allow" {
+		return User{}, errors.New("forbidden")
+	}
+	target, err := s.UserByID(ctx, userID)
+	if err != nil {
+		return User{}, errors.New("user not found")
+	}
+	if target.TenantID != actor.TenantID {
+		return User{}, errors.New("forbidden")
+	}
+	if target.ID == actor.UserID && patch.Role != nil && *patch.Role != actor.Role {
+		return User{}, errors.New("you cannot change your own role")
+	}
+	if target.ID == actor.UserID && patch.IsActive != nil && !*patch.IsActive {
+		return User{}, errors.New("you cannot deactivate yourself")
+	}
+	if patch.Role != nil {
+		if err := validateManagedRole(*patch.Role); err != nil {
+			return User{}, err
+		}
+		if target.Role == RoleOwner && *patch.Role != RoleOwner {
+			var ownerCount int
+			if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role = 'owner' AND is_active = TRUE AND deleted_at IS NULL`, actor.TenantID).Scan(&ownerCount); err != nil {
+				return User{}, err
+			}
+			if ownerCount <= 1 {
+				return User{}, errors.New("cannot demote the last active owner")
+			}
+		}
+	}
+	setClauses := []string{}
+	args := []any{}
+	i := 1
+	if patch.Role != nil {
+		setClauses = append(setClauses, fmt.Sprintf("role = $%d", i))
+		args = append(args, *patch.Role)
+		i++
+	}
+	if patch.FullName != nil {
+		name := strings.TrimSpace(*patch.FullName)
+		if name == "" {
+			return User{}, errors.New("full_name cannot be empty")
+		}
+		setClauses = append(setClauses, fmt.Sprintf("full_name = $%d", i))
+		args = append(args, name)
+		i++
+	}
+	if patch.IsActive != nil {
+		setClauses = append(setClauses, fmt.Sprintf("is_active = $%d", i))
+		args = append(args, *patch.IsActive)
+		i++
+	}
+	if len(setClauses) == 0 {
+		return target, nil
+	}
+	setClauses = append(setClauses, "updated_at = NOW()")
+	args = append(args, userID)
+	query := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d", strings.Join(setClauses, ", "), i)
+	if _, err := s.db.ExecContext(ctx, query, args...); err != nil {
+		return User{}, err
+	}
+	s.logger.Info("user.admin_updated", "actor_id", actor.UserID, "user_id", userID, "tenant_id", actor.TenantID)
+	return s.UserByID(ctx, userID)
+}
+
+// AdminSetUserPassword hashes and stores a new password for a user in the
+// same tenant. Used by owners for offline-bootstrapping or forced resets.
+func (s *Service) AdminSetUserPassword(ctx context.Context, actor Claims, userID, password string) error {
+	if s.permissionEffect(ctx, actor.Role, "user.manage") != "allow" {
+		return errors.New("forbidden")
+	}
+	target, err := s.UserByID(ctx, userID)
+	if err != nil {
+		return errors.New("user not found")
+	}
+	if target.TenantID != actor.TenantID {
+		return errors.New("forbidden")
+	}
+	if err := validateAccountSetupPassword(password); err != nil {
+		return err
+	}
+	hash, err := HashPassword(password)
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE users SET password_hash = $1, email_verified = true, updated_at = NOW() WHERE id = $2`, hash, userID); err != nil {
+		return err
+	}
+	s.logger.Info("user.password_set_by_admin", "actor_id", actor.UserID, "user_id", userID, "tenant_id", actor.TenantID)
+	return nil
+}
+
+// AdminDeleteUser soft-deletes a user: marks deleted_at, flips is_active.
+// Keeps the row so FK references from projects/tasks/evidence stay intact.
+func (s *Service) AdminDeleteUser(ctx context.Context, actor Claims, userID string) error {
+	if s.permissionEffect(ctx, actor.Role, "user.manage") != "allow" {
+		return errors.New("forbidden")
+	}
+	target, err := s.UserByID(ctx, userID)
+	if err != nil {
+		return errors.New("user not found")
+	}
+	if target.TenantID != actor.TenantID {
+		return errors.New("forbidden")
+	}
+	if target.ID == actor.UserID {
+		return errors.New("you cannot delete yourself")
+	}
+	if target.Role == RoleOwner {
+		var ownerCount int
+		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role = 'owner' AND is_active = TRUE AND deleted_at IS NULL`, actor.TenantID).Scan(&ownerCount); err != nil {
+			return err
+		}
+		if ownerCount <= 1 {
+			return errors.New("cannot delete the last active owner")
+		}
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE users SET is_active = FALSE, deleted_at = NOW(), updated_at = NOW() WHERE id = $1`, userID); err != nil {
+		return err
+	}
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM verifications WHERE user_id = $1`, userID)
+	s.logger.Info("user.deleted", "actor_id", actor.UserID, "user_id", userID, "tenant_id", actor.TenantID)
+	return nil
+}
+
+// AdminResendInvite regenerates the invite token for a user that hasn't
+// completed setup yet (email_verified=false). Returns a fresh invite URL.
+func (s *Service) AdminResendInvite(ctx context.Context, actor Claims, userID string) (UserInviteResponse, error) {
+	if s.permissionEffect(ctx, actor.Role, "user.manage") != "allow" {
+		return UserInviteResponse{}, errors.New("forbidden")
+	}
+	target, err := s.UserByID(ctx, userID)
+	if err != nil {
+		return UserInviteResponse{}, errors.New("user not found")
+	}
+	if target.TenantID != actor.TenantID {
+		return UserInviteResponse{}, errors.New("forbidden")
+	}
+	inviteToken, err := GenerateSecureToken(32)
+	if err != nil {
+		return UserInviteResponse{}, err
+	}
+	expiresAt := time.Now().UTC().Add(72 * time.Hour).Format(time.RFC3339)
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM verifications WHERE user_id = $1 AND type = 'account_setup'`, target.ID)
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO verifications (id, tenant_id, user_id, type, token, expires_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`, newID("ver"), target.TenantID, target.ID, "account_setup", inviteToken, expiresAt, nowText()); err != nil {
+		return UserInviteResponse{}, err
+	}
+	inviteURL := s.inviteURLForToken(inviteToken)
+	go func() {
+		_ = s.mailer.Send(context.Background(), target.Email, "ProjectPulse account setup", fmt.Sprintf("Hello %s,\n\nYour ProjectPulse invite was re-sent. Activate your account here:\n%s\n\nThis link expires on %s UTC.", target.FullName, inviteURL, expiresAt))
+	}()
+	s.logger.Info("user.invite_resent", "actor_id", actor.UserID, "user_id", userID, "tenant_id", actor.TenantID)
+	return UserInviteResponse{User: target, InviteURL: inviteURL, InviteExpiresAt: expiresAt}, nil
+}
+
+// NotificationPrefKeys is the fixed set of notification toggles exposed to
+// users. Anything outside this list is rejected to keep storage bounded.
+var NotificationPrefKeys = []string{
+	"evidence_pending",
+	"task_due",
+	"deliverable_approved",
+	"budget_alert",
+	"weekly_summary",
+	"critical_alerts",
+}
+
+func isValidNotificationKey(key string) bool {
+	for _, k := range NotificationPrefKeys {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
+// GetNotificationPrefs returns the caller's notification preferences. Keys
+// never written default to true so new users see a sensible initial state.
+func (s *Service) GetNotificationPrefs(ctx context.Context, userID string) (map[string]bool, error) {
+	prefs := make(map[string]bool, len(NotificationPrefKeys))
+	for _, k := range NotificationPrefKeys {
+		prefs[k] = true
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT key, enabled FROM user_notification_preferences WHERE user_id = $1`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		var enabled bool
+		if err := rows.Scan(&key, &enabled); err != nil {
+			return nil, err
+		}
+		if _, ok := prefs[key]; ok {
+			prefs[key] = enabled
+		}
+	}
+	return prefs, rows.Err()
+}
+
+// UpdateNotificationPrefs upserts the provided keys for the caller.
+func (s *Service) UpdateNotificationPrefs(ctx context.Context, userID string, patch map[string]bool) (map[string]bool, error) {
+	for key := range patch {
+		if !isValidNotificationKey(key) {
+			return nil, fmt.Errorf("unknown notification key: %s", key)
+		}
+	}
+	for key, enabled := range patch {
+		if _, err := s.db.ExecContext(ctx, `
+			INSERT INTO user_notification_preferences (user_id, key, enabled, updated_at)
+			VALUES ($1, $2, $3, NOW())
+			ON CONFLICT (user_id, key) DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = NOW()
+		`, userID, key, enabled); err != nil {
+			return nil, err
+		}
+	}
+	return s.GetNotificationPrefs(ctx, userID)
 }
 
 // ErrForbidden is returned when an actor lacks permission for an action.

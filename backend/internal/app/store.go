@@ -443,6 +443,18 @@ func (s *Service) runMigrations(ctx context.Context) error {
 		`},
 		{22, "idx_demo_leads_email", `CREATE INDEX IF NOT EXISTS idx_demo_leads_email ON demo_leads(email)`},
 		{23, "idx_demo_leads_expires", `CREATE INDEX IF NOT EXISTS idx_demo_leads_expires ON demo_leads(expires_at) WHERE purged_at IS NULL`},
+		{24, "alter_users_is_active", `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE`},
+		{25, "alter_users_deleted_at", `ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`},
+		{26, "alter_users_updated_at", `ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`},
+		{27, "create_user_notification_prefs", `
+			CREATE TABLE IF NOT EXISTS user_notification_preferences (
+				user_id   TEXT NOT NULL,
+				key       TEXT NOT NULL,
+				enabled   BOOLEAN NOT NULL DEFAULT TRUE,
+				updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+				PRIMARY KEY (user_id, key)
+			)
+		`},
 	}
 
 	for _, m := range steps {

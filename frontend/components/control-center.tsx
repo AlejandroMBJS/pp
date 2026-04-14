@@ -36,7 +36,7 @@ type DemoPayload = {
   suggested_flow: string[];
 };
 
-type User = { id: string; tenant_id: string; email: string; full_name: string; role: string };
+type User = { id: string; tenant_id: string; email: string; full_name: string; role: string; is_active?: boolean; email_verified?: boolean };
 type LoginResponse = { access_token: string; user: User };
 type UserInviteResponse = { user: User; invite_url: string; invite_expires_at: string };
 
@@ -411,8 +411,13 @@ export function ControlCenter() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    setInviteToken(params.get("invite") ?? "");
-    const raw = window.localStorage.getItem(storageKey) ?? window.localStorage.getItem(legacyStorageKey);
+    const inviteParam = params.get("invite") ?? "";
+    setInviteToken(inviteParam);
+    // If the URL carries an invite token, skip restoring any stale session —
+    // the invitee must complete setup before landing on the dashboard.
+    const raw = inviteParam
+      ? null
+      : window.localStorage.getItem(storageKey) ?? window.localStorage.getItem(legacyStorageKey);
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
@@ -1521,6 +1526,10 @@ export function ControlCenter() {
         companyName={session.user.full_name ?? "Mi Empresa"}
         userCount={users.length}
         users={users}
+        currentUserId={session.user.id}
+        currentUserRole={session.user.role}
+        token={session.access_token}
+        onUsersChanged={() => refreshRoleData(session)}
       />
       <SettingsProjectModal
         open={settingsProjectOpen}

@@ -104,6 +104,13 @@ type User struct {
 	FullName      string `json:"full_name"`
 	Role          string `json:"role"`
 	EmailVerified bool   `json:"email_verified"`
+	IsActive      bool   `json:"is_active"`
+}
+
+type AdminUserPatch struct {
+	Role     *string `json:"role,omitempty"`
+	FullName *string `json:"full_name,omitempty"`
+	IsActive *bool   `json:"is_active,omitempty"`
 }
 
 type Tenant struct {
@@ -279,6 +286,14 @@ type UserInviteResponse struct {
 	User            User   `json:"user"`
 	InviteURL       string `json:"invite_url"`
 	InviteExpiresAt string `json:"invite_expires_at"`
+}
+
+type InviteLookupResponse struct {
+	Email       string `json:"email"`
+	FullName    string `json:"full_name"`
+	Role        string `json:"role"`
+	CompanyName string `json:"company_name"`
+	ExpiresAt   string `json:"expires_at"`
 }
 
 type Dashboard struct {

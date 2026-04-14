@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import {
   MapPin,
@@ -30,6 +31,7 @@ import {
 import { LandingSeo } from "@/components/landing-seo";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
+import { PlanCard } from "@/components/pricing/plan-card";
 import { PLANS } from "@/lib/plans";
 
 // Bypass Cloudflare / CDN caching so landing edits ship instantly.
@@ -58,9 +60,15 @@ type Kpi = { v: string; l: string };
 
 export default async function HomePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: string }>;
+  searchParams: Promise<{ invite?: string }>;
 }) {
+  const { invite } = await searchParams;
+  if (invite) {
+    redirect(`/app?invite=${encodeURIComponent(invite)}`);
+  }
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "landing" });
   const tp = await getTranslations({ locale, namespace: "plans" });
@@ -442,51 +450,28 @@ export default async function HomePage({
             </h2>
             <p className="text-white/60 text-lg">{t("pricing.subtitle")}</p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 max-w-5xl mx-auto items-stretch">
             {PLANS.map((plan) => (
-              <div
+              <PlanCard
                 key={plan.id}
-                className={`relative rounded-2xl border p-6 flex flex-col ${
-                  plan.highlight
-                    ? "border-blue-500/50 bg-gradient-to-br from-blue-500/10 to-cyan-500/[0.03] shadow-[0_0_40px_rgba(59,130,246,0.15)]"
-                    : "border-white/10 bg-white/[0.02] hover:border-white/20"
-                } transition-all`}
-              >
-                {plan.highlight && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-gradient-to-r from-blue-500 to-cyan-400 text-[9px] font-black uppercase tracking-widest">
-                    {t("pricing.mostPopular")}
-                  </div>
-                )}
-                <h3 className="font-black text-lg">{tp(`${plan.id}.name`)}</h3>
-                <div className="mt-2 mb-3 flex items-baseline gap-1">
-                  <span className="text-3xl font-black">
-                    {plan.priceAmount === null ? tp("priceCustom") : plan.priceDisplay}
-                  </span>
-                  {plan.priceAmount !== null && (
-                    <span className="text-[11px] text-white/40">{tp("priceSuffix")}</span>
-                  )}
-                </div>
-                <p className="text-[11px] text-white/50 mb-5 flex-1 leading-relaxed">
-                  {tp(`${plan.id}.tagline`)}
-                </p>
-                <ul className="space-y-2 mb-6 text-[11px] text-white/70">
-                  {(tp.raw(`${plan.id}.features`) as string[]).slice(0, 5).map((f) => (
-                    <li key={f} className="flex gap-2">
-                      <Check size={13} className="text-cyan-400 shrink-0 mt-0.5" /> {f}
-                    </li>
-                  ))}
-                </ul>
-                <Link
-                  href={plan.id === "enterprise" ? "/pricing#enterprise" : "/signup"}
-                  className={`block text-center py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
-                    plan.highlight
-                      ? "bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400"
-                      : "bg-white/5 hover:bg-white/10 border border-white/10"
-                  }`}
-                >
-                  {plan.id === "enterprise" ? t("pricing.contactSales") : t("pricing.startCta")}
-                </Link>
-              </div>
+                plan={plan}
+                variant="summary"
+                texts={{
+                  name: tp(`${plan.id}.name`),
+                  tagline: tp(`${plan.id}.tagline`),
+                  features: tp.raw(`${plan.id}.features`) as string[],
+                  ctaLabel:
+                    plan.id === "enterprise"
+                      ? t("pricing.contactSales")
+                      : t("pricing.startCta"),
+                  priceCustom: tp("priceCustom"),
+                  priceSuffix: tp("priceSuffix"),
+                  badgeLabel: tp("mostPopular"),
+                }}
+                ctaHref={
+                  plan.id === "enterprise" ? "/pricing#enterprise" : "/signup"
+                }
+              />
             ))}
           </div>
           <div className="text-center mt-10">

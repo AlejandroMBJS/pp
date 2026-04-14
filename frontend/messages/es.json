@@ -192,6 +192,7 @@
   "plans": {
     "priceSuffix": "USD/mes",
     "priceCustom": "A medida",
+    "mostPopular": "Más popular",
     "starter": {
       "name": "Starter",
       "tagline": "Prueba la plataforma sin tarjeta",

@@ -876,7 +876,11 @@ export function PlanViewer({ blueprints, token, onUpload, onDelete, isMobile = f
           </p>
         </div>
         {!isMobile && (
-          <label className="cursor-pointer rounded-xl border border-white/10 bg-white/5 p-2 text-white/60 transition-colors hover:text-white">
+          <label
+            className="cursor-pointer rounded-xl border border-white/10 bg-white/5 p-2 text-white/60 transition-colors hover:text-white"
+            title="Upload DWG, DXF, PDF, STL, 3MF, GLB, PNG or JPG"
+            aria-label="Upload technical file — DWG, DXF, PDF, STL, 3MF, GLB, PNG or JPG"
+          >
             <Upload size={18} />
             <input
               type="file"
@@ -903,8 +907,11 @@ export function PlanViewer({ blueprints, token, onUpload, onDelete, isMobile = f
               </div>
               <div className="space-y-2">
                  <h3 className="text-xl font-black uppercase tracking-tight text-white">No technical files yet</h3>
-                <p className="max-w-[320px] text-xs font-bold uppercase leading-relaxed tracking-widest text-white/30">
-                   Upload a DWG, DXF, PDF, or image to add technical files to this project.
+                <p className="max-w-[360px] text-xs font-bold uppercase leading-relaxed tracking-widest text-white/30">
+                   Upload 2D blueprints or 3D models to add technical files to this project.
+                </p>
+                <p className="max-w-[420px] text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">
+                  Formats: DWG · DXF · PDF · STL · 3MF · GLB · PNG/JPG
                 </p>
               </div>
               <label className="flex cursor-pointer items-center gap-3 rounded-2xl bg-blue-600 px-8 py-4 font-black text-white shadow-xl shadow-blue-500/20 transition-all active:scale-95 hover:bg-blue-500">

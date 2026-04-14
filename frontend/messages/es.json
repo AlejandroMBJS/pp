@@ -2,8 +2,8 @@
   "meta": {
     "siteName": "ProjectPulse",
     "title": "ProjectPulse — Control estratégico para proyectos técnicos",
-    "description": "Plataforma SaaS multi-tenant para constructoras, supervisores y firmas técnicas. Evidencia geolocalizada, auditorías con IA y aprobación del cliente en un solo lugar.",
-    "keywords": "gestión de proyectos,control de calidad,CRM técnico,supervisión de obra,evidencia fotográfica,auditoría IA,operaciones de campo,ProjectPulse"
+    "description": "Control de proyectos técnicos para equipos que producen piezas físicas — de la obra al taller CNC. Construcción, arquitectura, joyería, impresión 3D, mecanizado, prototipado y más.",
+    "keywords": "gestión de proyectos,control de calidad,joyería,impresión 3D,mecanizado CNC,arquitectura,construcción,fabricación digital,prototipado,STL,3MF,DWG,DXF,visor CAD,evidencia geolocalizada,auditoría IA,ProjectPulse"
   },
   "nav": {
     "features": "Features",
@@ -30,16 +30,16 @@
   },
   "landing": {
     "meta": {
-      "title": "ProjectPulse — Control de calidad y evidencia geolocalizada para proyectos técnicos",
-      "description": "Plataforma SaaS multi-tenant para constructoras, supervisores y firmas técnicas. Evidencia geolocalizada, auditorías con IA y aprobación cliente en un solo lugar."
+      "title": "ProjectPulse — Control de proyectos técnicos multi-industria",
+      "description": "Control de proyectos técnicos para equipos que producen piezas físicas — de la obra al taller CNC. Visor CAD/3D (DWG, DXF, STL, 3MF), evidencia geolocalizada, auditoría con IA y aprobación del cliente."
     },
     "hero": {
       "badge": "Strategic Control Console",
       "liveBadge": "Live en producción",
       "headlineLine1": "Building the",
       "headlineLine2": "future of projects.",
-      "subheadline": "Digitiza, supervisa y escala cualquier operación de proyecto con una sola plataforma técnica de control.",
-      "subheadline2": "Reemplaza chats dispersos, carpetas de Drive y reportes manuales por evidencia geolocalizada, auditorías con IA y aprobación del cliente — todo en un panel multi-tenant.",
+      "subheadline": "Control de proyectos técnicos para equipos que producen piezas físicas — de la obra al taller CNC.",
+      "subheadline2": "Construcción, arquitectura, joyería, impresión 3D, mecanizado CNC, instalaciones, prototipado y fabricación digital — un solo panel con visor CAD/3D, evidencia geolocalizada, auditoría con IA y aprobación del cliente.",
       "ctaPrimary": "Empezar gratis",
       "ctaSecondary": "Ver demo en vivo",
       "trustLine": "14 días gratis · Sin tarjeta · Cancela cuando quieras",
@@ -56,6 +56,21 @@
         ]
       }
     },
+    "verticals": {
+      "eyebrow": "Para cualquier proyecto técnico",
+      "title": "Una plataforma, ocho industrias",
+      "subtitle": "Si tu equipo produce piezas físicas, ProjectPulse controla el proyecto de punta a punta — sin importar el vertical.",
+      "items": [
+        { "title": "Construcción", "body": "Obra, supervisión de avance y evidencia auditada en sitio." },
+        { "title": "Arquitectura", "body": "Planos DWG/DXF, revisiones de diseño y aprobación del cliente." },
+        { "title": "Joyería", "body": "Piezas 3D (STL/3MF), prototipos y aprobación del cliente final." },
+        { "title": "Impresión 3D", "body": "Prints, prototipos iterativos y QA por pieza." },
+        { "title": "Mecanizado CNC", "body": "Piezas mecanizadas, inspección dimensional y trazabilidad." },
+        { "title": "Instalaciones", "body": "Mantenimiento, comisionado y evidencia geolocalizada en sitio." },
+        { "title": "Prototipado rápido", "body": "Iteraciones ágiles con historial de versiones y feedback del cliente." },
+        { "title": "Fabricación digital", "body": "Taller digital con control de calidad, trazabilidad y entregables auditables." }
+      ]
+    },
     "stats": {
       "items": [
         { "n": "72h", "label": "Setup promedio hasta primer proyecto" },
@@ -67,7 +82,7 @@
     "features": {
       "eyebrow": "Qué hace ProjectPulse",
       "title": "Todo lo que necesitas para cerrar proyectos a tiempo",
-      "subtitle": "Diseñado por y para equipos que viven en campo — no por un PM que nunca pisó una obra.",
+      "subtitle": "Diseñado por y para equipos que producen piezas físicas — no por un PM que nunca pisó un taller ni una obra.",
       "items": [
         {
           "title": "Evidencia geolocalizada",
@@ -86,8 +101,8 @@
           "body": "Tu cliente aprueba entregables y ve avance en su propio panel. Sin PDFs por WhatsApp."
         },
         {
-          "title": "Planos y CAD (Computer-Aided Design)",
-          "body": "Sube DWG/DXF/PDF y liga tareas a zonas del proyecto. Tu equipo en campo sabe exactamente dónde."
+          "title": "Visor CAD y 3D",
+          "body": "Sube DWG, DXF, PDF, STL, 3MF y GLB. Visualiza planos 2D y modelos 3D — para impresión, mecanizado, joyería o arquitectura — y liga tareas a zonas del proyecto."
         },
         {
           "title": "Exportes y reportes",
@@ -109,7 +124,8 @@
       "quoteHighlight": "3x más rápido.",
       "authorInitials": "AG",
       "authorName": "Arq. Ana García",
-      "authorRole": "Dir. Operaciones · Constructora Monterrey"
+      "authorRole": "Dir. Operaciones · Constructora Monterrey",
+      "multiVerticalNote": "Usado también por equipos de joyería, impresión 3D, mecanizado CNC y arquitectura."
     },
     "infra": {
       "eyebrow": "Infraestructura",
@@ -217,7 +233,7 @@
     },
     "enterprise": {
       "name": "Enterprise",
-      "tagline": "Para grandes constructoras y firmas técnicas",
+      "tagline": "Para organizaciones con infraestructura dedicada y SLAs a medida",
       "features": [
         "Proyectos y usuarios a convenir",
         "Storage a medida",
@@ -251,7 +267,7 @@
     "title": "Crea tu cuenta",
     "subtitle": "14 días gratis con todas las funciones. Sin tarjeta.",
     "companyName": "Nombre de empresa",
-    "companyNamePlaceholder": "Constructora Ejemplo S.A.",
+    "companyNamePlaceholder": "Nombre de tu empresa",
     "companySlug": "Slug de empresa",
     "companySlugPlaceholder": "constructora-ejemplo",
     "ownerName": "Tu nombre",
@@ -354,5 +370,8 @@
       "empty": "Sin tenants todavía"
     },
     "backToApp": "← Volver al panel estándar"
+  },
+  "planViewer": {
+    "supportedFormats": "Formatos: DWG · DXF · PDF · STL · 3MF · GLB · PNG/JPG"
   }
 }

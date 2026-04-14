@@ -19,6 +19,13 @@ import {
   Server,
   DatabaseBackup,
   Lock,
+  Landmark,
+  Gem,
+  Printer,
+  Cog,
+  Wrench,
+  Lightbulb,
+  Factory,
 } from "lucide-react";
 import { LandingSeo } from "@/components/landing-seo";
 import { SiteHeader } from "@/components/site-header";
@@ -39,6 +46,7 @@ export async function generateMetadata({
 }
 
 const featureIcons = [MapPin, Sparkles, ShieldCheck, Users, FileText, Download];
+const verticalIcons = [Building2, Landmark, Gem, Printer, Cog, Wrench, Lightbulb, Factory];
 const statIcons = [Zap, Star, TrendingUp, Activity];
 const infraIcons = [Server, DatabaseBackup, Lock];
 
@@ -62,6 +70,7 @@ export default async function HomePage({
   const steps = t.raw("steps.items") as StepItem[];
   const faqs = t.raw("faq.items") as FaqItem[];
   const infraItems = t.raw("infra.items") as FeatureItem[];
+  const verticals = t.raw("verticals.items") as FeatureItem[];
   const sidebarLabels = t.raw("hero.mockup.sidebar") as string[];
   const kpis = t.raw("hero.mockup.kpis") as Kpi[];
 
@@ -257,6 +266,36 @@ export default async function HomePage({
         </div>
       </section>
 
+      {/* ═══ VERTICALS ═══ */}
+      <section id="verticals" className="max-w-6xl mx-auto px-6 py-24">
+        <div className="text-center mb-14">
+          <div className="inline-block text-[10px] font-black uppercase tracking-widest text-blue-400 mb-3">
+            {t("verticals.eyebrow")}
+          </div>
+          <h2 className="text-3xl md:text-4xl font-black mb-3">
+            {t("verticals.title")}
+          </h2>
+          <p className="text-white/60 max-w-2xl mx-auto">{t("verticals.subtitle")}</p>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {verticals.map((v, i) => {
+            const Icon = verticalIcons[i] ?? Building2;
+            return (
+              <div
+                key={v.title}
+                className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 hover:bg-white/[0.04] hover:border-white/20 transition-colors"
+              >
+                <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 mb-3">
+                  <Icon size={20} />
+                </div>
+                <h3 className="text-sm font-black text-white mb-1">{v.title}</h3>
+                <p className="text-xs text-white/50 leading-relaxed">{v.body}</p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
       {/* ═══ FEATURES ═══ */}
       <section id="features" className="max-w-6xl mx-auto px-6 py-24">
         <div className="text-center max-w-2xl mx-auto mb-16">
@@ -345,6 +384,9 @@ export default async function HomePage({
                 </div>
               </div>
             </div>
+            <p className="mt-6 text-center text-[11px] text-white/40 font-semibold">
+              {t("testimonial.multiVerticalNote")}
+            </p>
           </div>
         </div>
       </section>

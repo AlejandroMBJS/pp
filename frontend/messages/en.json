@@ -2,8 +2,8 @@
   "meta": {
     "siteName": "ProjectPulse",
     "title": "ProjectPulse — Strategic control for technical projects",
-    "description": "Multi-tenant SaaS platform for construction firms, supervisors and technical teams. Geolocated evidence, AI-powered audits and client approval in one place.",
-    "keywords": "project management,quality control,technical CRM,site supervision,photo evidence,AI audit,field operations,ProjectPulse"
+    "description": "Project control for technical teams shipping physical parts — from the job site to the CNC shop. Construction, architecture, jewelry, 3D printing, machining, prototyping and more.",
+    "keywords": "project management,quality control,jewelry,3D printing,CNC machining,architecture,construction,digital fabrication,prototyping,STL,3MF,DWG,DXF,CAD viewer,geolocated evidence,AI audit,ProjectPulse"
   },
   "nav": {
     "features": "Features",
@@ -30,16 +30,16 @@
   },
   "landing": {
     "meta": {
-      "title": "ProjectPulse — Quality control and geolocated evidence for technical projects",
-      "description": "Multi-tenant SaaS platform for construction firms, supervisors and technical teams. Geolocated evidence, AI-powered audits and client approval in one place."
+      "title": "ProjectPulse — Multi-industry technical project control",
+      "description": "Project control for technical teams shipping physical parts — from the job site to the CNC shop. CAD/3D viewer (DWG, DXF, STL, 3MF), geolocated evidence, AI audits and client sign-off."
     },
     "hero": {
       "badge": "Strategic Control Console",
       "liveBadge": "Live in production",
       "headlineLine1": "Building the",
       "headlineLine2": "future of projects.",
-      "subheadline": "Digitize, supervise and scale any project operation with a single technical control platform.",
-      "subheadline2": "Replace scattered chats, Drive folders and manual reports with geolocated evidence, AI-powered audits and client approval — all in one multi-tenant console.",
+      "subheadline": "Project control for technical teams shipping physical parts — from the job site to the CNC shop.",
+      "subheadline2": "Construction, architecture, jewelry, 3D printing, CNC machining, installations, prototyping and digital fabrication — one console with CAD/3D viewer, geolocated evidence, AI audits and client approval.",
       "ctaPrimary": "Start free",
       "ctaSecondary": "See live demo",
       "trustLine": "14-day free trial · No credit card · Cancel anytime",
@@ -56,6 +56,21 @@
         ]
       }
     },
+    "verticals": {
+      "eyebrow": "For any technical project",
+      "title": "One platform, eight industries",
+      "subtitle": "If your team ships physical parts, ProjectPulse runs the project end-to-end — whatever the vertical.",
+      "items": [
+        { "title": "Construction", "body": "Job site supervision, progress tracking and audited on-site evidence." },
+        { "title": "Architecture", "body": "DWG/DXF blueprints, design reviews and client sign-off." },
+        { "title": "Jewelry", "body": "3D parts (STL/3MF), prototypes and final-client approval." },
+        { "title": "3D Printing", "body": "Prints, iterative prototypes and per-part QA." },
+        { "title": "CNC Machining", "body": "Machined parts, dimensional inspection and traceability." },
+        { "title": "Installations", "body": "Maintenance, commissioning and geolocated on-site evidence." },
+        { "title": "Rapid Prototyping", "body": "Agile iterations with version history and client feedback." },
+        { "title": "Digital Fabrication", "body": "Digital workshop with quality control, traceability and auditable deliverables." }
+      ]
+    },
     "stats": {
       "items": [
         { "n": "72h", "label": "Average setup to first project" },
@@ -67,7 +82,7 @@
     "features": {
       "eyebrow": "What ProjectPulse does",
       "title": "Everything you need to deliver projects on time",
-      "subtitle": "Built by and for teams that live in the field — not by a PM who never set foot on a job site.",
+      "subtitle": "Built by and for teams shipping physical parts — not by a PM who never set foot in a workshop or on a job site.",
       "items": [
         {
           "title": "Geolocated evidence",
@@ -86,8 +101,8 @@
           "body": "Your client approves deliverables and tracks progress in their own console. No more PDFs over WhatsApp."
         },
         {
-          "title": "Blueprints and CAD (Computer-Aided Design)",
-          "body": "Upload DWG/DXF/PDF and link tasks to project zones. Your field team knows exactly where to go."
+          "title": "CAD and 3D viewer",
+          "body": "Upload DWG, DXF, PDF, STL, 3MF and GLB. View 2D blueprints and 3D models (prints, machined parts, jewelry), link tasks to project zones."
         },
         {
           "title": "Exports and reports",
@@ -109,7 +124,8 @@
       "quoteHighlight": "3x faster.",
       "authorInitials": "AG",
       "authorName": "Arch. Ana García",
-      "authorRole": "Head of Operations · Constructora Monterrey"
+      "authorRole": "Head of Operations · Constructora Monterrey",
+      "multiVerticalNote": "Also used by teams in jewelry, 3D printing, CNC machining and architecture."
     },
     "infra": {
       "eyebrow": "Infrastructure",
@@ -217,7 +233,7 @@
     },
     "enterprise": {
       "name": "Enterprise",
-      "tagline": "For large builders and technical firms",
+      "tagline": "For organizations needing dedicated infrastructure and custom SLAs",
       "features": [
         "Projects and users negotiated",
         "Custom storage",
@@ -251,7 +267,7 @@
     "title": "Create your account",
     "subtitle": "14 days free with every feature. No credit card.",
     "companyName": "Company name",
-    "companyNamePlaceholder": "Example Builders Inc.",
+    "companyNamePlaceholder": "Your company name",
     "companySlug": "Company slug",
     "companySlugPlaceholder": "example-builders",
     "ownerName": "Your name",
@@ -354,5 +370,8 @@
       "empty": "No tenants yet"
     },
     "backToApp": "← Back to standard console"
+  },
+  "planViewer": {
+    "supportedFormats": "Formats: DWG · DXF · PDF · STL · 3MF · GLB · PNG/JPG"
   }
 }

@@ -20,8 +20,8 @@ const features = [
     body: "Client portal to review progress, approve deliverables and download reports.",
   },
   {
-    title: "Blueprints and plans",
-    body: "Upload blueprints (DWG, DXF, PDF) and link tasks to specific zones of the project.",
+    title: "CAD and 3D viewer",
+    body: "Upload DWG, DXF, PDF, STL, 3MF and GLB. View 2D blueprints and 3D models (prints, machined parts, jewelry) and link tasks to project zones.",
   },
   {
     title: "Exports and reports",
@@ -33,7 +33,7 @@ const PLAN_SEO: Record<string, { name: string; blurb: string }> = {
   starter: { name: "Starter", blurb: "Try the platform, no credit card." },
   professional: { name: "Professional", blurb: "For SMBs with 1–5 concurrent projects." },
   business: { name: "Business", blurb: "For mid-size firms with multiple projects." },
-  enterprise: { name: "Enterprise", blurb: "For large builders and technical firms." },
+  enterprise: { name: "Enterprise", blurb: "For organizations needing dedicated infrastructure and custom SLAs." },
 };
 
 const plans = PLANS.map((p) => ({
@@ -60,7 +60,7 @@ export function LandingSeo() {
         applicationCategory: "BusinessApplication",
         operatingSystem: "Web",
         description:
-          "Multi-tenant CRM and quality-control platform for technical projects with geolocated evidence and AI-powered audits.",
+          "Project control for technical teams shipping physical parts — construction, architecture, jewelry, 3D printing, CNC machining, installations, prototyping and digital fabrication. CAD/3D viewer (DWG, DXF, STL, 3MF), geolocated evidence and AI audits.",
         offers: {
           "@type": "AggregateOffer",
           priceCurrency: "USD",
@@ -90,9 +90,10 @@ export function LandingSeo() {
       <section className="sr-only" aria-hidden="false">
         <h1>ProjectPulse — Strategic control for technical projects</h1>
         <p>
-          Multi-tenant platform for CRM, quality control and supervision of technical projects.
-          Digitize, supervise and scale any field operation from a single console with geolocated
-          photo evidence, AI-powered automated audits and role-based approval workflows.
+          Project control for technical teams shipping physical parts — from the job site to the
+          CNC shop. Construction, architecture, jewelry, 3D printing, CNC machining, installations,
+          prototyping and digital fabrication in one console with CAD/3D viewer (DWG, DXF, STL,
+          3MF, GLB), geolocated evidence, AI audits and client approval.
         </p>
         <h2>Key features</h2>
         <ul>
@@ -112,8 +113,9 @@ export function LandingSeo() {
         </ul>
         <h2>Who it's for</h2>
         <p>
-          Construction firms, architecture studios, site supervisors, field technical services,
-          installers and consultancies that need verifiable traceability of every deliverable.
+          Construction firms, architecture studios, jewelry workshops, 3D printing labs, CNC
+          machining shops, installation teams, rapid prototyping studios and digital fabrication
+          outfits that need verifiable traceability of every deliverable.
         </p>
         <h2>How to get started</h2>
         <p>

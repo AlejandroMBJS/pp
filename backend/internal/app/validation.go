@@ -38,6 +38,11 @@ var blueprintMIMEWhitelist = map[string]struct{}{
 	"application/dxf":             {},
 	"application/octet-stream":    {}, // DWG/DXF often arrive as this
 	"application/vnd.ms-pki.stl":  {},
+	"model/stl":                   {},
+	"application/vnd.ms-3mf":      {},
+	"model/3mf":                   {},
+	"model/gltf-binary":           {},
+	"model/gltf+json":             {},
 }
 
 func validateEvidenceMIME(contentType string) error {

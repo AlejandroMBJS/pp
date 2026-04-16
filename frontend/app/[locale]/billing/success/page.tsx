@@ -10,7 +10,7 @@ export default function BillingSuccessPage() {
 
   useEffect(() => {
     let attempts = 0;
-    const tokenKey = "projectpulse_session";
+    const tokenKey = "projectpulse-session";
     const raw = typeof window !== "undefined" ? window.localStorage.getItem(tokenKey) : null;
     const token = raw ? JSON.parse(raw).access_token : null;
     if (!token) return;

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"log"
 	"net/http"
 
 	"arquicheck/backend/internal/app"
@@ -35,6 +36,24 @@ func (s *Server) handleDemoRequest(w http.ResponseWriter, r *http.Request) {
 		"lead_id":    result.LeadID,
 		"expires_at": result.ExpiresAt,
 		"message":    "Te enviamos las credenciales por email. Revisa tu bandeja (y spam).",
+	})
+}
+
+type demoResendBody struct {
+	Email string `json:"email"`
+}
+
+func (s *Server) handleDemoResend(w http.ResponseWriter, r *http.Request) {
+	var in demoResendBody
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	if err := s.service.ResendDemoCredentials(r.Context(), in.Email); err != nil {
+		log.Printf("demo resend internal: %v", err)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"message": "If an active demo exists for that email, we just re-sent the credentials.",
 	})
 }
 

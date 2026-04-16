@@ -1,6 +1,6 @@
 "use client";
 
-import { TrendingUp, AlertTriangle, Activity, DollarSign, Plus, LayoutGrid, ClipboardList } from "lucide-react";
+import { TrendingUp, AlertTriangle, Activity, DollarSign, Plus, LayoutGrid, ClipboardList, Users, UserPlus, Mail } from "lucide-react";
 import { MetricCard } from "./ui/metric-card";
 import { EmptyState } from "./ui/empty-state";
 import { ListRow } from "./ui/list-row";
@@ -61,6 +61,8 @@ type Evidence = {
   created_at?: string;
 };
 
+type UserType = { id: string; email: string; full_name: string; role: string };
+
 type OwnerCanvasProps = {
   activeView: string;
   dashboard: Dashboard | null;
@@ -77,6 +79,8 @@ type OwnerCanvasProps = {
   onViewChange?: (view: string) => void;
   onNewProject?: () => void;
   onNewTask?: () => void;
+  onInviteUser?: () => void;
+  users?: UserType[];
   isMobile?: boolean;
 };
 
@@ -112,6 +116,8 @@ export function OwnerCanvas({
   onViewChange,
   onNewProject,
   onNewTask,
+  onInviteUser,
+  users = [],
   isMobile = false,
 }: OwnerCanvasProps) {
   // ── Overview ──
@@ -407,33 +413,131 @@ export function OwnerCanvas({
 
   // ── Team ──
   if (activeView === "team") {
+    const roleColors: Record<string, string> = {
+      owner: "#3b82f6", supervisor: "#0ea5e9", helper: "#f59e0b", client: "#10b981", admin: "#ef4444",
+    };
+    const roleLabels: Record<string, string> = {
+      owner: "Owner", supervisor: "Supervisor", helper: "Operator", client: "Client", admin: "Admin",
+    };
+
     return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Team and tasks</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Task list for the selected project with assignee and status.
-          </p>
+      <div className={`space-y-6 animate-fadeIn ${isMobile ? "pb-20" : ""}`}>
+        <div className="flex items-center justify-between pb-4 border-b border-white/5">
+          <div>
+            <h1 className={`${isMobile ? "text-xl" : "text-2xl"} font-black text-white tracking-tight`}>Team</h1>
+            <p className="mt-1 text-xs font-bold text-white/30 uppercase tracking-[0.15em]">
+              {users.length} member{users.length !== 1 ? "s" : ""} · {tasks.length} task{tasks.length !== 1 ? "s" : ""}
+            </p>
+          </div>
+          {onInviteUser && (
+            <button
+              type="button"
+              onClick={onInviteUser}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all"
+              style={{ background: "linear-gradient(135deg, #8b5cf6, #7c3aed)", boxShadow: "0 4px 16px rgba(139,92,246,0.3)" }}
+            >
+              <UserPlus size={14} />
+              Invite
+            </button>
+          )}
         </div>
-        {tasks.length === 0 ? (
-          <EmptyState text="No tasks created yet. Use the side panel to add one." />
+
+        {/* Team members */}
+        {users.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center mb-4">
+              <Users size={24} className="text-white/20" />
+            </div>
+            <p className="text-sm text-white/40 mb-4">No team members yet.</p>
+            {onInviteUser && (
+              <button
+                type="button"
+                onClick={onInviteUser}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white"
+                style={{ background: "linear-gradient(135deg, #8b5cf6, #7c3aed)" }}
+              >
+                <UserPlus size={14} />
+                Invite your first team member
+              </button>
+            )}
+          </div>
         ) : (
           <div className="space-y-2">
-            {tasks.map((task) => (
-              <ListRow
-                key={task.id}
-                title={task.title}
-                meta={`${task.start_date} → ${task.end_date} · ${money(task.budget_cents)}`}
-                badge={task.status}
-                badgeColor={
-                  task.status === "completed"
-                    ? "green"
-                    : task.status === "in_progress"
-                    ? "blue"
-                    : "gray"
-                }
-              />
-            ))}
+            {users.map((u) => {
+              const rc = roleColors[u.role] ?? "#6b7280";
+              const userTasks = tasks.filter((t) => t.assigned_to_user_id === u.id);
+              const completedTasks = userTasks.filter((t) => t.status === "completed").length;
+              return (
+                <div
+                  key={u.id}
+                  className="flex items-center gap-3 rounded-xl px-4 py-3 transition-colors hover:bg-white/5"
+                  style={{ border: "1px solid rgba(255,255,255,0.06)" }}
+                >
+                  <div
+                    className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white uppercase"
+                    style={{ background: `linear-gradient(135deg, ${rc}, ${rc}bb)` }}
+                  >
+                    {u.full_name?.[0] ?? u.email[0]}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-white truncate">{u.full_name || u.email}</div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: rc }}>
+                        {roleLabels[u.role] ?? u.role}
+                      </span>
+                      <span className="text-white/10">·</span>
+                      <span className="text-[11px] text-white/30 truncate">{u.email}</span>
+                    </div>
+                  </div>
+                  {userTasks.length > 0 && (
+                    <div className="text-right flex-shrink-0">
+                      <div className="text-xs font-bold text-white/60">{completedTasks}/{userTasks.length}</div>
+                      <div className="text-[10px] text-white/30">tasks done</div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Tasks by assignee */}
+        {tasks.length > 0 && (
+          <div className="space-y-3 pt-4 border-t border-white/5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-white/40 uppercase tracking-[0.15em]">Project tasks</h3>
+              {onNewTask && (
+                <button type="button" onClick={onNewTask} className="flex items-center gap-1.5 text-xs font-bold text-blue-400 hover:text-blue-300 transition-colors">
+                  <Plus size={12} /> New task
+                </button>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              {tasks.map((task) => {
+                const assignee = users.find((u) => u.id === task.assigned_to_user_id);
+                const statusColor = task.status === "completed" ? "#10b981" : task.status === "in_progress" ? "#3b82f6" : "#6b7280";
+                return (
+                  <button
+                    key={task.id}
+                    type="button"
+                    onClick={() => onTaskClick?.(task.id)}
+                    className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors hover:bg-white/5"
+                    style={{ border: "1px solid rgba(255,255,255,0.04)" }}
+                  >
+                    <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: statusColor }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold text-white truncate">{task.title}</div>
+                      <div className="text-[11px] text-white/30 mt-0.5">
+                        {assignee ? assignee.full_name || assignee.email : "Unassigned"} · {task.progress_percent}%
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div className="text-xs font-mono text-white/40">{money(task.budget_cents)}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>

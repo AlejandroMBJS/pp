@@ -258,7 +258,7 @@ export function TaskEditModal({
                 <input
                   type="number"
                   value={(formData.budget_cents || 0) / 100}
-                  onChange={(e) => setFormData({ ...formData, budget_cents: Number(e.target.value) * 100 })}
+                  min="0" onChange={(e) => setFormData({ ...formData, budget_cents: Math.max(0, Number(e.target.value)) * 100 })}
                   className="w-full bg-white/5 border border-white/10 rounded-xl pl-11 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all text-sm font-mono"
                 />
               </div>

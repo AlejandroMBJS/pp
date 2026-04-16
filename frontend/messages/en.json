@@ -187,7 +187,51 @@
     "title": "Simple, transparent pricing",
     "subtitle": "Pick the plan that fits your operation. No lock-in contracts, cancel anytime.",
     "recommended": "Recommended",
-    "footnote": "Secure payments via Stripe. All prices in USD. VAT not included where applicable."
+    "footnote": "Secure payments via Stripe. All prices in USD. VAT not included where applicable.",
+    "compareTitle": "Full feature comparison",
+    "compareSubtitle": "Every capability, side by side. Numbers are hard limits; checkmarks mean included.",
+    "categories": {
+      "limits": "Limits & quotas",
+      "core": "Core workflows",
+      "ai": "AI & intelligence",
+      "billing": "Billing & integrations",
+      "support": "Support & compliance"
+    },
+    "rows": {
+      "projects": "Active projects",
+      "users": "Internal users",
+      "clients": "Client seats",
+      "evidence": "Evidence captures / month",
+      "storage": "File storage",
+      "projectsValue": { "professional": "5", "business": "20", "enterprise": "Unlimited" },
+      "usersValue": { "professional": "15", "business": "50", "enterprise": "Custom" },
+      "clientsValue": { "professional": "Unlimited", "business": "Unlimited", "enterprise": "Unlimited" },
+      "evidenceValue": { "professional": "500", "business": "2,000", "enterprise": "Custom" },
+      "storageValue": { "professional": "10 GB", "business": "50 GB", "enterprise": "Custom" },
+      "tasks": "Tasks, deliverables, timeline",
+      "geoEvidence": "Geolocated photo evidence",
+      "blueprints": "CAD / DWG / 3D viewer",
+      "zones": "Zones + task-to-zone links",
+      "clientPortal": "Client approval portal",
+      "publicDashboard": "Public project dashboards",
+      "csv": "CSV exports",
+      "pdf": "PDF reports",
+      "aiAudit": "AI quality audit (Gemini)",
+      "aiInsights": "AI insights & summaries",
+      "stripe": "Stripe subscription billing",
+      "webhook": "Webhook integrations",
+      "sso": "Enterprise SSO (SAML / Okta)",
+      "api": "Public REST API",
+      "emailSupport": "Email support",
+      "prioritySupport": "Priority support (24h SLA)",
+      "dedicatedCSM": "Dedicated customer success",
+      "customSLA": "Custom SLA & uptime guarantee",
+      "msa": "MSA / NDA / DPA available",
+      "dataResidency": "Data residency options"
+    },
+    "included": "Included",
+    "notIncluded": "Not included",
+    "ctaBack": "Back to plans"
   },
   "plans": {
     "priceSuffix": "USD/month",
@@ -317,7 +361,22 @@
       "required": "Name and email are required",
       "generic": "We couldn't process your request",
       "unexpected": "Unexpected error"
+    },
+    "resend": {
+      "link": "Already requested? Resend my credentials",
+      "placeholder": "you@company.com",
+      "button": "Resend",
+      "sent": "If an active demo exists for that email, we just re-sent the credentials."
     }
+  },
+  "notifications": {
+    "ariaLabel": "Notifications",
+    "title": "Notifications",
+    "markAllRead": "Mark all read",
+    "close": "Close",
+    "loading": "Loading…",
+    "empty": "No notifications yet",
+    "justNow": "just now"
   },
   "billingCancel": {
     "meta": { "title": "Payment canceled — ProjectPulse" },
@@ -374,5 +433,61 @@
   },
   "planViewer": {
     "supportedFormats": "Formats: DWG · DXF · PDF · STL · 3MF · GLB · PNG/JPG"
+  },
+  "legal": {
+    "terms": {
+      "title": "Terms of Service",
+      "updated": "Last updated: April 15, 2026",
+      "intro": "These Terms of Service govern your access to and use of ProjectPulse. By creating an account or using the platform you agree to these terms.",
+      "s1": {
+        "title": "1. Accounts",
+        "body": "You are responsible for maintaining the confidentiality of your credentials and for all activity that occurs under your account. Notify us immediately of any unauthorized use."
+      },
+      "s2": {
+        "title": "2. Acceptable use",
+        "body": "You agree not to misuse the platform: no reverse engineering, no unlawful content, no attempts to disrupt the service or circumvent quotas, and no uploading of data you do not have rights to share."
+      },
+      "s3": {
+        "title": "3. Billing",
+        "body": "Paid plans are billed in advance through Stripe. You can cancel at any time from the billing portal; cancellations take effect at the end of the current billing period. No refunds for partial periods."
+      },
+      "s4": {
+        "title": "4. Liability",
+        "body": "The service is provided \"as is\" without warranties of any kind. Our aggregate liability is limited to the fees you paid in the twelve months preceding the claim."
+      },
+      "contact": {
+        "title": "Contact",
+        "body": "Questions about these terms? Email legal@projectpulse.app."
+      }
+    },
+    "privacy": {
+      "title": "Privacy Policy",
+      "updated": "Last updated: April 15, 2026",
+      "intro": "This Privacy Policy explains what data ProjectPulse collects, how we use it, and the rights you have over it.",
+      "s1": {
+        "title": "1. Data we collect",
+        "body": "Account data (name, email, role), project data you upload (photos, blueprints, notes), and technical logs (IP, user agent, timestamps) needed to operate the service."
+      },
+      "s2": {
+        "title": "2. How we use it",
+        "body": "Strictly to deliver the service: authentication, multi-tenant isolation, billing, support, and abuse prevention. We do not sell your data."
+      },
+      "s3": {
+        "title": "3. Subprocessors",
+        "body": "We rely on Stripe (payments), Resend (transactional email), Google Gemini (AI quality audits, only when enabled), and a VPS provider for hosting. Each is contractually bound to protect your data."
+      },
+      "s4": {
+        "title": "4. Retention",
+        "body": "Data is retained while your tenant is active. On deletion, personal data is purged within 30 days; backups are rotated out within 90 days."
+      },
+      "s5": {
+        "title": "5. Your rights",
+        "body": "You can access, export, or delete your data at any time from settings, or by contacting us."
+      },
+      "contact": {
+        "title": "Contact",
+        "body": "Questions or data requests? Email privacy@projectpulse.app."
+      }
+    }
   }
 }

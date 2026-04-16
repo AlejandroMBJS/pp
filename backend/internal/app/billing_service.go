@@ -137,12 +137,14 @@ func (s *Service) RequireWriteAccess(ctx context.Context, tenantID string) error
 	}
 	sub, err := s.GetSubscription(ctx, tenantID)
 	if err != nil {
-		return nil // fail open on infra errors — we don't want to lock everyone out
+		// Fail closed: if we can't read the subscription we can't safely allow writes.
+		return ErrSubscriptionRequired
 	}
 	if sub.Status == "trialing" && sub.TrialEndsAt != nil && time.Now().After(*sub.TrialEndsAt) {
 		return ErrSubscriptionRequired
 	}
-	if sub.Status == "read_only" || sub.Status == "canceled" {
+	switch sub.Status {
+	case "read_only", "canceled", "paused", "past_due", "unpaid", "incomplete_expired":
 		return ErrSubscriptionRequired
 	}
 	return nil
@@ -157,7 +159,7 @@ func (s *Service) CheckProjectQuota(ctx context.Context, tenantID string) error 
 	limits := billing.PlanLimits[plan]
 	var current int
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE tenant_id = $1`, tenantID).Scan(&current); err != nil {
-		return nil
+		return fmt.Errorf("check project quota: %w", err)
 	}
 	if !billing.AllowsCount(limits.MaxActiveProjects, current) {
 		s.notifyQuotaBlock(ctx, tenantID, "projects", int64(current+1), int64(limits.MaxActiveProjects))
@@ -176,7 +178,9 @@ func (s *Service) CheckUserQuota(ctx context.Context, tenantID, role string) err
 	limits := billing.PlanLimits[plan]
 	if role == RoleClient {
 		var current int
-		_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role = $2`, tenantID, RoleClient).Scan(&current)
+		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role = $2`, tenantID, RoleClient).Scan(&current); err != nil {
+			return fmt.Errorf("check client quota: %w", err)
+		}
 		if !billing.AllowsCount(limits.MaxClientGuests, current) {
 			s.notifyQuotaBlock(ctx, tenantID, "client_guests", int64(current+1), int64(limits.MaxClientGuests))
 			return fmt.Errorf("%w: client_guests (limit %d, current %d)", ErrQuotaExceeded, limits.MaxClientGuests, current)
@@ -184,7 +188,9 @@ func (s *Service) CheckUserQuota(ctx context.Context, tenantID, role string) err
 		s.maybeWarnQuotaInt(ctx, tenantID, "client_guests", current+1, limits.MaxClientGuests)
 	} else {
 		var current int
-		_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role IN ($2, $3, $4)`, tenantID, RoleOwner, RoleSupervisor, RoleHelper).Scan(&current)
+		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND role IN ($2, $3, $4)`, tenantID, RoleOwner, RoleSupervisor, RoleHelper).Scan(&current); err != nil {
+			return fmt.Errorf("check internal user quota: %w", err)
+		}
 		if !billing.AllowsCount(limits.MaxInternalUsers, current) {
 			s.notifyQuotaBlock(ctx, tenantID, "internal_users", int64(current+1), int64(limits.MaxInternalUsers))
 			return fmt.Errorf("%w: internal_users (limit %d, current %d)", ErrQuotaExceeded, limits.MaxInternalUsers, current)
@@ -205,7 +211,9 @@ func (s *Service) CheckBlueprintQuota(ctx context.Context, tenantID string) erro
 	plan := s.effectivePlan(ctx, tenantID)
 	limits := billing.PlanLimits[plan]
 	var current int
-	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM blueprints WHERE tenant_id = $1`, tenantID).Scan(&current)
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM blueprints WHERE tenant_id = $1`, tenantID).Scan(&current); err != nil {
+		return fmt.Errorf("check blueprint quota: %w", err)
+	}
 	if !billing.AllowsCount(limits.MaxBlueprintFiles, current) {
 		s.notifyQuotaBlock(ctx, tenantID, "blueprints", int64(current+1), int64(limits.MaxBlueprintFiles))
 		return fmt.Errorf("%w: blueprint_files (limit %d, current %d)", ErrQuotaExceeded, limits.MaxBlueprintFiles, current)
@@ -228,10 +236,12 @@ func (s *Service) CheckStorageQuota(ctx context.Context, tenantID string, incomi
 		return nil
 	}
 	var current int64
-	_ = s.db.QueryRowContext(ctx, `
+	if err := s.db.QueryRowContext(ctx, `
 		SELECT COALESCE((SELECT SUM(file_size_bytes) FROM evidences WHERE tenant_id = $1), 0)
 		     + COALESCE((SELECT SUM(file_size_bytes) FROM blueprints WHERE tenant_id = $1), 0)
-	`, tenantID).Scan(&current)
+	`, tenantID).Scan(&current); err != nil {
+		return fmt.Errorf("check storage quota: %w", err)
+	}
 	if current+incoming > limits.MaxStorageBytes {
 		return fmt.Errorf("%w: storage_bytes (limit %d, current %d)", ErrQuotaExceeded, limits.MaxStorageBytes, current+incoming)
 	}
@@ -252,10 +262,12 @@ func (s *Service) CheckCaptureQuota(ctx context.Context, tenantID string) error 
 	}
 	periodStart := firstOfMonth(time.Now())
 	var current int64
-	_ = s.db.QueryRowContext(ctx,
+	if err := s.db.QueryRowContext(ctx,
 		`SELECT COALESCE(value, 0) FROM usage_metrics WHERE tenant_id = $1 AND metric_type = 'captures_per_month' AND period_start = $2`,
 		tenantID, periodStart,
-	).Scan(&current)
+	).Scan(&current); err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("check capture quota: %w", err)
+	}
 	if int(current) >= limits.MaxCapturesPerMonth {
 		s.notifyQuotaBlock(ctx, tenantID, "captures", current+1, int64(limits.MaxCapturesPerMonth))
 		return fmt.Errorf("%w: captures_per_month (limit %d, current %d)", ErrQuotaExceeded, limits.MaxCapturesPerMonth, current)
@@ -469,11 +481,37 @@ func (s *Service) HandleStripeWebhook(ctx context.Context, event stripe.Event) e
 		var ss stripe.Subscription
 		if err := json.Unmarshal(event.Data.Raw, &ss); err == nil && ss.Customer != nil {
 			if tenantID := s.tenantIDFromCustomer(ctx, ss.Customer.ID); tenantID != "" {
-				s.notifyOwners(ctx, tenantID,
+				s.notifyOwnersWithPref(ctx, tenantID, "critical_alerts",
 					"Tu prueba de ProjectPulse termina en 3 días",
 					"Hola,\n\nTu prueba gratuita de ProjectPulse termina en 3 días. Si quieres seguir usando la plataforma sin interrupciones elige un plan desde la sección de facturación.\n\nSi no haces nada, tu cuenta quedará en modo solo lectura al finalizar el periodo de prueba.\n\n— ProjectPulse")
 			}
 		}
+
+	case "customer.subscription.paused":
+		var ss stripe.Subscription
+		if err := json.Unmarshal(event.Data.Raw, &ss); err != nil {
+			return err
+		}
+		_, _ = s.db.ExecContext(ctx,
+			`UPDATE subscriptions SET status='paused', updated_at=NOW() WHERE stripe_subscription_id = $1`,
+			ss.ID)
+		s.logger.Warn("subscription paused", "event", event.ID, "subscription", ss.ID)
+
+	case "customer.subscription.resumed":
+		var ss stripe.Subscription
+		if err := json.Unmarshal(event.Data.Raw, &ss); err != nil {
+			return err
+		}
+		_, _ = s.db.ExecContext(ctx,
+			`UPDATE subscriptions SET status='active', updated_at=NOW() WHERE stripe_subscription_id = $1`,
+			ss.ID)
+		s.logger.Info("subscription resumed", "event", event.ID, "subscription", ss.ID)
+
+	case "charge.dispute.created", "charge.disputed.created":
+		s.logger.Error("stripe dispute opened", "event", event.ID, "type", event.Type, "payload", string(event.Data.Raw))
+
+	default:
+		s.logger.Warn("unhandled stripe event", "type", event.Type, "event_id", event.ID)
 	}
 	return nil
 }
@@ -501,9 +539,23 @@ func (s *Service) upsertSubscriptionFromStripe(ctx context.Context, ss *stripe.S
 		return fmt.Errorf("no tenant for stripe customer %s", ss.Customer.ID)
 	}
 
-	plan := billing.PlanStarter
-	if ss.Items != nil && len(ss.Items.Data) > 0 && ss.Items.Data[0].Price != nil {
-		plan = billing.PlanFromPriceID(ss.Items.Data[0].Price.ID, s.stripePriceMap())
+	// Only accept known Stripe price IDs. An unmapped price is a configuration
+	// error — fail loud rather than silently granting the cheapest paid plan.
+	if ss.Items == nil || len(ss.Items.Data) == 0 || ss.Items.Data[0].Price == nil {
+		return fmt.Errorf("stripe subscription %s has no price items", ss.ID)
+	}
+	priceID := ss.Items.Data[0].Price.ID
+	priceMap := s.stripePriceMap()
+	var plan billing.Plan
+	for p, id := range priceMap {
+		if id == priceID {
+			plan = p
+			break
+		}
+	}
+	if plan == "" {
+		s.logger.Error("stripe unmapped price", "subscription", ss.ID, "price_id", priceID, "tenant_id", tenantID)
+		return fmt.Errorf("unmapped stripe price %s for subscription %s", priceID, ss.ID)
 	}
 
 	status := strings.ToLower(string(ss.Status))
@@ -524,10 +576,16 @@ func (s *Service) upsertSubscriptionFromStripe(ctx context.Context, ss *stripe.S
 
 // notifyOwners sends a transactional email to every active owner of a tenant.
 // Best-effort: failures are logged but never propagated (a webhook must not
-// fail because Resend is down).
+// fail because Resend is down). Pass empty prefKey to always send
+// (transactional / hard-stop notifications); otherwise the owner's
+// preference gates delivery.
 func (s *Service) notifyOwners(ctx context.Context, tenantID, subject, body string) {
+	s.notifyOwnersWithPref(ctx, tenantID, "", subject, body)
+}
+
+func (s *Service) notifyOwnersWithPref(ctx context.Context, tenantID, prefKey, subject, body string) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT email FROM users WHERE tenant_id = $1 AND role = $2`,
+		`SELECT id, email FROM users WHERE tenant_id = $1 AND role = $2`,
 		tenantID, RoleOwner)
 	if err != nil {
 		s.logger.Warn("notifyOwners query failed", "tenant_id", tenantID, "err", err.Error())
@@ -535,8 +593,11 @@ func (s *Service) notifyOwners(ctx context.Context, tenantID, subject, body stri
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var email string
-		if err := rows.Scan(&email); err != nil {
+		var userID, email string
+		if err := rows.Scan(&userID, &email); err != nil {
+			continue
+		}
+		if prefKey != "" && !s.shouldNotify(ctx, userID, prefKey) {
 			continue
 		}
 		if err := s.mailer.Send(ctx, email, subject, body); err != nil {

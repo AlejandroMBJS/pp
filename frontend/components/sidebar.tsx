@@ -43,26 +43,20 @@ function menuForRole(role: string) {
   switch (r) {
     case "owner":
       return [
-        // Own views
-        { id: "overview",      label: "Executive overview",  tag: "owner",    group: "owner" },
-        { id: "projects",      label: "Projects and timeline", tag: "delivery", group: "owner" },
-        { id: "finances",      label: "Finance and costs",   tag: "money",    group: "owner" },
-        { id: "journal",       label: "Daily log",           tag: "site",     group: "owner" },
-        { id: "messages",      label: "Messages and RFI",    tag: "chat",     group: "owner" },
-        { id: "blueprints",    label: "CAD and 3D files",    tag: "cad",      group: "owner" },
-        { id: "ownergallery",  label: "Progress gallery",    tag: "view",     group: "owner" },
-        { id: "team",          label: "Team and tasks",      tag: "crm",      group: "owner" },
-        // Supervisor views
-        { id: "review",        label: "Review queue",        tag: "qa",       group: "supervisor" },
-        { id: "timeline",      label: "Timeline Gantt",      tag: "gantt",    group: "supervisor" },
-        { id: "blueprints",    label: "CAD and 3D files",    tag: "cad",      group: "supervisor" },
-        // Helper view
-        { id: "capture",       label: "Capture progress",    tag: "field",    group: "helper" },
-        { id: "history",       label: "Field history",       tag: "proof",    group: "helper" },
-        // Client view
-        { id: "summary",       label: "Client view",         tag: "client",   group: "client" },
-        { id: "blueprints",    label: "CAD and 3D files",    tag: "cad",      group: "client" },
-        { id: "gallery",       label: "Approved gallery",    tag: "view",     group: "client" },
+        { id: "overview",      label: "Executive overview",   tag: "owner",    group: "owner" },
+        { id: "projects",      label: "Projects and timeline",tag: "delivery", group: "owner" },
+        { id: "finances",      label: "Finance and costs",    tag: "money",    group: "owner" },
+        { id: "journal",       label: "Daily log",            tag: "site",     group: "owner" },
+        { id: "messages",      label: "Messages and RFI",     tag: "chat",     group: "owner" },
+        { id: "blueprints",    label: "CAD and 3D files",     tag: "cad",      group: "owner" },
+        { id: "ownergallery",  label: "Progress gallery",     tag: "view",     group: "owner" },
+        { id: "team",          label: "Team and tasks",       tag: "crm",      group: "owner" },
+        { id: "review",        label: "Review queue",         tag: "qa",       group: "owner" },
+        { id: "timeline",      label: "Timeline Gantt",       tag: "gantt",    group: "owner" },
+        { id: "capture",       label: "Capture progress",     tag: "field",    group: "owner" },
+        { id: "history",       label: "Field history",        tag: "proof",    group: "owner" },
+        { id: "summary",       label: "Client view",          tag: "client",   group: "owner" },
+        { id: "gallery",       label: "Approved gallery",     tag: "view",     group: "owner" },
       ];
     case "supervisor":
       return [
@@ -165,15 +159,7 @@ export function Sidebar({
     onClose();
   }
 
-  // Group menu items for owner
-  const menuGroups: { group: string; items: typeof menu }[] = [];
-  if (isOwner) {
-    const groups = ["owner", "supervisor", "helper", "client"];
-    for (const g of groups) {
-      const items = menu.filter((m) => m.group === g);
-      if (items.length) menuGroups.push({ group: g, items });
-    }
-  }
+  // No longer grouped — flat nav for all roles
 
   return (
     <>
@@ -212,103 +198,34 @@ export function Sidebar({
           </button>
         </div>
 
-        {/* User chip */}
-        <div className="mx-4 mt-4 rounded-xl p-3" style={{ background: "rgba(255,255,255,0.05)" }}>
-          <div className="flex items-center gap-2.5">
-            <div
-              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white uppercase"
-              style={{ background: `linear-gradient(135deg, ${roleColor}, ${roleColor}bb)` }}
-            >
-              {session.user.full_name?.[0] ?? session.user.email[0]}
-            </div>
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-white">
-                {session.user.full_name || session.user.email}
-              </div>
-              <div className="text-xs font-medium uppercase tracking-wider" style={{ color: roleColor }}>
-                {session.user.role}
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Navigation */}
-        <nav className="mt-5 px-3 flex-1">
-          {isOwner ? (
-            // Owner: grouped navigation
-            <div className="space-y-4">
-              {menuGroups.map(({ group, items }) => (
-                <div key={group}>
-                  <div
-                    className="text-xs font-bold uppercase tracking-widest px-2 mb-1.5 flex items-center gap-2"
-                    style={{ color: groupColors[group] ?? "#6b7280", opacity: 0.7 }}
-                  >
-                    <span>{groupLabels[group]}</span>
-                    <div className="flex-1 h-px" style={{ background: `${groupColors[group]}25` }} />
-                  </div>
-                  {items.map((item) => {
-                    const active = activeView === item.id;
-                    const showBadge = item.id === "review" && pendingEvidenceCount > 0;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => handleNavClick(item.id)}
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left text-sm mb-0.5 transition-colors"
-                        style={{
-                          background: active ? "rgba(255,255,255,0.09)" : "transparent",
-                          color: active ? "white" : "#6b7280",
-                          borderLeft: active ? `2px solid ${groupColors[group] ?? roleColor}` : "2px solid transparent",
-                          fontWeight: active ? 600 : 400,
-                        }}
-                      >
-                        <span style={{ color: active ? groupColors[group] ?? roleColor : "#4b5563" }}>
-                          {MENU_ICONS[item.id] ?? <HardHat size={16} />}
-                        </span>
-                        <span className="flex-1 text-xs">{item.label}</span>
-                        {showBadge && (
-                          <span className="badge-counter">{pendingEvidenceCount}</span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          ) : (
-            // Other roles: flat navigation
-            <>
-              <div className="text-xs font-semibold uppercase tracking-widest mb-2 px-2" style={{ color: "#374151" }}>
-                Navigation
-              </div>
-              {menu.map((item) => {
-                const active = activeView === item.id;
-                const showBadge = item.id === "review" && session.user.role === "supervisor" && pendingEvidenceCount > 0;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => handleNavClick(item.id)}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left text-sm mb-0.5 transition-colors"
-                    style={{
-                      background: active ? "rgba(255,255,255,0.09)" : "transparent",
-                      color: active ? "white" : "#9ca3af",
-                      borderLeft: active ? `3px solid ${roleColor}` : "3px solid transparent",
-                      fontWeight: active ? 600 : 400,
-                    }}
-                  >
-                    <span style={{ color: active ? roleColor : "#6b7280" }}>
-                      {MENU_ICONS[item.id] ?? <HardHat size={16} />}
-                    </span>
-                    <span className="flex-1">{item.label}</span>
-                    {showBadge && (
-                      <span className="badge-counter">{pendingEvidenceCount}</span>
-                    )}
-                  </button>
-                );
-              })}
-            </>
-          )}
+        <nav className="mt-4 px-3 flex-1">
+          {menu.map((item) => {
+            const active = activeView === item.id;
+            const showBadge = item.id === "review" && pendingEvidenceCount > 0;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleNavClick(item.id)}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left text-sm mb-0.5 transition-colors"
+                style={{
+                  background: active ? "rgba(255,255,255,0.09)" : "transparent",
+                  color: active ? "white" : "#9ca3af",
+                  borderLeft: active ? `3px solid ${roleColor}` : "3px solid transparent",
+                  fontWeight: active ? 600 : 400,
+                }}
+              >
+                <span style={{ color: active ? roleColor : "#6b7280" }}>
+                  {MENU_ICONS[item.id] ?? <HardHat size={16} />}
+                </span>
+                <span className="flex-1">{item.label}</span>
+                {showBadge && (
+                  <span className="badge-counter">{pendingEvidenceCount}</span>
+                )}
+              </button>
+            );
+          })}
         </nav>
 
         {/* Project selector */}

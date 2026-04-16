@@ -25,6 +25,25 @@ function DemoInner() {
   const [company, setCompany] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [showResend, setShowResend] = useState(false);
+  const [resendEmail, setResendEmail] = useState("");
+  const [resendStatus, setResendStatus] = useState<Status>("idle");
+
+  async function onResend(e: FormEvent) {
+    e.preventDefault();
+    if (!resendEmail.trim()) return;
+    setResendStatus("submitting");
+    try {
+      await fetch("/api/v1/public/demo-resend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: resendEmail.trim().toLowerCase() }),
+      });
+      setResendStatus("success");
+    } catch {
+      setResendStatus("success");
+    }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -155,6 +174,37 @@ function DemoInner() {
                 {t("signIn")}
               </Link>
             </p>
+            <div className="mt-6 pt-6 border-t border-white/5 text-center">
+              {!showResend ? (
+                <button
+                  type="button"
+                  onClick={() => setShowResend(true)}
+                  className="text-xs text-white/50 hover:text-white/80 underline underline-offset-4"
+                >
+                  {t("resend.link")}
+                </button>
+              ) : resendStatus === "success" ? (
+                <p className="text-xs text-emerald-400 font-semibold">{t("resend.sent")}</p>
+              ) : (
+                <form onSubmit={onResend} className="flex gap-2">
+                  <input
+                    type="email"
+                    value={resendEmail}
+                    onChange={(e) => setResendEmail(e.target.value)}
+                    placeholder={t("resend.placeholder")}
+                    className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs focus:outline-none focus:border-blue-500/50"
+                    autoComplete="email"
+                  />
+                  <button
+                    type="submit"
+                    disabled={resendStatus === "submitting" || !resendEmail.trim()}
+                    className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-bold disabled:opacity-40"
+                  >
+                    {resendStatus === "submitting" ? "..." : t("resend.button")}
+                  </button>
+                </form>
+              )}
+            </div>
           </>
         )}
       </main>

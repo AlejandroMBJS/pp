@@ -105,21 +105,29 @@ func (s *Service) RegisterCompanyOwner(ctx context.Context, companyName, company
 
 func (s *Service) Login(ctx context.Context, email, password string) (LoginResponse, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
+	if ok, retryAfter := s.loginGuard.check(email); !ok {
+		s.logger.Warn("login locked: too many failures", "email", email, "retry_after_seconds", int(retryAfter.Seconds()))
+		return LoginResponse{}, errors.New("too many failed attempts; try again later")
+	}
 	row := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, email, password_hash, full_name, role, email_verified, COALESCE(is_active, TRUE), deleted_at FROM users WHERE email = $1`, email)
 	var user User
 	var passwordHash string
 	var deletedAt sql.NullString
 	if err := row.Scan(&user.ID, &user.TenantID, &user.Email, &passwordHash, &user.FullName, &user.Role, &user.EmailVerified, &user.IsActive, &deletedAt); err != nil {
+		s.loginGuard.recordFailure(email)
 		return LoginResponse{}, errors.New("invalid credentials")
 	}
 	if err := ComparePassword(passwordHash, password); err != nil {
+		s.loginGuard.recordFailure(email)
 		s.logger.Warn("invalid login attempt", "email", email)
 		return LoginResponse{}, errors.New("invalid credentials")
 	}
 	if !user.IsActive || deletedAt.Valid {
+		s.loginGuard.recordFailure(email)
 		s.logger.Warn("login blocked: inactive user", "email", email)
 		return LoginResponse{}, errors.New("invalid credentials")
 	}
+	s.loginGuard.recordSuccess(email)
 	s.logger.Info("user logged in", "email", user.Email, "user_id", user.ID)
 	token, err := IssueToken(s.jwtSecret, user)
 	if err != nil {
@@ -298,6 +306,120 @@ func (s *Service) LookupInvite(ctx context.Context, token string) (InviteLookupR
 	}, nil
 }
 
+// RequestPasswordReset generates a 1h-TTL token for the given email, emails
+// the reset link, and always returns nil error so callers can't enumerate
+// valid accounts. Safe to call anonymously. Rate-limited by a simple
+// in-memory best-effort check (see httpapi layer).
+func (s *Service) RequestPasswordReset(ctx context.Context, email string) error {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return nil
+	}
+	var userID, tenantID, fullName string
+	var isActive bool
+	err := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, full_name, COALESCE(is_active, TRUE) FROM users WHERE email = $1 AND deleted_at IS NULL`, email).Scan(&userID, &tenantID, &fullName, &isActive)
+	if err != nil || !isActive {
+		s.logger.Info("password_reset.requested_missing", "email", email)
+		return nil
+	}
+	tok, err := GenerateSecureToken(32)
+	if err != nil {
+		return nil
+	}
+	expiresAt := time.Now().UTC().Add(1 * time.Hour).Format(time.RFC3339)
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM verifications WHERE user_id = $1 AND type = 'password_reset'`, userID)
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO verifications (id, tenant_id, user_id, type, token, expires_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`, newID("ver"), tenantID, userID, "password_reset", tok, expiresAt, nowText()); err != nil {
+		return nil
+	}
+	baseURL := strings.TrimSuffix(s.cfg.PublicBase, "/")
+	if baseURL == "" {
+		baseURL = "http://localhost:1212"
+	}
+	resetURL := baseURL + "/app?reset=" + url.QueryEscape(tok)
+	go func() {
+		_ = s.mailer.Send(context.Background(), email, "ProjectPulse password reset", fmt.Sprintf("Hello %s,\n\nA password reset was requested for your ProjectPulse account. Click below to set a new password:\n%s\n\nThis link expires in 1 hour. If you did not request this, you can safely ignore this email.", fullName, resetURL))
+	}()
+	s.logger.Info("password_reset.requested", "user_id", userID, "tenant_id", tenantID)
+	return nil
+}
+
+// LookupPasswordReset verifies a reset token and returns the associated email
+// so the frontend can show "Resetting password for foo@bar". 404 if invalid.
+func (s *Service) LookupPasswordReset(ctx context.Context, token string) (InviteLookupResponse, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return InviteLookupResponse{}, errors.New("invalid or expired reset link")
+	}
+	var email, fullName, role, companyName, expiresAt string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT u.email, u.full_name, u.role, t.name, v.expires_at
+		FROM verifications v
+		JOIN users u ON u.id = v.user_id
+		JOIN tenants t ON t.id = v.tenant_id
+		WHERE v.token = $1 AND v.type = 'password_reset' AND u.deleted_at IS NULL
+	`, token).Scan(&email, &fullName, &role, &companyName, &expiresAt)
+	if err != nil {
+		return InviteLookupResponse{}, errors.New("invalid or expired reset link")
+	}
+	if time.Now().UTC().After(parseTime(expiresAt)) {
+		return InviteLookupResponse{}, errors.New("invalid or expired reset link")
+	}
+	return InviteLookupResponse{Email: email, FullName: fullName, Role: role, CompanyName: companyName, ExpiresAt: expiresAt}, nil
+}
+
+// CompletePasswordReset consumes a reset token and sets a new password. Also
+// logs the user in immediately, mirroring CompleteAccountSetup behavior.
+func (s *Service) CompletePasswordReset(ctx context.Context, token, password string) (LoginResponse, error) {
+	token = strings.TrimSpace(token)
+	password = strings.TrimSpace(password)
+	if token == "" || password == "" {
+		return LoginResponse{}, errors.New("missing required fields")
+	}
+	if err := validateAccountSetupPassword(password); err != nil {
+		return LoginResponse{}, err
+	}
+	passwordHash, err := HashPassword(password)
+	if err != nil {
+		return LoginResponse{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return LoginResponse{}, err
+	}
+	defer tx.Rollback()
+	var userID, tenantID, expiresAt string
+	if err := tx.QueryRowContext(ctx,
+		`DELETE FROM verifications WHERE token = $1 AND type = 'password_reset' RETURNING user_id, tenant_id, expires_at`,
+		token,
+	).Scan(&userID, &tenantID, &expiresAt); err != nil {
+		return LoginResponse{}, errors.New("invalid or expired reset link")
+	}
+	if time.Now().UTC().After(parseTime(expiresAt)) {
+		return LoginResponse{}, errors.New("reset link expired")
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`, passwordHash, userID); err != nil {
+		return LoginResponse{}, err
+	}
+	// Invalidate any other outstanding reset tokens for the same user.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM verifications WHERE user_id = $1 AND type = 'password_reset'`, userID); err != nil {
+		return LoginResponse{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return LoginResponse{}, err
+	}
+
+	user, err := s.UserByID(ctx, userID)
+	if err != nil {
+		return LoginResponse{}, err
+	}
+	tokenStr, err := IssueToken(s.jwtSecret, user)
+	if err != nil {
+		return LoginResponse{}, err
+	}
+	s.logger.Info("password_reset.completed", "user_id", userID, "tenant_id", tenantID)
+	return LoginResponse{AccessToken: tokenStr, User: user}, nil
+}
+
 func (s *Service) CompleteAccountSetup(ctx context.Context, token, password string) (LoginResponse, error) {
 	token = strings.TrimSpace(token)
 	password = strings.TrimSpace(password)
@@ -308,22 +430,34 @@ func (s *Service) CompleteAccountSetup(ctx context.Context, token, password stri
 		return LoginResponse{}, err
 	}
 
+	passwordHash, err := HashPassword(password)
+	if err != nil {
+		return LoginResponse{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return LoginResponse{}, err
+	}
+	defer tx.Rollback()
 	var userID, tenantID, expiresAt string
-	if err := s.db.QueryRowContext(ctx, `SELECT user_id, tenant_id, expires_at FROM verifications WHERE token = $1 AND type = 'account_setup'`, token).Scan(&userID, &tenantID, &expiresAt); err != nil {
+	if err := tx.QueryRowContext(ctx,
+		`DELETE FROM verifications WHERE token = $1 AND type = 'account_setup' RETURNING user_id, tenant_id, expires_at`,
+		token,
+	).Scan(&userID, &tenantID, &expiresAt); err != nil {
 		return LoginResponse{}, errors.New("invalid or expired invite")
 	}
 	if time.Now().UTC().After(parseTime(expiresAt)) {
 		return LoginResponse{}, errors.New("invite expired")
 	}
-
-	passwordHash, err := HashPassword(password)
-	if err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = $1, email_verified = true WHERE id = $2`, passwordHash, userID); err != nil {
 		return LoginResponse{}, err
 	}
-	if _, err := s.db.ExecContext(ctx, `UPDATE users SET password_hash = $1, email_verified = true WHERE id = $2`, passwordHash, userID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM verifications WHERE user_id = $1 AND type IN ('account_setup', 'email_verification')`, userID); err != nil {
 		return LoginResponse{}, err
 	}
-	_, _ = s.db.ExecContext(ctx, `DELETE FROM verifications WHERE user_id = $1 AND type IN ('account_setup', 'email_verification')`, userID)
+	if err := tx.Commit(); err != nil {
+		return LoginResponse{}, err
+	}
 
 	user, err := s.UserByID(ctx, userID)
 	if err != nil {
@@ -1033,11 +1167,106 @@ func (s *Service) requirePlatformAdmin(actor Claims) error {
 	return nil
 }
 
+// GetCurrentTenant returns the tenant the caller belongs to, with full
+// company-settings fields. Any authenticated tenant user may read it.
+func (s *Service) GetCurrentTenant(ctx context.Context, actor Claims) (Tenant, error) {
+	if actor.TenantID == "" {
+		return Tenant{}, ErrForbidden
+	}
+	var t Tenant
+	err := s.db.QueryRowContext(ctx, `SELECT id, name, slug, COALESCE(website,''), COALESCE(country,''), COALESCE(timezone,'UTC'), COALESCE(currency,'USD'), COALESCE(public_dashboard_enabled, TRUE), COALESCE(public_gallery_enabled, FALSE) FROM tenants WHERE id = $1 AND deleted_at IS NULL`, actor.TenantID).Scan(&t.ID, &t.Name, &t.Slug, &t.Website, &t.Country, &t.Timezone, &t.Currency, &t.PublicDashboardEnabled, &t.PublicGalleryEnabled)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Tenant{}, errors.New("tenant not found")
+		}
+		return Tenant{}, err
+	}
+	return t, nil
+}
+
+// UpdateCurrentTenant patches the caller's tenant. Only owner/admin may edit.
+func (s *Service) UpdateCurrentTenant(ctx context.Context, actor Claims, patch TenantPatch) (Tenant, error) {
+	if actor.TenantID == "" {
+		return Tenant{}, ErrForbidden
+	}
+	if actor.Role != RoleOwner && actor.Role != RoleAdmin {
+		return Tenant{}, ErrForbidden
+	}
+	sets := []string{}
+	args := []any{}
+	add := func(col string, val any) {
+		args = append(args, val)
+		sets = append(sets, fmt.Sprintf("%s = $%d", col, len(args)))
+	}
+	if patch.Name != nil {
+		name := strings.TrimSpace(*patch.Name)
+		if name == "" {
+			return Tenant{}, errors.New("name cannot be empty")
+		}
+		add("name", name)
+	}
+	if patch.Website != nil {
+		add("website", strings.TrimSpace(*patch.Website))
+	}
+	if patch.Country != nil {
+		add("country", strings.TrimSpace(*patch.Country))
+	}
+	if patch.Timezone != nil {
+		add("timezone", strings.TrimSpace(*patch.Timezone))
+	}
+	if patch.Currency != nil {
+		add("currency", strings.TrimSpace(*patch.Currency))
+	}
+	if patch.PublicDashboardEnabled != nil {
+		add("public_dashboard_enabled", *patch.PublicDashboardEnabled)
+	}
+	if patch.PublicGalleryEnabled != nil {
+		add("public_gallery_enabled", *patch.PublicGalleryEnabled)
+	}
+	if len(sets) > 0 {
+		sets = append(sets, "updated_at = NOW()")
+		args = append(args, actor.TenantID)
+		query := fmt.Sprintf("UPDATE tenants SET %s WHERE id = $%d", strings.Join(sets, ", "), len(args))
+		if _, err := s.db.ExecContext(ctx, query, args...); err != nil {
+			return Tenant{}, err
+		}
+		s.logger.Info("tenant.updated", "actor_id", actor.UserID, "tenant_id", actor.TenantID, "fields", len(sets)-1)
+	}
+	return s.GetCurrentTenant(ctx, actor)
+}
+
+// DeleteCurrentTenant soft-deletes the caller's tenant and blocks future
+// logins. Only owner/admin can trigger this; actor must also pass the slug
+// confirmation to avoid accidental deletion.
+func (s *Service) DeleteCurrentTenant(ctx context.Context, actor Claims, confirmSlug string) error {
+	if actor.TenantID == "" {
+		return ErrForbidden
+	}
+	if actor.Role != RoleOwner && actor.Role != RoleAdmin {
+		return ErrForbidden
+	}
+	var slug string
+	if err := s.db.QueryRowContext(ctx, `SELECT slug FROM tenants WHERE id = $1 AND deleted_at IS NULL`, actor.TenantID).Scan(&slug); err != nil {
+		return errors.New("tenant not found")
+	}
+	if strings.TrimSpace(confirmSlug) != slug {
+		return errors.New("confirmation slug does not match")
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE tenants SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`, actor.TenantID); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE users SET is_active = FALSE, deleted_at = NOW(), updated_at = NOW() WHERE tenant_id = $1`, actor.TenantID); err != nil {
+		return err
+	}
+	s.logger.Info("tenant.deleted", "actor_id", actor.UserID, "tenant_id", actor.TenantID)
+	return nil
+}
+
 func (s *Service) ListTenants(ctx context.Context, actor Claims) ([]Tenant, error) {
 	if err := s.requirePlatformAdmin(actor); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, slug FROM tenants ORDER BY created_at`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, slug, COALESCE(website,''), COALESCE(country,''), COALESCE(timezone,'UTC'), COALESCE(currency,'USD'), COALESCE(public_dashboard_enabled, TRUE), COALESCE(public_gallery_enabled, FALSE) FROM tenants WHERE deleted_at IS NULL ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -1045,7 +1274,7 @@ func (s *Service) ListTenants(ctx context.Context, actor Claims) ([]Tenant, erro
 	tenants := make([]Tenant, 0)
 	for rows.Next() {
 		var tenant Tenant
-		if err := rows.Scan(&tenant.ID, &tenant.Name, &tenant.Slug); err != nil {
+		if err := rows.Scan(&tenant.ID, &tenant.Name, &tenant.Slug, &tenant.Website, &tenant.Country, &tenant.Timezone, &tenant.Currency, &tenant.PublicDashboardEnabled, &tenant.PublicGalleryEnabled); err != nil {
 			return nil, err
 		}
 		tenants = append(tenants, tenant)
@@ -1446,9 +1675,9 @@ func (s *Service) RequestUpload(ctx context.Context, actor Claims, taskID, fileN
 }
 
 func (s *Service) SaveUploadedFile(ctx context.Context, sessionID, token, contentType string, body io.Reader) error {
-	var uploadToken, fileName, status, expiresAt string
+	var uploadToken, fileName, status, expiresAt, intendedContentType string
 	var intendedSize int64
-	if err := s.db.QueryRowContext(ctx, `SELECT upload_token, file_name, status, expires_at, intended_size_bytes FROM upload_sessions WHERE id = $1`, sessionID).Scan(&uploadToken, &fileName, &status, &expiresAt, &intendedSize); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT upload_token, file_name, status, expires_at, intended_size_bytes, content_type FROM upload_sessions WHERE id = $1`, sessionID).Scan(&uploadToken, &fileName, &status, &expiresAt, &intendedSize, &intendedContentType); err != nil {
 		return err
 	}
 	if !constantTimeEqual(token, uploadToken) {
@@ -1460,15 +1689,55 @@ func (s *Service) SaveUploadedFile(ctx context.Context, sessionID, token, conten
 	if time.Now().UTC().After(parseTime(expiresAt)) {
 		return errors.New("upload session expired")
 	}
-	filePath, err := s.storage.Save(ctx, fmt.Sprintf("%s-%s", sessionID, fileNameSafe(fileName)), body)
+	// Enforce MIME whitelist: must match what was declared at RequestUpload (which
+	// was already validated). If the PUT sends a different Content-Type, reject.
+	effectiveCT := contentType
+	if effectiveCT == "" {
+		effectiveCT = intendedContentType
+	}
+	if !isAllowedUploadMIME(effectiveCT) {
+		return fmt.Errorf("mime type not allowed: %s", effectiveCT)
+	}
+	// Cap the stream at the declared size + 1 so we detect oversends.
+	limited := io.LimitReader(body, intendedSize+1)
+	counting := &countingReader{r: limited}
+	filePath, err := s.storage.Save(ctx, fmt.Sprintf("%s-%s", sessionID, fileNameSafe(fileName)), counting)
 	if err != nil {
 		return err
 	}
-	if contentType == "" {
-		contentType = "application/octet-stream"
+	if counting.n > intendedSize {
+		return fmt.Errorf("upload exceeds declared size: %d > %d", counting.n, intendedSize)
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE upload_sessions SET status = $1, local_path = $2, content_type = $3 WHERE id = $4`, "uploaded", filePath, contentType, sessionID)
-	return err
+	if _, err := s.db.ExecContext(ctx, `UPDATE upload_sessions SET status = $1, local_path = $2, content_type = $3 WHERE id = $4`, "uploaded", filePath, effectiveCT, sessionID); err != nil {
+		return err
+	}
+	return nil
+}
+
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
+}
+
+func isAllowedUploadMIME(ct string) bool {
+	ct = strings.ToLower(strings.TrimSpace(strings.SplitN(ct, ";", 2)[0]))
+	switch ct {
+	case "image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif",
+		"video/mp4", "video/quicktime", "video/webm",
+		"application/pdf",
+		"application/octet-stream",
+		"application/vnd.dwg", "application/acad", "image/vnd.dwg", "application/dxf", "image/vnd.dxf",
+		"model/gltf-binary", "model/gltf+json", "application/vnd.ms-pki.stl", "model/stl",
+		"image/vnd.dwf", "application/vnd.dwf":
+		return true
+	}
+	return false
 }
 
 func (s *Service) ConfirmUpload(ctx context.Context, actor Claims, sessionID, metadataEXIF string) (Evidence, error) {
@@ -1516,7 +1785,9 @@ func (s *Service) ConfirmUpload(ctx context.Context, actor Claims, sessionID, me
 	if err != nil {
 		return Evidence{}, err
 	}
-	_, _ = s.db.ExecContext(ctx, `UPDATE upload_sessions SET status = $1 WHERE id = $2`, "confirmed", sessionID)
+	if _, err := s.db.ExecContext(ctx, `UPDATE upload_sessions SET status = $1 WHERE id = $2`, "confirmed", sessionID); err != nil {
+		return Evidence{}, err
+	}
 	s.IncrementUsage(ctx, tenantID, "captures_per_month", 1)
 	return evidence, nil
 }
@@ -1758,50 +2029,50 @@ func (s *Service) processAudit(evidenceID string) {
 	modelVersion := "gemini-2.0-flash"
 
 	if s.cfg.GeminiAPIKey == "" {
-		// Fallback stub when no GEMINI_API_KEY is configured. We derive a
-		// deterministic-but-varied response from the evidence ID so demos do
-		// not show the same 92-score approval for every photo. A production
-		// deploy should set GEMINI_API_KEY for real audits.
-		feedback = stubAuditFeedback(evidence, len(avanceBytes))
-		modelVersion = "stub-no-api-key"
-	} else {
-		// Look up comparison photo from task
-		var referenceBytes []byte
-		var refMime string
-		if evidence.TaskID != "" {
-			task, taskErr := s.taskByID(ctx, evidence.TaskID)
-			if taskErr == nil && task.ComparisonPhotoURL != "" {
-				// Extract evidence ID from URL like /api/v1/files/eviXXX
-				parts := strings.Split(task.ComparisonPhotoURL, "/")
-				if len(parts) > 0 {
-					refEviID := parts[len(parts)-1]
-					var refPath, refMimeType string
-					if err := s.db.QueryRowContext(ctx, `SELECT object_path, mime_type FROM evidences WHERE id = $1`, refEviID).Scan(&refPath, &refMimeType); err == nil {
-						refRC, refErr := s.storage.Open(ctx, refPath)
-						if refErr == nil {
-							referenceBytes, _ = io.ReadAll(refRC)
-							refRC.Close()
-							refMime = refMimeType
-						}
+		// Fail-loud: no fake scores in production. Persist a disabled audit row
+		// and leave the evidence as pending_approval for manual review.
+		log.Printf("AI audit disabled: GEMINI_API_KEY not set (evidence=%s)", evidenceID)
+		disabledPayload := `{"status":"ai_disabled","message":"AI audits disabled: GEMINI_API_KEY not set"}`
+		_, _ = s.db.ExecContext(ctx, `INSERT INTO ia_audits (id, tenant_id, evidence_id, score, json_feedback, critical_alert, model_version, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			newID("audit"), evidence.TenantID, evidence.ID, 0, disabledPayload, 0, "disabled", nowText())
+		_, _ = s.db.ExecContext(ctx, `UPDATE evidences SET ai_processing_status = $1, updated_at = $2 WHERE id = $3`,
+			"disabled", nowText(), evidence.ID)
+		return
+	}
+
+	// Look up comparison photo from task
+	var referenceBytes []byte
+	var refMime string
+	if evidence.TaskID != "" {
+		task, taskErr := s.taskByID(ctx, evidence.TaskID)
+		if taskErr == nil && task.ComparisonPhotoURL != "" {
+			parts := strings.Split(task.ComparisonPhotoURL, "/")
+			if len(parts) > 0 {
+				refEviID := parts[len(parts)-1]
+				var refPath, refMimeType string
+				if err := s.db.QueryRowContext(ctx, `SELECT object_path, mime_type FROM evidences WHERE id = $1`, refEviID).Scan(&refPath, &refMimeType); err == nil {
+					refRC, refErr := s.storage.Open(ctx, refPath)
+					if refErr == nil {
+						referenceBytes, _ = io.ReadAll(refRC)
+						refRC.Close()
+						refMime = refMimeType
 					}
 				}
 			}
 		}
+	}
 
-		feedback, err = s.callGeminiVision(ctx, referenceBytes, avanceBytes, refMime, evidence.MimeType)
-		if err != nil {
-			log.Printf("gemini audit error for %s: %v", evidenceID, err)
-			// Fallback: mark as completed without score
-			feedback = AuditFeedback{
-				IsValidEvidence: true,
-				QualityScore:    0,
-				AnalysisSummary: "AI analysis unavailable: " + err.Error(),
-				DetectedIssues:  []string{},
-				Recommendations: "Manual review recommended.",
-				StatusLogic:     "approved",
-			}
-			modelVersion = "gemini-error-fallback"
-		}
+	feedback, err = s.callGeminiVision(ctx, referenceBytes, avanceBytes, refMime, evidence.MimeType)
+	if err != nil {
+		log.Printf("gemini audit error for %s: %v", evidenceID, err)
+		// Fail-safe: leave the evidence pending_approval for manual review.
+		// Do NOT auto-approve with score=0 — that silently passes everything.
+		errPayload := fmt.Sprintf(`{"status":"needs_review","error":%q}`, err.Error())
+		_, _ = s.db.ExecContext(ctx, `INSERT INTO ia_audits (id, tenant_id, evidence_id, score, json_feedback, critical_alert, model_version, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			newID("audit"), evidence.TenantID, evidence.ID, 0, errPayload, 0, "gemini-error", nowText())
+		_, _ = s.db.ExecContext(ctx, `UPDATE evidences SET ai_processing_status = $1, updated_at = $2 WHERE id = $3`,
+			"needs_review", nowText(), evidence.ID)
+		return
 	}
 
 	payload, _ := json.Marshal(feedback)
@@ -1961,35 +2232,6 @@ func (s *Service) OwnerDashboard(ctx context.Context, actor Claims) (Dashboard, 
 	return Dashboard{ProductName: "ProjectPulse", Portfolio: Portfolio{ActiveProjects: len(projects), OpenAlerts: openAlerts, HealthScore: health, BudgetVariance: variance}, Projects: cards}, nil
 }
 
-func (s *Service) BudgetView(ctx context.Context, actor Claims, projectID string) (map[string]any, error) {
-	project, err := s.projectByID(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	effect := s.permissionEffect(ctx, actor.Role, "budget.view")
-	if effect == "deny" {
-		return nil, errors.New("forbidden")
-	}
-	if actor.Role == RoleSupervisor || actor.Role == RoleClient {
-		if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
-			return nil, err
-		}
-	}
-	response := map[string]any{
-		"project_id":         project.ID,
-		"budget_total_cents": project.BudgetTotalCents,
-		"spent_total_cents":  project.SpentTotalCents,
-	}
-	if actor.Role == RoleClient {
-		response["summary_only"] = true
-		response["budget_spent_percent"] = percent(project.SpentTotalCents, project.BudgetTotalCents)
-		return response, nil
-	}
-	response["summary_only"] = false
-	response["budget_spent_percent"] = percent(project.SpentTotalCents, project.BudgetTotalCents)
-	return response, nil
-}
-
 func (s *Service) UpdateProject(ctx context.Context, actor Claims, projectID string, patch Project) (Project, error) {
 	if actor.Role != RoleOwner && actor.Role != RoleSupervisor {
 		return Project{}, errors.New("forbidden")
@@ -2022,27 +2264,6 @@ func (s *Service) UpdateProject(ctx context.Context, actor Claims, projectID str
 		patch.LatitudeCenter, patch.LongitudeCenter, patch.GeofenceRadiusM,
 		now, projectID,
 	)
-	if err != nil {
-		return Project{}, err
-	}
-	return s.projectByID(ctx, projectID)
-}
-
-func (s *Service) UpdateProjectBudget(ctx context.Context, actor Claims, projectID string, budgetTotal, spentTotal int64) (Project, error) {
-	if s.permissionEffect(ctx, actor.Role, "budget.manage") != "allow" {
-		return Project{}, errors.New("forbidden")
-	}
-	if budgetTotal < 0 || spentTotal < 0 {
-		return Project{}, errors.New("budget values cannot be negative")
-	}
-	project, err := s.projectByID(ctx, projectID)
-	if err != nil {
-		return Project{}, err
-	}
-	if actor.TenantID != project.TenantID {
-		return Project{}, errors.New("forbidden")
-	}
-	_, err = s.db.ExecContext(ctx, `UPDATE projects SET budget_total_cents = $1, spent_total_cents = $2, updated_at = $3 WHERE id = $4`, budgetTotal, spentTotal, nowText(), projectID)
 	if err != nil {
 		return Project{}, err
 	}
@@ -2298,6 +2519,100 @@ func (s *Service) ListProjectDeliverables(ctx context.Context, actor Claims, pro
 		deliverables = append(deliverables, deliverable)
 	}
 	return deliverables, rows.Err()
+}
+
+// deliverableByID loads a deliverable row. Ownership check is the caller's job.
+func (s *Service) deliverableByID(ctx context.Context, deliverableID string) (Deliverable, string, error) {
+	var d Deliverable
+	var clientVisible int
+	var approvedAt sql.NullString
+	var approvedBy, rejectionReason string
+	err := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, project_id, task_id, title, description, due_date, status, client_visible, COALESCE(approved_at::text,''), COALESCE(approved_by_user_id,''), COALESCE(rejection_reason,'') FROM deliverables WHERE id = $1`, deliverableID).
+		Scan(&d.ID, &d.TenantID, &d.ProjectID, &d.TaskID, &d.Title, &d.Description, &d.DueDate, &d.Status, &clientVisible, &approvedAt, &approvedBy, &rejectionReason)
+	if err != nil {
+		return Deliverable{}, "", err
+	}
+	d.ClientVisible = intToBool(clientVisible)
+	return d, rejectionReason, nil
+}
+
+// ApproveDeliverable transitions a deliverable to 'approved' state. Allowed to
+// owner/supervisor of the tenant or the client assigned to the project.
+// Only deliverables that are client_visible and in pending/in_review status
+// can be approved.
+func (s *Service) ApproveDeliverable(ctx context.Context, actor Claims, deliverableID string) (Deliverable, error) {
+	d, _, err := s.deliverableByID(ctx, deliverableID)
+	if err != nil {
+		return Deliverable{}, err
+	}
+	project, err := s.projectByID(ctx, d.ProjectID)
+	if err != nil {
+		return Deliverable{}, err
+	}
+	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
+		return Deliverable{}, err
+	}
+	if actor.Role != RoleOwner && actor.Role != RoleSupervisor && actor.Role != RoleClient {
+		return Deliverable{}, errors.New("forbidden")
+	}
+	if actor.Role == RoleClient && !d.ClientVisible {
+		return Deliverable{}, errors.New("forbidden")
+	}
+	if d.Status == "approved" {
+		return d, nil
+	}
+	if d.Status != "pending" && d.Status != "in_review" && d.Status != "rejected" {
+		return Deliverable{}, fmt.Errorf("cannot approve deliverable in status %q", d.Status)
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE deliverables SET status='approved', approved_at=NOW(), approved_by_user_id=$1, rejection_reason='', updated_at=$2 WHERE id = $3`,
+		actor.UserID, nowText(), deliverableID); err != nil {
+		return Deliverable{}, err
+	}
+	s.logger.Info("deliverable.approved", "deliverable_id", deliverableID, "actor_id", actor.UserID, "tenant_id", d.TenantID)
+	// Notify owners (respects pref).
+	go s.notifyOwnersWithPref(context.Background(), d.TenantID, "deliverable_approved",
+		"Entregable aprobado: "+d.Title,
+		fmt.Sprintf("El entregable \"%s\" fue aprobado en el proyecto %s.\n\n— ProjectPulse", d.Title, project.Name))
+	d.Status = "approved"
+	return d, nil
+}
+
+// RejectDeliverable flips status to rejected with an optional reason.
+// Same RBAC as Approve.
+func (s *Service) RejectDeliverable(ctx context.Context, actor Claims, deliverableID, reason string) (Deliverable, error) {
+	d, _, err := s.deliverableByID(ctx, deliverableID)
+	if err != nil {
+		return Deliverable{}, err
+	}
+	project, err := s.projectByID(ctx, d.ProjectID)
+	if err != nil {
+		return Deliverable{}, err
+	}
+	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
+		return Deliverable{}, err
+	}
+	if actor.Role != RoleOwner && actor.Role != RoleSupervisor && actor.Role != RoleClient {
+		return Deliverable{}, errors.New("forbidden")
+	}
+	if actor.Role == RoleClient && !d.ClientVisible {
+		return Deliverable{}, errors.New("forbidden")
+	}
+	if d.Status == "approved" {
+		return Deliverable{}, errors.New("deliverable already approved; cannot reject")
+	}
+	reason = strings.TrimSpace(reason)
+	if len(reason) > 2000 {
+		reason = reason[:2000]
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE deliverables SET status='rejected', rejection_reason=$1, updated_at=$2 WHERE id = $3`,
+		reason, nowText(), deliverableID); err != nil {
+		return Deliverable{}, err
+	}
+	s.logger.Info("deliverable.rejected", "deliverable_id", deliverableID, "actor_id", actor.UserID, "reason", reason)
+	d.Status = "rejected"
+	return d, nil
 }
 
 func (s *Service) ListExpenses(ctx context.Context, actor Claims, projectID string) ([]Expense, error) {

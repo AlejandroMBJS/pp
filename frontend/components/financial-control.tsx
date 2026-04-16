@@ -17,6 +17,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ConfirmDialog } from "./ui/confirm-dialog";
 
 type Expense = {
   id: string;
@@ -64,6 +65,7 @@ export function FinancialControl({ project, session, tasks }: FinancialControlPr
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [expenseForm, setExpenseForm] = useState(defaultExpenseForm);
   const [showAdjForm, setShowAdjForm] = useState(false);
@@ -185,7 +187,7 @@ export function FinancialControl({ project, session, tasks }: FinancialControlPr
   }
 
   async function handleDeleteExpense(expenseId: string) {
-    if (!confirm("Delete this expense?")) return;
+    setConfirmDeleteId(null);
     setDeletingId(expenseId);
     try {
       const res = await fetch(`/api/v1/expenses/${expenseId}`, {
@@ -281,6 +283,15 @@ export function FinancialControl({ project, session, tasks }: FinancialControlPr
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        title="Delete expense?"
+        body="This will permanently remove the expense."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => confirmDeleteId && void handleDeleteExpense(confirmDeleteId)}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="glass-card p-6 border-white/5 bg-white/[0.02]">
           <div className="flex items-center gap-3 mb-4">
@@ -531,7 +542,7 @@ export function FinancialControl({ project, session, tasks }: FinancialControlPr
                       </button>
                       <button
                         type="button"
-                        onClick={() => void handleDeleteExpense(expense.id)}
+                        onClick={() => setConfirmDeleteId(expense.id)}
                         disabled={deletingId === expense.id}
                         className="rounded-lg border border-red-500/20 bg-red-500/[0.08] p-2 text-red-300/60 hover:text-red-200 disabled:opacity-40"
                       >
@@ -674,13 +685,6 @@ export function FinancialControl({ project, session, tasks }: FinancialControlPr
                 </div>
               </div>
 
-              <button
-                className="w-full py-4 rounded-2xl bg-white/5 border border-white/10 text-xs font-black uppercase tracking-[0.2em] text-white/60 hover:bg-white/10 transition-all active:scale-95 opacity-40 cursor-not-allowed"
-                disabled
-                title="Próximamente"
-              >
-                Generate PDF Report (Próximamente)
-              </button>
             </div>
           </div>
         </div>

@@ -355,7 +355,7 @@ export function RightInspector({
                 placeholder="Total budget (MXN)"
                 type="number"
                 value={String(Math.round(newProject.budget_total_cents / 100))}
-                onChange={(v) => setNewProject({ ...newProject, budget_total_cents: Number(v) * 100 })}
+                onChange={(v) => setNewProject({ ...newProject, budget_total_cents: Math.max(0, Number(v)) * 100 })}
               />
               <button className="btn-secondary w-full" disabled={loading || !newProject.name}>
                 {loading ? <><Loader2 size={14} className="animate-spin" /> Creating...</> : "Create project"}

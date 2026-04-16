@@ -737,7 +737,7 @@ body::before {
   align-items: center;
   justify-content: space-between;
   padding: 24px 28px 16px;
-  border-bottom: 1px solid rgba(0,0,0,0.06);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
   flex-shrink: 0;
 }
 
@@ -749,7 +749,7 @@ body::before {
 
 .modal-footer {
   padding: 16px 28px 24px;
-  border-top: 1px solid rgba(0,0,0,0.06);
+  border-top: 1px solid rgba(255,255,255,0.08);
   display: flex;
   gap: 10px;
   justify-content: flex-end;
@@ -760,8 +760,8 @@ body::before {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  border: 1px solid rgba(0,0,0,0.1);
-  background: rgba(0,0,0,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.06);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -772,7 +772,7 @@ body::before {
 }
 
 .modal-close-btn:hover {
-  background: rgba(0,0,0,0.09);
+  background: rgba(255,255,255,0.12);
   color: var(--text-primary);
 }
 

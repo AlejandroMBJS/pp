@@ -6,6 +6,18 @@ import { toast } from "sonner";
 
 type User = { id: string; email: string; full_name: string; role: string; is_active?: boolean; email_verified?: boolean };
 
+type TenantSettings = {
+  id: string;
+  name: string;
+  slug: string;
+  website: string;
+  country: string;
+  timezone: string;
+  currency: string;
+  public_dashboard_enabled: boolean;
+  public_gallery_enabled: boolean;
+};
+
 type SettingsGeneralModalProps = {
   open: boolean;
   onClose: () => void;
@@ -56,6 +68,114 @@ export function SettingsGeneralModal({
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [notifPrefs, setNotifPrefs] = useState<Record<string, boolean> | null>(null);
   const [notifLoading, setNotifLoading] = useState(false);
+  const [tenant, setTenant] = useState<TenantSettings | null>(null);
+  const [tenantDraft, setTenantDraft] = useState<TenantSettings | null>(null);
+  const [tenantLoading, setTenantLoading] = useState(false);
+  const [tenantSaving, setTenantSaving] = useState(false);
+  const [deleteSlugInput, setDeleteSlugInput] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [openingPortal, setOpeningPortal] = useState(false);
+
+  const openBillingPortal = async () => {
+    if (!token) return;
+    setOpeningPortal(true);
+    try {
+      const res = await fetch("/api/v1/billing/portal", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.error ?? "Billing portal unavailable");
+      }
+      const data = await res.json();
+      if (data.portal_url) {
+        window.location.href = data.portal_url;
+      } else {
+        throw new Error("Billing portal unavailable");
+      }
+    } catch (e) {
+      toast.error((e as Error).message || "Billing portal unavailable");
+      setOpeningPortal(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!open) {
+      setTenant(null);
+      setTenantDraft(null);
+      setDeleteSlugInput("");
+      return;
+    }
+    if (!token || tenant) return;
+    let cancelled = false;
+    setTenantLoading(true);
+    fetch("/api/v1/tenants/current", { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((data: TenantSettings) => {
+        if (!cancelled && data?.id) {
+          setTenant(data);
+          setTenantDraft(data);
+        }
+      })
+      .catch(() => { if (!cancelled) toast.error("Could not load company settings"); })
+      .finally(() => { if (!cancelled) setTenantLoading(false); });
+    return () => { cancelled = true; };
+  }, [open, token, tenant]);
+
+  const tenantDirty = !!(tenant && tenantDraft) && JSON.stringify(tenant) !== JSON.stringify(tenantDraft);
+
+  const saveTenant = async () => {
+    if (!tenantDraft || !token || !tenantDirty) return;
+    setTenantSaving(true);
+    try {
+      const res = await fetch("/api/v1/tenants/current", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name: tenantDraft.name,
+          website: tenantDraft.website,
+          country: tenantDraft.country,
+          timezone: tenantDraft.timezone,
+          currency: tenantDraft.currency,
+          public_dashboard_enabled: tenantDraft.public_dashboard_enabled,
+          public_gallery_enabled: tenantDraft.public_gallery_enabled,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json())?.error ?? `HTTP ${res.status}`);
+      const updated: TenantSettings = await res.json();
+      setTenant(updated);
+      setTenantDraft(updated);
+      toast.success("Company settings saved");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setTenantSaving(false);
+    }
+  };
+
+  const deleteTenant = async () => {
+    if (!token || !tenant) return;
+    if (deleteSlugInput !== tenant.slug) {
+      toast.error("Slug does not match");
+      return;
+    }
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/v1/tenants/current", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ confirm_slug: deleteSlugInput }),
+      });
+      if (!res.ok) throw new Error((await res.json())?.error ?? `HTTP ${res.status}`);
+      toast.success("Company deleted. Signing out…");
+      setTimeout(() => { window.location.href = "/"; }, 1500);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   useEffect(() => {
     if (!open || activeTab !== "notifs" || !token || notifPrefs) return;
@@ -123,7 +243,7 @@ export function SettingsGeneralModal({
         {/* Tab bar */}
         <div
           className="flex gap-1 px-6 pt-4 pb-0"
-          style={{ borderBottom: "1px solid rgba(0,0,0,0.06)" }}
+          style={{ borderBottom: "1px solid rgba(255,255,255,0.1)" }}
         >
           {tabs.map((tab) => {
             const Icon = tab.icon;
@@ -151,30 +271,109 @@ export function SettingsGeneralModal({
         <div className="modal-body">
           {activeTab === "company" && (
             <div className="space-y-5">
-              <SectionLabel>Company identity</SectionLabel>
-              <div className="flex items-center gap-4">
-                <div
-                  className="flex h-16 w-16 items-center justify-center rounded-2xl text-white font-bold text-xl flex-shrink-0"
-                  style={{ background: "linear-gradient(135deg, #3b82f6, #0ea5e9)" }}
-                >
-                  {companyName[0]}
+              {tenantLoading && !tenantDraft ? (
+                <div className="flex items-center justify-center py-10 text-sm text-gray-500">
+                  <Loader2 size={16} className="animate-spin mr-2" /> Loading company settings…
                 </div>
-                <div className="flex-1">
-                  <SettingField label="Company name" defaultValue={companyName} />
-                </div>
-              </div>
-              <SettingField label="Website" defaultValue="https://projectpulse.app" type="url" />
-              <SettingField label="Country / Region" defaultValue="Mexico" />
+              ) : !tenantDraft ? (
+                <div className="text-sm text-gray-500 py-10 text-center">Could not load company settings.</div>
+              ) : (
+                <>
+                  <SectionLabel>Company identity</SectionLabel>
+                  <div className="flex items-center gap-4">
+                    <div
+                      className="flex h-16 w-16 items-center justify-center rounded-2xl text-white font-bold text-xl flex-shrink-0"
+                      style={{ background: "linear-gradient(135deg, #3b82f6, #0ea5e9)" }}
+                    >
+                      {tenantDraft.name[0] ?? "?"}
+                    </div>
+                    <div className="flex-1">
+                      <SettingField
+                        label="Company name"
+                        value={tenantDraft.name}
+                        onChange={(v) => setTenantDraft({ ...tenantDraft, name: v })}
+                        disabled={!canManageUsers}
+                      />
+                    </div>
+                  </div>
+                  <SettingField
+                    label="Website"
+                    type="url"
+                    value={tenantDraft.website}
+                    placeholder="https://your-domain.com"
+                    onChange={(v) => setTenantDraft({ ...tenantDraft, website: v })}
+                    disabled={!canManageUsers}
+                  />
+                  <SettingField
+                    label="Country / Region"
+                    value={tenantDraft.country}
+                    onChange={(v) => setTenantDraft({ ...tenantDraft, country: v })}
+                    disabled={!canManageUsers}
+                  />
 
-              <SectionLabel>Timezone and currency</SectionLabel>
-              <div className="grid grid-cols-2 gap-3">
-                <SettingFieldSelect label="Timezone" options={["America/Mexico_City", "America/Monterrey", "UTC"]} />
-                <SettingFieldSelect label="Currency" options={["MXN — Mexican Peso", "USD — Dollar", "EUR — Euro"]} />
-              </div>
+                  <SectionLabel>Timezone and currency</SectionLabel>
+                  <div className="grid grid-cols-2 gap-3">
+                    <SettingFieldSelect
+                      label="Timezone"
+                      options={["UTC", "America/Mexico_City", "America/Monterrey", "America/New_York", "America/Los_Angeles", "Europe/Madrid"]}
+                      value={tenantDraft.timezone}
+                      onChange={(v) => setTenantDraft({ ...tenantDraft, timezone: v })}
+                      disabled={!canManageUsers}
+                    />
+                    <SettingFieldSelect
+                      label="Currency"
+                      options={["USD", "MXN", "EUR", "GBP", "CAD"]}
+                      value={tenantDraft.currency}
+                      onChange={(v) => setTenantDraft({ ...tenantDraft, currency: v })}
+                      disabled={!canManageUsers}
+                    />
+                  </div>
 
-              <SectionLabel>Public portal</SectionLabel>
-              <SettingToggle label="Show public dashboard" description="Allows viewing key metrics without signing in." defaultOn />
-              <SettingToggle label="Public project gallery" description="Clients can view the gallery without an account." />
+                  <SectionLabel>Public portal</SectionLabel>
+                  <SettingToggle
+                    label="Show public dashboard"
+                    description="Allows viewing key metrics without signing in."
+                    on={tenantDraft.public_dashboard_enabled}
+                    onChange={() => setTenantDraft({ ...tenantDraft, public_dashboard_enabled: !tenantDraft.public_dashboard_enabled })}
+                    disabled={!canManageUsers}
+                  />
+                  <SettingToggle
+                    label="Public project gallery"
+                    description="Clients can view the gallery without an account."
+                    on={tenantDraft.public_gallery_enabled}
+                    onChange={() => setTenantDraft({ ...tenantDraft, public_gallery_enabled: !tenantDraft.public_gallery_enabled })}
+                    disabled={!canManageUsers}
+                  />
+
+                  {canManageUsers && (
+                    <>
+                      <SectionLabel>Billing</SectionLabel>
+                      <div className="flex items-center justify-between gap-4 p-4 rounded-2xl border border-white/10 bg-white/5">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-bold text-white">Manage subscription</div>
+                          <div className="text-xs text-white/50 mt-0.5">
+                            Update payment method, download invoices, or cancel your plan.
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={openBillingPortal}
+                          disabled={openingPortal}
+                          className="px-4 py-2 rounded-xl bg-white text-black text-xs font-black uppercase tracking-widest disabled:opacity-50 flex items-center gap-2 flex-shrink-0"
+                        >
+                          {openingPortal ? (
+                            <>
+                              <Loader2 size={12} className="animate-spin" /> Opening…
+                            </>
+                          ) : (
+                            "Open portal"
+                          )}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
             </div>
           )}
 
@@ -190,14 +389,14 @@ export function SettingsGeneralModal({
                 </span>
               </div>
               {!canManageUsers && (
-                <div className="rounded-xl px-4 py-3 text-xs" style={{ background: "rgba(0,0,0,0.03)", color: "var(--text-tertiary)" }}>
+                <div className="rounded-xl px-4 py-3 text-xs" style={{ background: "rgba(255,255,255,0.05)", color: "var(--text-tertiary)" }}>
                   Only owners and platform admins can manage team members. You can see the list but not edit.
                 </div>
               )}
               {users.length === 0 ? (
                 <div
                   className="rounded-xl px-4 py-8 text-center text-sm"
-                  style={{ background: "rgba(0,0,0,0.03)", color: "var(--text-tertiary)" }}
+                  style={{ background: "rgba(255,255,255,0.05)", color: "var(--text-tertiary)" }}
                 >
                   No users registered yet.
                 </div>
@@ -211,8 +410,8 @@ export function SettingsGeneralModal({
                         type="button"
                         onClick={() => clickable && setSelectedUserId(u.id)}
                         disabled={!clickable}
-                        className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors text-left ${clickable ? "hover:bg-gray-50 cursor-pointer" : "cursor-default opacity-80"}`}
-                        style={{ border: "1px solid rgba(0,0,0,0.06)" }}
+                        className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors text-left ${clickable ? "hover:bg-white/10 cursor-pointer" : "cursor-default opacity-80"}`}
+                        style={{ border: "1px solid rgba(255,255,255,0.1)" }}
                       >
                         <div
                           className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold text-white flex-shrink-0"
@@ -288,25 +487,34 @@ export function SettingsGeneralModal({
 
           {activeTab === "security" && (
             <div className="space-y-4">
-              <SectionLabel>Authentication</SectionLabel>
-              <SettingToggle label="Two-factor authentication" description="Coming soon — require 2FA for all users." disabled />
-              <SettingToggle label="Enterprise SSO" description="Coming soon — Google Workspace / Okta." disabled />
-
-              <SectionLabel>Sessions</SectionLabel>
-              <SettingFieldSelect label="Session duration (coming soon)" options={["8 hours", "24 hours", "7 days", "30 days"]} />
-              <SettingToggle label="Detect suspicious IPs" description="Coming soon — block sign-ins from unusual locations." disabled />
-
               <SectionLabel className="text-red-600">Danger zone</SectionLabel>
-              <div className="rounded-xl border border-red-100 bg-red-50 p-4 space-y-3">
-                 <div className="text-sm font-semibold text-red-700">Delete company</div>
-                <div className="text-xs text-red-600">
-                  This action is irreversible. All projects, evidence, and users will be permanently deleted.
+              <div className="rounded-xl p-4 space-y-3" style={{ border: "1px solid rgba(239,68,68,0.25)", background: "rgba(239,68,68,0.1)" }}>
+                <div className="text-sm font-semibold text-red-400">Delete company</div>
+                <div className="text-xs text-red-300">
+                  This action is irreversible. All projects, evidence, and users will be permanently deleted. Type the company slug{tenant?.slug ? <> <strong>{tenant.slug}</strong></> : ""} to confirm.
                 </div>
+                <input
+                  type="text"
+                  placeholder={tenant?.slug ?? "company-slug"}
+                  value={deleteSlugInput}
+                  onChange={(e) => setDeleteSlugInput(e.target.value)}
+                  disabled={!canManageUsers || !tenant}
+                  className="form-input"
+                  style={{ background: "#fff", borderColor: "rgba(239,68,68,0.3)" }}
+                />
                 <button
                   className="text-xs font-semibold px-3 py-1.5 rounded-lg"
-                  style={{ background: "var(--red-light)", color: "var(--red-strong)", border: "none", cursor: "pointer" }}
+                  style={{
+                    background: "var(--red-light)",
+                    color: "var(--red-strong)",
+                    border: "none",
+                    cursor: !canManageUsers || deleting || !tenant || deleteSlugInput !== tenant?.slug ? "not-allowed" : "pointer",
+                    opacity: !canManageUsers || deleting || !tenant || deleteSlugInput !== tenant?.slug ? 0.5 : 1,
+                  }}
+                  disabled={!canManageUsers || deleting || !tenant || deleteSlugInput !== tenant?.slug}
+                  onClick={deleteTenant}
                 >
-                  Request account deletion
+                  {deleting ? "Deleting…" : "Permanently delete company"}
                 </button>
               </div>
             </div>
@@ -324,11 +532,15 @@ export function SettingsGeneralModal({
           </button>
           <button
             type="button"
-            className="btn-primary opacity-50 cursor-not-allowed"
-            title="Company settings persistence is not yet available in this demo."
-            onClick={() => toast.info("La configuración de empresa es solo lectura en este demo.")}
+            className="btn-primary"
+            disabled={!tenantDirty || tenantSaving || !canManageUsers}
+            style={{
+              opacity: !tenantDirty || tenantSaving || !canManageUsers ? 0.5 : 1,
+              cursor: !tenantDirty || tenantSaving || !canManageUsers ? "not-allowed" : "pointer",
+            }}
+            onClick={saveTenant}
           >
-            Save changes
+            {tenantSaving ? "Saving…" : "Save changes"}
           </button>
         </div>
       </div>
@@ -426,10 +638,20 @@ function TeamMemberDetail({ user, isSelf, token, onBack, onChanged, onDeleted }:
   async function handleResendInvite() {
     setBusy("invite");
     try {
-      await callAdmin(`/api/v1/users/${user.id}/resend-invite`, { method: "POST" });
-      toast.success(`Invite re-sent to ${user.email}`);
+      const res = await fetch(`/api/v1/users/${user.id}/resend-invite`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to regenerate invite");
+      if (data.invite_url) {
+        await navigator.clipboard.writeText(data.invite_url);
+        toast.success("Invite link regenerated and copied to clipboard.");
+      } else {
+        toast.success("Invite regenerated.");
+      }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to resend invite");
+      toast.error(err instanceof Error ? err.message : "Failed to regenerate invite");
     } finally {
       setBusy(null);
     }
@@ -558,15 +780,15 @@ function TeamMemberDetail({ user, isSelf, token, onBack, onChanged, onDeleted }:
           }}
         >
           {busy === "invite" ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />}
-          Resend invite
+          Regenerate invite link
         </button>
       </div>
 
-      <div className="rounded-xl border border-red-100 bg-red-50 p-4 space-y-3">
-        <div className="text-sm font-semibold text-red-700 flex items-center gap-2">
+      <div className="rounded-xl p-4 space-y-3" style={{ border: "1px solid rgba(239,68,68,0.25)", background: "rgba(239,68,68,0.1)" }}>
+        <div className="text-sm font-semibold text-red-400 flex items-center gap-2">
           <Trash2 size={14} /> Delete user
         </div>
-        <div className="text-xs text-red-600">
+        <div className="text-xs text-red-300">
           This user will lose access immediately. Projects they created stay, but the account is archived.
         </div>
         {deleteConfirm ? (
@@ -583,7 +805,8 @@ function TeamMemberDetail({ user, isSelf, token, onBack, onChanged, onDeleted }:
             <button
               type="button"
               onClick={() => setDeleteConfirm(false)}
-              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-red-200 text-red-700"
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg border text-white/70"
+              style={{ background: "rgba(255,255,255,0.08)", borderColor: "rgba(255,255,255,0.15)" }}
             >
               Cancel
             </button>
@@ -599,7 +822,7 @@ function TeamMemberDetail({ user, isSelf, token, onBack, onChanged, onDeleted }:
             Delete user
           </button>
         )}
-        {isSelf && <p className="text-[11px] text-red-600">You cannot delete yourself.</p>}
+        {isSelf && <p className="text-[11px] text-red-400">You cannot delete yourself.</p>}
       </div>
     </div>
   );
@@ -619,12 +842,21 @@ function SectionLabel({ children, className = "" }: { children: React.ReactNode;
 function SettingField({
   label,
   defaultValue = "",
+  value,
+  onChange,
   type = "text",
+  placeholder,
+  disabled = false,
 }: {
   label: string;
   defaultValue?: string;
+  value?: string;
+  onChange?: (v: string) => void;
   type?: string;
+  placeholder?: string;
+  disabled?: boolean;
 }) {
+  const controlled = value !== undefined;
   return (
     <div className="space-y-1.5">
       <label className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
@@ -632,21 +864,40 @@ function SettingField({
       </label>
       <input
         type={type}
-        defaultValue={defaultValue}
+        {...(controlled ? { value, onChange: (e) => onChange?.(e.target.value) } : { defaultValue })}
+        placeholder={placeholder}
+        disabled={disabled}
         className="form-input"
       />
     </div>
   );
 }
 
-function SettingFieldSelect({ label, options }: { label: string; options: string[] }) {
+function SettingFieldSelect({
+  label,
+  options,
+  value,
+  onChange,
+  disabled = false,
+}: {
+  label: string;
+  options: string[];
+  value?: string;
+  onChange?: (v: string) => void;
+  disabled?: boolean;
+}) {
+  const controlled = value !== undefined;
   return (
     <div className="space-y-1.5">
       <label className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
         {label}
       </label>
-      <select className="form-select">
-        {options.map((o) => <option key={o}>{o}</option>)}
+      <select
+        className="form-select"
+        disabled={disabled}
+        {...(controlled ? { value, onChange: (e) => onChange?.(e.target.value) } : {})}
+      >
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
       </select>
     </div>
   );
@@ -676,8 +927,8 @@ function SettingToggle({
   };
   return (
     <div
-      className={`flex items-center justify-between gap-4 rounded-xl px-4 py-3 transition-colors ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:bg-gray-50"}`}
-      style={{ border: "1px solid rgba(0,0,0,0.06)" }}
+      className={`flex items-center justify-between gap-4 rounded-xl px-4 py-3 transition-colors ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:bg-white/10"}`}
+      style={{ border: "1px solid rgba(255,255,255,0.1)" }}
       onClick={handleClick}
     >
       <div>

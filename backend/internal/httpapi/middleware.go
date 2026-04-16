@@ -138,6 +138,17 @@ func (l *ipRateLimiter) middleware() func(http.Handler) http.Handler {
 }
 
 func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	// Only trust X-Forwarded-For / X-Real-IP when the request comes from a
+	// trusted upstream (nginx gateway on the docker network or loopback). An
+	// attacker hitting the backend directly from the public internet must not
+	// be able to spoof their source IP via these headers.
+	if !isTrustedProxyIP(host) {
+		return host
+	}
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		if i := strings.IndexByte(xff, ','); i >= 0 {
 			return strings.TrimSpace(xff[:i])
@@ -147,11 +158,20 @@ func clientIP(r *http.Request) string {
 	if xr := r.Header.Get("X-Real-IP"); xr != "" {
 		return xr
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
 	return host
+}
+
+func isTrustedProxyIP(host string) bool {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() {
+		return true
+	}
+	// Docker bridge networks live in private ranges (172.16.0.0/12,
+	// 192.168.0.0/16, 10.0.0.0/8). The nginx gateway sits inside one of these.
+	return ip.IsPrivate()
 }
 
 // writeError writes an error response. 5xx responses log the full error and

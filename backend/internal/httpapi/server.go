@@ -51,6 +51,9 @@ func (s *Server) Routes() http.Handler {
 		pub.Get("/api/v1/auth/invite/{token}", s.handleLookupInvite)
 		pub.Post("/api/v1/auth/verify-email", s.handleVerifyEmail)
 		pub.Post("/api/v1/auth/resend-verification", s.handleResendVerification)
+		pub.Post("/api/v1/auth/request-password-reset", s.handleRequestPasswordReset)
+		pub.Get("/api/v1/auth/password-reset/{token}", s.handleLookupPasswordReset)
+		pub.Post("/api/v1/auth/complete-password-reset", s.handleCompletePasswordReset)
 	})
 	// Stripe webhook is unauthenticated — verified by signature.
 	r.Post("/api/v1/billing/webhook", s.handleStripeWebhook)
@@ -65,6 +68,7 @@ func (s *Server) Routes() http.Handler {
 	r.Group(func(pub chi.Router) {
 		pub.Use(demoLimiter)
 		pub.Post("/api/v1/public/demo-request", s.handleDemoRequest)
+		pub.Post("/api/v1/public/demo-resend", s.handleDemoResend)
 	})
 	r.Put("/uploads/{sessionID}", s.handleSignedUpload) // Auth via signed token in query param, not JWT
 
@@ -90,12 +94,18 @@ func (s *Server) Routes() http.Handler {
 		protected.Get("/api/v1/me/notifications", s.handleGetNotificationPrefs)
 		protected.Patch("/api/v1/me/notifications", s.handleUpdateNotificationPrefs)
 
+		protected.Get("/api/v1/tenants/current", s.handleGetCurrentTenant)
+		protected.Patch("/api/v1/tenants/current", s.handlePatchCurrentTenant)
+		protected.Delete("/api/v1/tenants/current", s.handleDeleteCurrentTenant)
+
 		protected.Get("/api/v1/projects", s.handleListProjects)
 		protected.Get("/api/v1/projects/{projectID}/tasks", s.handleProjectTasks)
 		protected.Get("/api/v1/projects/{projectID}/evidence", s.handleProjectEvidences)
 		protected.Get("/api/v1/projects/{projectID}/blueprints", s.handleProjectBlueprints)
 		protected.Post("/api/v1/projects/{projectID}/blueprints/upload-url", s.handleBlueprintUploadURL)
 		protected.Get("/api/v1/projects/{projectID}/deliverables", s.handleProjectDeliverables)
+		protected.Post("/api/v1/deliverables/{deliverableID}/approve", s.handleApproveDeliverable)
+		protected.Post("/api/v1/deliverables/{deliverableID}/reject", s.handleRejectDeliverable)
 		protected.Post("/api/v1/projects", s.handleCreateProject)
 		protected.Get("/api/v1/blueprints/{blueprintID}/file", s.handleBlueprintFile)
 		protected.Get("/api/v1/blueprints/{blueprintID}/preview", s.handleBlueprintPreview)
@@ -103,11 +113,8 @@ func (s *Server) Routes() http.Handler {
 		protected.Post("/api/v1/blueprints/register", s.handleBlueprintRegister)
 		protected.Get("/api/v1/dashboard/owner/overview", s.handleOwnerDashboard)
 		protected.Patch("/api/v1/projects/{projectID}", s.handleUpdateProject)
-		protected.Get("/api/v1/projects/{projectID}/budget", s.handleBudgetView)
-		protected.Patch("/api/v1/projects/{projectID}/budget", s.handleBudgetUpdate)
 		protected.Get("/api/v1/projects/{projectID}/export.csv", s.handleExportCSV)
 		protected.Get("/api/v1/client/projects/{projectID}/summary", s.handleClientSummary)
-		protected.Get("/api/v1/client/projects/{projectID}/gallery", s.handleClientGallery)
 
 		protected.Post("/api/v1/projects/{projectID}/tasks", s.handleCreateTask)
 		protected.Patch("/api/v1/tasks/{taskID}", s.handleTaskUpdate)
@@ -172,8 +179,8 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		// Block tokens belonging to users that have been suspended or deleted
-		// since the JWT was issued. Platform admins (no tenant) bypass the check.
-		if claims.UserID != "" && claims.TenantID != "" {
+		// since the JWT was issued. Applies to platform admins too.
+		if claims.UserID != "" {
 			u, uerr := s.service.UserByID(r.Context(), claims.UserID)
 			if uerr != nil || !u.IsActive {
 				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "account is suspended or deleted"})
@@ -397,6 +404,43 @@ func (s *Server) handleInviteUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, invite)
 }
 
+func (s *Server) handleRequestPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email string `json:"email"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	// Always 200 — never leak whether the email exists.
+	_ = s.service.RequestPasswordReset(r.Context(), req.Email)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleLookupPasswordReset(w http.ResponseWriter, r *http.Request) {
+	info, err := s.service.LookupPasswordReset(r.Context(), chi.URLParam(r, "token"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "invalid or expired reset link"})
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
+func (s *Server) handleCompletePasswordReset(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Token    string `json:"token"`
+		Password string `json:"password"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	login, err := s.service.CompletePasswordReset(r.Context(), req.Token, req.Password)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, login)
+}
+
 func (s *Server) handleLookupInvite(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
 	info, err := s.service.LookupInvite(r.Context(), token)
@@ -421,6 +465,56 @@ func (s *Server) handleSetupAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, login)
+}
+
+func (s *Server) handleGetCurrentTenant(w http.ResponseWriter, r *http.Request) {
+	t, err := s.service.GetCurrentTenant(r.Context(), s.actor(r))
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, app.ErrForbidden) {
+			status = http.StatusForbidden
+		} else if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+func (s *Server) handlePatchCurrentTenant(w http.ResponseWriter, r *http.Request) {
+	var patch app.TenantPatch
+	if !decodeJSON(w, r, &patch) {
+		return
+	}
+	t, err := s.service.UpdateCurrentTenant(r.Context(), s.actor(r), patch)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, app.ErrForbidden) {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+func (s *Server) handleDeleteCurrentTenant(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ConfirmSlug string `json:"confirm_slug"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if err := s.service.DeleteCurrentTenant(r.Context(), s.actor(r), req.ConfirmSlug); err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, app.ErrForbidden) {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) handleGetNotificationPrefs(w http.ResponseWriter, r *http.Request) {
@@ -553,6 +647,30 @@ func (s *Server) handleProjectDeliverables(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, deliverables)
 }
 
+func (s *Server) handleApproveDeliverable(w http.ResponseWriter, r *http.Request) {
+	deliverable, err := s.service.ApproveDeliverable(r.Context(), s.actor(r), chi.URLParam(r, "deliverableID"))
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, deliverable)
+}
+
+func (s *Server) handleRejectDeliverable(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	deliverable, err := s.service.RejectDeliverable(r.Context(), s.actor(r), chi.URLParam(r, "deliverableID"), req.Reason)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, deliverable)
+}
+
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	var req app.Project
 	if !decodeJSON(w, r, &req) {
@@ -582,35 +700,6 @@ func (s *Server) handleOwnerDashboard(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, dashboard)
 }
 
-func (s *Server) handleBudgetView(w http.ResponseWriter, r *http.Request) {
-	payload, err := s.service.BudgetView(r.Context(), s.actor(r), chi.URLParam(r, "projectID"))
-	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, payload)
-}
-
-func (s *Server) handleBudgetUpdate(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		BudgetTotalCents int64 `json:"budget_total_cents"`
-		SpentTotalCents  int64 `json:"spent_total_cents"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	project, err := s.service.UpdateProjectBudget(r.Context(), s.actor(r), chi.URLParam(r, "projectID"), req.BudgetTotalCents, req.SpentTotalCents)
-	if err != nil {
-		status := http.StatusBadRequest
-		if strings.Contains(err.Error(), "forbidden") {
-			status = http.StatusForbidden
-		}
-		writeJSON(w, status, map[string]any{"error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, project)
-}
-
 func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	csvBytes, err := s.service.ExportProjectCSV(r.Context(), s.actor(r), chi.URLParam(r, "projectID"))
 	if err != nil {
@@ -629,15 +718,6 @@ func (s *Server) handleClientSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, summary)
-}
-
-func (s *Server) handleClientGallery(w http.ResponseWriter, r *http.Request) {
-	gallery, err := s.service.ClientGallery(r.Context(), s.actor(r), chi.URLParam(r, "projectID"))
-	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, gallery)
 }
 
 func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
@@ -667,7 +747,11 @@ func (s *Server) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	updated, err := s.service.UpdateTask(r.Context(), s.actor(r), chi.URLParam(r, "taskID"), task)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "forbidden") {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
@@ -675,7 +759,11 @@ func (s *Server) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTaskDelete(w http.ResponseWriter, r *http.Request) {
 	if err := s.service.DeleteTask(r.Context(), s.actor(r), chi.URLParam(r, "taskID")); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "forbidden") {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
@@ -827,7 +915,11 @@ func (s *Server) handleRejectEvidence(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteEvidence(w http.ResponseWriter, r *http.Request) {
 	if err := s.service.DeleteEvidence(r.Context(), s.actor(r), chi.URLParam(r, "evidenceID")); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "forbidden") {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})

@@ -16,3 +16,9 @@ backend/api
 .env
 .env.local
 .env.*.local
+
+# Playwright / user-guide generation
+frontend/e2e/.artifacts/
+frontend/e2e/user-guide/.artifacts/
+frontend/playwright-report/
+frontend/test-results/

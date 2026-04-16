@@ -4,6 +4,7 @@ import { PLANS } from "@/lib/plans";
 import { PlanCard } from "@/components/pricing/plan-card";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
+import { ComparisonTable } from "@/components/pricing/comparison-table";
 
 export const revalidate = 0;
 
@@ -64,6 +65,9 @@ export default async function PricingPage({
 
         <p className="text-center text-[11px] text-white/40 mt-10">{t("footnote")}</p>
       </main>
+
+      <ComparisonTable locale={locale} />
+
       <SiteFooter />
     </div>
   );

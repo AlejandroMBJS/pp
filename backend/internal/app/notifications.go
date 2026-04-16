@@ -193,7 +193,7 @@ func (s *Service) notifyQuotaBlock(ctx context.Context, tenantID, resource strin
 
 func (s *Service) sendQuotaEmailToOwners(ctx context.Context, tenantID, resource string, current, limit int64, pct int, block bool) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT email, full_name FROM users WHERE tenant_id = $1 AND role = $2`,
+		`SELECT id, email, full_name FROM users WHERE tenant_id = $1 AND role = $2`,
 		tenantID, RoleOwner)
 	if err != nil {
 		return
@@ -202,8 +202,13 @@ func (s *Service) sendQuotaEmailToOwners(ctx context.Context, tenantID, resource
 	tenantName := s.tenantNameForID(ctx, tenantID)
 	plan := string(s.effectivePlan(ctx, tenantID))
 	for rows.Next() {
-		var email, name string
-		if err := rows.Scan(&email, &name); err != nil {
+		var userID, email, name string
+		if err := rows.Scan(&userID, &email, &name); err != nil {
+			continue
+		}
+		// Quota alerts are opt-out-able via the `budget_alert` preference.
+		// Hard-block emails are still sent — user can't silence service-stopping events.
+		if !block && !s.shouldNotify(ctx, userID, "budget_alert") {
 			continue
 		}
 		if block {
@@ -212,6 +217,33 @@ func (s *Service) sendQuotaEmailToOwners(ctx context.Context, tenantID, resource
 			SendQuotaWarning(ctx, s.mailer, s.logger, email, name, tenantName, resource, plan, pct, current, limit, s.cfg.PublicBase)
 		}
 	}
+}
+
+// shouldNotify returns true if the user has the given preference enabled
+// (or has never configured it — default is on). Unknown keys also default on
+// so that new notification types don't get silently blocked.
+// This helper only governs opt-out-able dispatches. Transactional emails
+// (invite, password reset, email verification, payment_failed hard-stop)
+// must NOT consult this and are always sent.
+func (s *Service) shouldNotify(ctx context.Context, userID, key string) bool {
+	if userID == "" {
+		return true
+	}
+	var enabled bool
+	err := s.db.QueryRowContext(ctx,
+		`SELECT enabled FROM user_notification_preferences WHERE user_id = $1 AND key = $2`,
+		userID, key).Scan(&enabled)
+	if err == sql.ErrNoRows {
+		return true
+	}
+	if err != nil {
+		// Fail-closed: if we can't read the preference we assume the user opted out.
+		// This prevents spam loops when the DB is flaky. Transactional emails bypass
+		// this helper entirely.
+		s.logger.Warn("shouldNotify query failed; suppressing", "user_id", userID, "key", key, "err", err.Error())
+		return false
+	}
+	return enabled
 }
 
 func (s *Service) tenantNameForID(ctx context.Context, tenantID string) string {

@@ -18,10 +18,12 @@ services:
       APP_ADDR: ":8080"
       DATABASE_URL: "postgres://${DB_USER:-arquicheck}:${DB_PASSWORD:-arquicheck-password}@db:5432/${DB_NAME:-arquicheck}?sslmode=${DB_SSLMODE:-disable}"
       UPLOAD_DIR: "/app/data/uploads"
-      JWT_SECRET: ${JWT_SECRET:-projectpulse-dev-secret-min-32-bytes-long-xxxxx}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set (min 32 bytes)}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:1212}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:1212,http://localhost:3000}
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      PLATFORM_ADMIN_EMAIL: "${PLATFORM_ADMIN_EMAIL:-}"
+      PLATFORM_ADMIN_PASSWORD: "${PLATFORM_ADMIN_PASSWORD:-}"
     depends_on:
       - db
     volumes:

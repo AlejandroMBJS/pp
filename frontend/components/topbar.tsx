@@ -1,6 +1,7 @@
 "use client";
 
-import { LogOut, Bell, Menu, Download } from "lucide-react";
+import { LogOut, Bell, Menu, Download, Settings } from "lucide-react";
+import { NotificationsDropdown } from "./notifications-dropdown";
 
 type LoginResponse = {
   access_token: string;
@@ -34,6 +35,9 @@ type TopBarProps = {
   pendingCount?: number;
   isMobile?: boolean;
   onNotificationClick?: () => void;
+  unreadNotifCount: number;
+  onUnreadNotifCountChange: (n: number) => void;
+  onOpenSettings?: () => void;
 };
 
 export function TopBar({
@@ -46,6 +50,9 @@ export function TopBar({
   pendingCount = 0,
   isMobile = false,
   onNotificationClick,
+  unreadNotifCount,
+  onUnreadNotifCountChange,
+  onOpenSettings,
 }: TopBarProps) {
   const roleColor = roleColors[session.user.role] ?? "#6b7280";
   const canExport =
@@ -98,26 +105,34 @@ export function TopBar({
           </button>
         )}
 
-        {/* Notification bell */}
-        <div className="relative">
-          <button
-            type="button"
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 text-white/60 transition-colors hover:bg-white/5"
-            aria-label="Notifications"
-            title={pendingCount > 0 ? `${pendingCount} evidence item(s) pending review` : "No notifications"}
-            onClick={onNotificationClick}
-          >
-            <Bell size={16} />
-          </button>
-          {pendingCount > 0 && (
-            <span
-              className="absolute -top-1 -right-1 badge-counter"
-              style={{ fontSize: 9, minWidth: 16, height: 16, background: "#ef4444", color: "white" }}
+        {/* Notification bell (in-app notifications) */}
+        {isMobile ? (
+          <div className="relative">
+            <button
+              type="button"
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 text-white/60 transition-colors hover:bg-white/5"
+              aria-label="Pending reviews"
+              title={pendingCount > 0 ? `${pendingCount} evidence item(s) pending review` : "No pending reviews"}
+              onClick={onNotificationClick}
             >
-              {pendingCount > 9 ? "9+" : pendingCount}
-            </span>
-          )}
-        </div>
+              <Bell size={16} />
+            </button>
+            {pendingCount > 0 && (
+              <span
+                className="absolute -top-1 -right-1 badge-counter"
+                style={{ fontSize: 9, minWidth: 16, height: 16, background: "#ef4444", color: "white" }}
+              >
+                {pendingCount > 9 ? "9+" : pendingCount}
+              </span>
+            )}
+          </div>
+        ) : (
+          <NotificationsDropdown
+            token={session.access_token}
+            unreadCount={unreadNotifCount}
+            onCountChange={onUnreadNotifCountChange}
+          />
+        )}
 
         {/* User chip */}
         <div className="flex items-center gap-2 rounded-xl border border-white/10 px-3 py-1.5 bg-white/5">
@@ -139,6 +154,18 @@ export function TopBar({
             </div>
           </div>
         </div>
+
+        {onOpenSettings && (
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 text-white/60 transition-colors hover:bg-white/5 hover:text-white"
+            aria-label="Settings"
+            title="Settings"
+          >
+            <Settings size={16} />
+          </button>
+        )}
 
         <button
           type="button"

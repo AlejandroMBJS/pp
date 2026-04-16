@@ -29,6 +29,10 @@ type DemoRequestResult struct {
 // RequestDemo provisions an ephemeral demo tenant for a lead, inserts the
 // lead row, and emails the temporary credentials. Returns once the email
 // send has been attempted (logged but non-fatal on failure).
+//
+// If an active demo lead already exists for this email (not expired, not
+// purged), we resend credentials on that same lead instead of creating a
+// duplicate tenant.
 func (s *Service) RequestDemo(ctx context.Context, in DemoRequestInput) (DemoRequestResult, error) {
 	name := strings.TrimSpace(in.Name)
 	email := strings.ToLower(strings.TrimSpace(in.Email))
@@ -44,9 +48,40 @@ func (s *Service) RequestDemo(ctx context.Context, in DemoRequestInput) (DemoReq
 		return DemoRequestResult{}, errors.New("company too long")
 	}
 
-	// Cooldown per email: 10 minutes between requests.
+	// Serialize concurrent demo requests for the same email via a Postgres
+	// advisory lock. Released automatically at tx end. Prevents two requests
+	// from both missing the idempotency check and creating duplicate tenants.
+	lockConn, err := s.db.Conn(ctx)
+	if err != nil {
+		return DemoRequestResult{}, err
+	}
+	defer lockConn.Close()
+	if _, err := lockConn.ExecContext(ctx, `SELECT pg_advisory_lock(hashtext($1))`, "demo:"+email); err != nil {
+		return DemoRequestResult{}, err
+	}
+	defer func() {
+		_, _ = lockConn.ExecContext(context.Background(), `SELECT pg_advisory_unlock(hashtext($1))`, "demo:"+email)
+	}()
+
+	// Idempotency: if an active lead already exists, rotate its password and
+	// resend instead of creating a fresh tenant. Avoids orphaning old demos.
+	var activeLeadID string
+	var activeExpiresAt time.Time
+	err = lockConn.QueryRowContext(ctx,
+		`SELECT id, expires_at FROM demo_leads
+		 WHERE email = $1 AND expires_at > NOW() AND purged_at IS NULL AND tenant_id <> ''
+		 ORDER BY created_at DESC LIMIT 1`, email,
+	).Scan(&activeLeadID, &activeExpiresAt)
+	if err == nil && activeLeadID != "" {
+		if resendErr := s.ResendDemoCredentials(ctx, email); resendErr != nil {
+			return DemoRequestResult{}, resendErr
+		}
+		return DemoRequestResult{LeadID: activeLeadID, ExpiresAt: activeExpiresAt}, nil
+	}
+
+	// Cooldown per email: 10 minutes between new requests.
 	var lastCreatedAt sql.NullTime
-	_ = s.db.QueryRowContext(ctx,
+	_ = lockConn.QueryRowContext(ctx,
 		`SELECT MAX(created_at) FROM demo_leads WHERE email = $1`, email,
 	).Scan(&lastCreatedAt)
 	if lastCreatedAt.Valid && time.Since(lastCreatedAt.Time) < 10*time.Minute {
@@ -156,6 +191,90 @@ func (s *Service) RequestDemo(ctx context.Context, in DemoRequestInput) (DemoReq
 	}(email, subject, html)
 
 	return DemoRequestResult{LeadID: leadID, ExpiresAt: expiresAt}, nil
+}
+
+// ResendDemoCredentials rotates the demo user's password and re-sends the
+// credentials email. Rate-limited to 3 sends per 24h per email. Always returns
+// nil for unknown emails so the handler can respond with a generic 200 and
+// avoid enumeration — internal logs distinguish the cases.
+func (s *Service) ResendDemoCredentials(ctx context.Context, rawEmail string) error {
+	email := strings.ToLower(strings.TrimSpace(rawEmail))
+	if !emailRegex.MatchString(email) {
+		s.logger.Info("demo.resend.invalid_email", "email", email)
+		return nil
+	}
+
+	var leadID, tenantID, demoUserID, name string
+	var expiresAt time.Time
+	var resendCount int
+	var lastResentAt sql.NullTime
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, tenant_id, demo_user_id, name, expires_at, resend_count, last_resent_at
+		 FROM demo_leads
+		 WHERE email = $1 AND expires_at > NOW() AND purged_at IS NULL AND tenant_id <> ''
+		 ORDER BY created_at DESC LIMIT 1`, email,
+	).Scan(&leadID, &tenantID, &demoUserID, &name, &expiresAt, &resendCount, &lastResentAt)
+	if err == sql.ErrNoRows {
+		s.logger.Info("demo.resend.no_active_lead", "email", email)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lookup active lead: %w", err)
+	}
+
+	// Rate limit: 3 resends per 24h.
+	if lastResentAt.Valid && time.Since(lastResentAt.Time) < 24*time.Hour && resendCount >= 3 {
+		s.logger.Warn("demo.resend.rate_limited", "email", email, "lead_id", leadID, "resend_count", resendCount)
+		return errors.New("too many resend requests; try again in 24 hours")
+	}
+	// Reset counter if the 24h window has passed.
+	if lastResentAt.Valid && time.Since(lastResentAt.Time) >= 24*time.Hour {
+		resendCount = 0
+	}
+
+	// Rotate the password.
+	newPassword, err := generateDemoPassword(16)
+	if err != nil {
+		return err
+	}
+	newHash, err := HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3`,
+		newHash, demoUserID, tenantID,
+	); err != nil {
+		return fmt.Errorf("rotate password: %w", err)
+	}
+
+	// Bump the counter.
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE demo_leads SET resend_count = $1, last_resent_at = NOW(), updated_at = NOW() WHERE id = $2`,
+		resendCount+1, leadID,
+	); err != nil {
+		return fmt.Errorf("update resend counter: %w", err)
+	}
+
+	// Resend the credentials email (best-effort).
+	baseURL := s.cfg.DemoBaseURL
+	if baseURL == "" {
+		baseURL = s.cfg.PublicBase
+	}
+	if baseURL == "" {
+		baseURL = "https://projpul.com"
+	}
+	subject, html := RenderDemoCredentialsEmail(name, baseURL, email, newPassword, expiresAt)
+	go func(to, subj, body string) {
+		c, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := s.mailer.SendHTML(c, to, subj, body); err != nil {
+			s.logger.Error("demo.resend.email_failed", "to", to, "err", err)
+		}
+	}(email, subject, html)
+
+	s.logger.Info("demo.resend.sent", "email", email, "lead_id", leadID, "resend_count", resendCount+1)
+	return nil
 }
 
 // PurgeExpiredDemos deletes all data belonging to demo tenants whose TTL

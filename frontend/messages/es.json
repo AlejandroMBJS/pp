@@ -187,7 +187,51 @@
     "title": "Precios simples y transparentes",
     "subtitle": "Elige el plan que encaja con tu operación. Sin contratos forzosos, cancela cuando quieras.",
     "recommended": "Recomendado",
-    "footnote": "Pago seguro vía Stripe. Todos los precios en USD. IVA no incluido donde aplique."
+    "footnote": "Pago seguro vía Stripe. Todos los precios en USD. IVA no incluido donde aplique.",
+    "compareTitle": "Comparación completa de funciones",
+    "compareSubtitle": "Todas las capacidades, lado a lado. Los números son límites; las palomitas indican incluido.",
+    "categories": {
+      "limits": "Límites y cuotas",
+      "core": "Flujos principales",
+      "ai": "IA e inteligencia",
+      "billing": "Facturación e integraciones",
+      "support": "Soporte y cumplimiento"
+    },
+    "rows": {
+      "projects": "Proyectos activos",
+      "users": "Usuarios internos",
+      "clients": "Asientos de cliente",
+      "evidence": "Capturas de evidencia / mes",
+      "storage": "Almacenamiento de archivos",
+      "projectsValue": { "professional": "5", "business": "20", "enterprise": "Ilimitados" },
+      "usersValue": { "professional": "15", "business": "50", "enterprise": "A medida" },
+      "clientsValue": { "professional": "Ilimitados", "business": "Ilimitados", "enterprise": "Ilimitados" },
+      "evidenceValue": { "professional": "500", "business": "2,000", "enterprise": "A medida" },
+      "storageValue": { "professional": "10 GB", "business": "50 GB", "enterprise": "A medida" },
+      "tasks": "Tareas, entregables, línea de tiempo",
+      "geoEvidence": "Evidencia fotográfica geolocalizada",
+      "blueprints": "Visor CAD / DWG / 3D",
+      "zones": "Zonas + vínculos tarea↔zona",
+      "clientPortal": "Portal de aprobación del cliente",
+      "publicDashboard": "Dashboards públicos de proyecto",
+      "csv": "Exportes CSV",
+      "pdf": "Reportes PDF",
+      "aiAudit": "Auditoría de calidad con IA (Gemini)",
+      "aiInsights": "Insights y resúmenes con IA",
+      "stripe": "Facturación Stripe con suscripción",
+      "webhook": "Integraciones por webhook",
+      "sso": "SSO empresarial (SAML / Okta)",
+      "api": "API REST pública",
+      "emailSupport": "Soporte por email",
+      "prioritySupport": "Soporte prioritario (SLA 24h)",
+      "dedicatedCSM": "Customer success dedicado",
+      "customSLA": "SLA y uptime a medida",
+      "msa": "MSA / NDA / DPA disponibles",
+      "dataResidency": "Opciones de residencia de datos"
+    },
+    "included": "Incluido",
+    "notIncluded": "No incluido",
+    "ctaBack": "Volver a planes"
   },
   "plans": {
     "priceSuffix": "USD/mes",
@@ -317,7 +361,22 @@
       "required": "Nombre y email son requeridos",
       "generic": "No pudimos procesar tu solicitud",
       "unexpected": "Error inesperado"
+    },
+    "resend": {
+      "link": "¿Ya solicitaste? Reenviar mis credenciales",
+      "placeholder": "tu@empresa.com",
+      "button": "Reenviar",
+      "sent": "Si existe un demo activo con ese email, acabamos de reenviar las credenciales."
     }
+  },
+  "notifications": {
+    "ariaLabel": "Notificaciones",
+    "title": "Notificaciones",
+    "markAllRead": "Marcar todas",
+    "close": "Cerrar",
+    "loading": "Cargando…",
+    "empty": "Sin notificaciones",
+    "justNow": "ahora"
   },
   "billingCancel": {
     "meta": { "title": "Pago cancelado — ProjectPulse" },
@@ -374,5 +433,61 @@
   },
   "planViewer": {
     "supportedFormats": "Formatos: DWG · DXF · PDF · STL · 3MF · GLB · PNG/JPG"
+  },
+  "legal": {
+    "terms": {
+      "title": "Términos de servicio",
+      "updated": "Última actualización: 15 de abril de 2026",
+      "intro": "Estos Términos de Servicio rigen tu acceso y uso de ProjectPulse. Al crear una cuenta o usar la plataforma aceptas estos términos.",
+      "s1": {
+        "title": "1. Cuentas",
+        "body": "Eres responsable de mantener la confidencialidad de tus credenciales y de toda la actividad que ocurra bajo tu cuenta. Notifícanos de inmediato cualquier uso no autorizado."
+      },
+      "s2": {
+        "title": "2. Uso aceptable",
+        "body": "Te comprometes a no hacer mal uso de la plataforma: nada de ingeniería inversa, contenido ilegal, intentos de interrumpir el servicio o evadir cuotas, ni subir datos sobre los que no tengas derechos."
+      },
+      "s3": {
+        "title": "3. Facturación",
+        "body": "Los planes de pago se facturan por adelantado vía Stripe. Puedes cancelar en cualquier momento desde el portal de billing; la cancelación surte efecto al final del periodo de facturación en curso. No se reembolsan periodos parciales."
+      },
+      "s4": {
+        "title": "4. Responsabilidad",
+        "body": "El servicio se ofrece \"tal cual\" sin garantías de ningún tipo. Nuestra responsabilidad total se limita a las cuotas que hayas pagado en los doce meses previos al reclamo."
+      },
+      "contact": {
+        "title": "Contacto",
+        "body": "¿Dudas sobre estos términos? Escríbenos a legal@projectpulse.app."
+      }
+    },
+    "privacy": {
+      "title": "Política de privacidad",
+      "updated": "Última actualización: 15 de abril de 2026",
+      "intro": "Esta Política de Privacidad explica qué datos recolecta ProjectPulse, cómo los usamos y los derechos que tienes sobre ellos.",
+      "s1": {
+        "title": "1. Datos que recolectamos",
+        "body": "Datos de cuenta (nombre, email, rol), datos del proyecto que subes (fotos, planos, notas) y logs técnicos (IP, user agent, timestamps) necesarios para operar el servicio."
+      },
+      "s2": {
+        "title": "2. Cómo los usamos",
+        "body": "Estrictamente para entregar el servicio: autenticación, aislamiento multi-tenant, facturación, soporte y prevención de abuso. No vendemos tus datos."
+      },
+      "s3": {
+        "title": "3. Subprocesadores",
+        "body": "Usamos Stripe (pagos), Resend (email transaccional), Google Gemini (auditorías IA de calidad, sólo cuando está habilitado) y un proveedor VPS para hosting. Cada uno está contractualmente obligado a proteger tus datos."
+      },
+      "s4": {
+        "title": "4. Retención",
+        "body": "Los datos se conservan mientras tu tenant esté activo. Al eliminarlo, los datos personales se purgan en 30 días; los backups rotan fuera en 90 días."
+      },
+      "s5": {
+        "title": "5. Tus derechos",
+        "body": "Puedes acceder, exportar o eliminar tus datos en cualquier momento desde settings, o contactándonos."
+      },
+      "contact": {
+        "title": "Contacto",
+        "body": "¿Preguntas o solicitudes de datos? Escríbenos a privacy@projectpulse.app."
+      }
+    }
   }
 }

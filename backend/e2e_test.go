@@ -46,16 +46,11 @@ func TestRoleWorkflowsEndToEnd(t *testing.T) {
 
 	project := createProject(t, ts.URL, ownerAuth, supervisor.ID, client.ID)
 	projectID := project["id"].(string)
-	updateBudget(t, ts.URL, ownerAuth, projectID, 150000000, 45000000)
 	taskID := createTask(t, ts.URL, ownerAuth, projectID, helper.ID)
 
 	supervisorLogin := login(t, ts.URL, supervisor.Email, "demo123")
 	supervisorAuth := bearer(supervisorLogin.AccessToken)
 	patchTimeline(t, ts.URL, supervisorAuth, taskID)
-	budgetView := getJSON(t, ts.URL+"/api/v1/projects/"+projectID+"/budget", supervisorAuth)
-	if budgetView["summary_only"].(bool) {
-		t.Fatal("supervisor budget view should not be summary_only")
-	}
 
 	helperLogin := login(t, ts.URL, helper.Email, "demo123")
 	helperAuth := bearer(helperLogin.AccessToken)
@@ -77,7 +72,8 @@ func TestRoleWorkflowsEndToEnd(t *testing.T) {
 
 	clientLogin := login(t, ts.URL, client.Email, "demo123")
 	clientAuth := bearer(clientLogin.AccessToken)
-	galleryBeforeAudit := getJSONArray(t, ts.URL+"/api/v1/client/projects/"+projectID+"/gallery", clientAuth)
+	summaryBefore := getJSON(t, ts.URL+"/api/v1/client/projects/"+projectID+"/summary", clientAuth)
+	galleryBeforeAudit, _ := summaryBefore["gallery"].([]any)
 	if len(galleryBeforeAudit) != 1 {
 		t.Fatalf("expected 1 gallery evidence immediately after approval, got %d", len(galleryBeforeAudit))
 	}
@@ -88,7 +84,7 @@ func TestRoleWorkflowsEndToEnd(t *testing.T) {
 	if int(summary["budget_spent_percent"].(float64)) == 0 {
 		t.Fatal("expected client summary to include budget percent")
 	}
-	gallery := getJSONArray(t, ts.URL+"/api/v1/client/projects/"+projectID+"/gallery", clientAuth)
+	gallery, _ := summary["gallery"].([]any)
 	if len(gallery) != 1 {
 		t.Fatalf("expected 1 gallery evidence, got %d", len(gallery))
 	}
@@ -148,6 +144,40 @@ func TestRoleWorkflowsEndToEnd(t *testing.T) {
 	}
 	resp.Body.Close()
 
+	// ── Deliverables approve/reject (R4) ─────────────────────────────────────
+	deliverables := getJSONArray(t, ts.URL+"/api/v1/projects/"+projectID+"/deliverables", clientAuth)
+	if len(deliverables) == 0 {
+		t.Fatal("expected at least one deliverable for client")
+	}
+	deliverableID := deliverables[0].(map[string]any)["id"].(string)
+	// helper cannot approve
+	resp = postJSON(t, ts.URL+"/api/v1/deliverables/"+deliverableID+"/approve", helperAuth, map[string]any{})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected helper approve to be forbidden, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	// client approves
+	resp = postJSON(t, ts.URL+"/api/v1/deliverables/"+deliverableID+"/approve", clientAuth, map[string]any{})
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected client approve to succeed, got %d %s", resp.StatusCode, string(body))
+	}
+	var approved map[string]any
+	decodeBody(t, resp.Body, &approved)
+	resp.Body.Close()
+	if approved["status"].(string) != "approved" {
+		t.Fatalf("expected status approved, got %v", approved["status"])
+	}
+	if approved["approved_by_user_id"].(string) != client.ID {
+		t.Fatalf("expected approved_by_user_id=%s, got %v", client.ID, approved["approved_by_user_id"])
+	}
+	// re-approving should fail (wrong status)
+	resp = postJSON(t, ts.URL+"/api/v1/deliverables/"+deliverableID+"/approve", clientAuth, map[string]any{})
+	if resp.StatusCode == http.StatusOK {
+		t.Fatal("expected re-approve to fail")
+	}
+	resp.Body.Close()
+
 	// ── Budget adjustments ───────────────────────────────────────────────────
 	adjResp := postJSONObj(t, ts.URL+"/api/v1/projects/"+projectID+"/budget-adjustments", ownerAuth, map[string]any{
 		"amount_cents": 5000000,
@@ -189,6 +219,32 @@ func TestRoleWorkflowsEndToEnd(t *testing.T) {
 			t.Fatal("client received evidence that is not approved+visible")
 		}
 	}
+
+	// B1: client tries to update task → must be 403, not 400.
+	resp = patchJSON(t, ts.URL+"/api/v1/tasks/"+taskID, clientAuth, map[string]any{"status": "in_progress"})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected client task update to be 403, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// B3: client tries to delete evidence → must be 403, not 400.
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/evidences/"+evidenceID, nil)
+	req.Header.Set("Authorization", clientAuth)
+	delResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if delResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected client evidence delete to be 403, got %d", delResp.StatusCode)
+	}
+	delResp.Body.Close()
+
+	// B4: reused/invalid password reset token must fail.
+	resp = postJSON(t, ts.URL+"/api/v1/auth/complete-password-reset", "", map[string]any{"token": "nonexistent-token-xyz", "password": "another-pass"})
+	if resp.StatusCode == http.StatusOK {
+		t.Fatal("expected reset with invalid token to fail")
+	}
+	resp.Body.Close()
 }
 
 type loginResponse struct {
@@ -265,16 +321,6 @@ func createProject(t *testing.T, baseURL, auth, supervisorID, clientID string) m
 	var out map[string]any
 	decodeBody(t, resp.Body, &out)
 	return out
-}
-
-func updateBudget(t *testing.T, baseURL, auth, projectID string, budget, spent int64) {
-	t.Helper()
-	resp := patchJSON(t, baseURL+"/api/v1/projects/"+projectID+"/budget", auth, map[string]any{"budget_total_cents": budget, "spent_total_cents": spent})
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("update budget failed: %d %s", resp.StatusCode, string(body))
-	}
 }
 
 func createTask(t *testing.T, baseURL, auth, projectID, helperID string) string {

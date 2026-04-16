@@ -3,6 +3,7 @@
 import React, { FormEvent, useEffect, useMemo, useState } from "react";
 import { AlertCircle, AlertTriangle, CheckCircle, Cloud, CloudSun, History, Pencil, Plus, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
+import { ConfirmDialog } from "./ui/confirm-dialog";
 
 type DailyLog = {
   id: string;
@@ -41,6 +42,7 @@ export function DailyJournal({ project, session }: { project: Project; session: 
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
 
   useEffect(() => {
@@ -107,7 +109,7 @@ export function DailyJournal({ project, session }: { project: Project; session: 
   }
 
   async function handleDelete(logId: string) {
-    if (!confirm("Delete this log entry?")) return;
+    setConfirmDeleteId(null);
     setDeletingId(logId);
     try {
       const res = await fetch(`/api/v1/daily-logs/${logId}`, {
@@ -136,6 +138,15 @@ export function DailyJournal({ project, session }: { project: Project; session: 
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        title="Delete daily log?"
+        body="This will permanently remove the entry."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => confirmDeleteId && void handleDelete(confirmDeleteId)}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-black text-white tracking-tight">Daily Log</h2>
@@ -308,7 +319,7 @@ export function DailyJournal({ project, session }: { project: Project; session: 
                 </button>
                 <button
                   type="button"
-                  onClick={() => void handleDelete(log.id)}
+                  onClick={() => setConfirmDeleteId(log.id)}
                   disabled={deletingId === log.id}
                   className="h-8 w-8 rounded-lg bg-red-500/10 flex items-center justify-center border border-red-500/20 text-red-300/60 hover:text-red-200 transition-colors disabled:opacity-40"
                 >

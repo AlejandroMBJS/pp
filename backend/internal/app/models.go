@@ -114,9 +114,25 @@ type AdminUserPatch struct {
 }
 
 type Tenant struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Slug string `json:"slug"`
+	ID                     string `json:"id"`
+	Name                   string `json:"name"`
+	Slug                   string `json:"slug"`
+	Website                string `json:"website"`
+	Country                string `json:"country"`
+	Timezone               string `json:"timezone"`
+	Currency               string `json:"currency"`
+	PublicDashboardEnabled bool   `json:"public_dashboard_enabled"`
+	PublicGalleryEnabled   bool   `json:"public_gallery_enabled"`
+}
+
+type TenantPatch struct {
+	Name                   *string `json:"name,omitempty"`
+	Website                *string `json:"website,omitempty"`
+	Country                *string `json:"country,omitempty"`
+	Timezone               *string `json:"timezone,omitempty"`
+	Currency               *string `json:"currency,omitempty"`
+	PublicDashboardEnabled *bool   `json:"public_dashboard_enabled,omitempty"`
+	PublicGalleryEnabled   *bool   `json:"public_gallery_enabled,omitempty"`
 }
 
 type Blueprint struct {

@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Check, CheckCheck, Info, MessageSquare, Pencil, Search, Send, Trash2, User } from "lucide-react";
 import { toast } from "sonner";
+import { ConfirmDialog } from "./ui/confirm-dialog";
 
 type ProjectMessage = {
   id: string;
@@ -65,6 +66,7 @@ export function MessagingHub({
   const [inputText, setInputText] = useState("");
   const [type, setType] = useState("chat");
   const [recipientId, setRecipientId] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
@@ -234,7 +236,7 @@ export function MessagingHub({
   }
 
   async function handleDeleteMessage(messageId: string) {
-    if (!confirm("Delete this message?")) return;
+    setConfirmDeleteId(null);
     try {
       const res = await fetch(`/api/v1/messages/${messageId}`, {
         method: "DELETE",
@@ -272,6 +274,15 @@ export function MessagingHub({
 
   return (
     <div className={`flex flex-col glass-card border-white/5 bg-white/[0.01] overflow-hidden animate-in fade-in zoom-in-95 duration-500 ${isMobile ? 'h-[calc(100vh-180px)]' : 'h-[700px]'}`}>
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        title="Delete message?"
+        body="This message will be permanently removed."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => confirmDeleteId && void handleDeleteMessage(confirmDeleteId)}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
       <div className={`${isMobile ? 'p-4' : 'p-6'} border-b border-white/5 flex items-center justify-between bg-white/[0.01]`}>
         <div className="flex items-center gap-3">
           <div className={`${isMobile ? 'h-10 w-10' : 'h-12 w-12'} rounded-2xl bg-blue-600/20 flex items-center justify-center border border-blue-600/20`}>
@@ -392,7 +403,7 @@ export function MessagingHub({
                         </button>
                         <button
                           type="button"
-                          onClick={() => void handleDeleteMessage(message.id)}
+                          onClick={() => setConfirmDeleteId(message.id)}
                           className="rounded-lg border border-red-500/10 bg-red-500/[0.08] p-1.5 text-red-300/60 transition-colors hover:text-red-200"
                           aria-label="Delete message"
                         >

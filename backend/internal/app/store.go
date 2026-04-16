@@ -19,15 +19,109 @@ import (
 )
 
 type Service struct {
-	db        *sql.DB
-	storage   FileStorage
-	mailer    EmailSender
-	logger    *slog.Logger
-	cfg       Config
-	jwtSecret []byte
-	auditJobs chan string
-	auditWg   sync.WaitGroup
-	stripe    *billing.Client
+	db         *sql.DB
+	storage    FileStorage
+	mailer     EmailSender
+	logger     *slog.Logger
+	cfg        Config
+	jwtSecret  []byte
+	auditJobs  chan string
+	auditWg    sync.WaitGroup
+	stripe     *billing.Client
+	loginGuard *loginGuard
+}
+
+// loginGuard tracks failed login attempts per (lowercased) email to throttle
+// credential stuffing and brute force. In-process only: per-instance state, not
+// distributed. After maxFailures consecutive failures inside the window, the
+// email is locked for lockDuration.
+type loginGuard struct {
+	mu          sync.Mutex
+	entries     map[string]*loginGuardEntry
+	maxFailures int
+	window      time.Duration
+	lockoutFor  time.Duration
+	lastSweep   time.Time
+}
+
+type loginGuardEntry struct {
+	failures    int
+	firstFailAt time.Time
+	lockedUntil time.Time
+}
+
+func newLoginGuard() *loginGuard {
+	return &loginGuard{
+		entries:     make(map[string]*loginGuardEntry),
+		maxFailures: 5,
+		window:      15 * time.Minute,
+		lockoutFor:  15 * time.Minute,
+		lastSweep:   time.Now(),
+	}
+}
+
+// check returns (true, 0) if the email may attempt to log in now, or (false,
+// remaining) with the time left on the current lockout.
+func (g *loginGuard) check(email string) (bool, time.Duration) {
+	if email == "" {
+		return true, 0
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.sweepLocked()
+	e, ok := g.entries[email]
+	if !ok {
+		return true, 0
+	}
+	now := time.Now()
+	if !e.lockedUntil.IsZero() && now.Before(e.lockedUntil) {
+		return false, e.lockedUntil.Sub(now)
+	}
+	return true, 0
+}
+
+func (g *loginGuard) recordFailure(email string) {
+	if email == "" {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	now := time.Now()
+	e, ok := g.entries[email]
+	if !ok || now.Sub(e.firstFailAt) > g.window {
+		g.entries[email] = &loginGuardEntry{failures: 1, firstFailAt: now}
+		return
+	}
+	e.failures++
+	if e.failures >= g.maxFailures {
+		e.lockedUntil = now.Add(g.lockoutFor)
+	}
+}
+
+func (g *loginGuard) recordSuccess(email string) {
+	if email == "" {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.entries, email)
+}
+
+func (g *loginGuard) sweepLocked() {
+	now := time.Now()
+	if now.Sub(g.lastSweep) < 5*time.Minute {
+		return
+	}
+	g.lastSweep = now
+	for k, e := range g.entries {
+		if !e.lockedUntil.IsZero() && now.After(e.lockedUntil) {
+			delete(g.entries, k)
+			continue
+		}
+		if now.Sub(e.firstFailAt) > g.window && e.lockedUntil.IsZero() {
+			delete(g.entries, k)
+		}
+	}
 }
 
 func NewService(cfg Config) (*Service, error) {
@@ -55,14 +149,15 @@ func NewService(cfg Config) (*Service, error) {
 		mailer = NewResendEmailSender(cfg.ResendAPIKey, cfg.ResendFromAddr, cfg.ResendReplyTo, slog.Default())
 	}
 	svc := &Service{
-		db:        db,
-		storage:   storage,
-		mailer:    mailer,
-		logger:    slog.Default(),
-		cfg:       cfg,
-		jwtSecret: []byte(cfg.JWTSecret),
-		auditJobs: make(chan string, 128),
-		stripe:    billing.NewClient(cfg.StripeSecretKey, cfg.StripeWebhookSecret),
+		db:         db,
+		storage:    storage,
+		mailer:     mailer,
+		logger:     slog.Default(),
+		cfg:        cfg,
+		jwtSecret:  []byte(cfg.JWTSecret),
+		auditJobs:  make(chan string, 128),
+		stripe:     billing.NewClient(cfg.StripeSecretKey, cfg.StripeWebhookSecret),
+		loginGuard: newLoginGuard(),
 	}
 	if err := svc.initSchema(context.Background()); err != nil {
 		return nil, err
@@ -454,6 +549,28 @@ func (s *Service) runMigrations(ctx context.Context) error {
 				updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 				PRIMARY KEY (user_id, key)
 			)
+		`},
+		{28, "alter_tenants_company_fields", `
+			ALTER TABLE tenants
+				ADD COLUMN IF NOT EXISTS website   TEXT NOT NULL DEFAULT '',
+				ADD COLUMN IF NOT EXISTS country   TEXT NOT NULL DEFAULT '',
+				ADD COLUMN IF NOT EXISTS timezone  TEXT NOT NULL DEFAULT 'UTC',
+				ADD COLUMN IF NOT EXISTS currency  TEXT NOT NULL DEFAULT 'USD',
+				ADD COLUMN IF NOT EXISTS public_dashboard_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+				ADD COLUMN IF NOT EXISTS public_gallery_enabled   BOOLEAN NOT NULL DEFAULT FALSE,
+				ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+				ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		`},
+		{29, "alter_deliverables_approval", `
+			ALTER TABLE deliverables
+				ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ,
+				ADD COLUMN IF NOT EXISTS approved_by_user_id TEXT NOT NULL DEFAULT '',
+				ADD COLUMN IF NOT EXISTS rejection_reason TEXT NOT NULL DEFAULT ''
+		`},
+		{30, "alter_demo_leads_resend", `
+			ALTER TABLE demo_leads
+				ADD COLUMN IF NOT EXISTS resend_count INTEGER NOT NULL DEFAULT 0,
+				ADD COLUMN IF NOT EXISTS last_resent_at TIMESTAMPTZ
 		`},
 	}
 

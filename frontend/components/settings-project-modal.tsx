@@ -3,6 +3,7 @@
 import { X, FolderKanban, MapPin, Users, DollarSign, Calendar, AlertTriangle, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { ConfirmDialog } from "./ui/confirm-dialog";
 
 type Project = {
   id: string;
@@ -62,6 +63,7 @@ export function SettingsProjectModal({
   const [activeTab, setActiveTab] = useState("general");
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<Project | null>(null);
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   // Reset form when project changes
   useEffect(() => {
@@ -114,7 +116,7 @@ export function SettingsProjectModal({
 
   async function handleArchive() {
     if (!form) return;
-    if (!confirm(`¿Archivar el proyecto "${form.name}"?`)) return;
+    setArchiveOpen(false);
     setSaving(true);
     try {
       const res = await fetch(`/api/v1/projects/${form.id}`, {
@@ -139,6 +141,15 @@ export function SettingsProjectModal({
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <ConfirmDialog
+        open={archiveOpen}
+        title={form ? `¿Archivar el proyecto "${form.name}"?` : "Archivar proyecto"}
+        body="El proyecto dejará de estar activo, pero se conservarán sus datos."
+        confirmLabel="Archivar"
+        destructive
+        onConfirm={() => void handleArchive()}
+        onCancel={() => setArchiveOpen(false)}
+      />
       <div className="modal-sheet" style={{ maxWidth: 580 }}>
         {/* Header */}
         <div className="modal-header">
@@ -351,7 +362,7 @@ export function SettingsProjectModal({
             <button
               type="button"
               disabled={saving}
-              onClick={handleArchive}
+              onClick={() => setArchiveOpen(true)}
               className="w-full text-xs font-semibold py-2 rounded-xl transition-colors disabled:opacity-40"
               style={{ background: "var(--red-light)", color: "var(--red-strong)", border: "1px solid rgba(220,38,38,0.15)" }}
             >

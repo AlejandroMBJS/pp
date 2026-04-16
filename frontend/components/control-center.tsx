@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { ConfirmDialog } from "./ui/confirm-dialog";
 import { Sidebar } from "./sidebar";
 import { TopBar } from "./topbar";
 import { MobileBottomNav } from "./mobile-bottom-nav";
@@ -27,6 +28,9 @@ import { BillingProvider } from "./billing-context";
 import { TrialBanner } from "./trial-banner";
 import { UpgradeModal } from "./upgrade-modal";
 
+import { FabActions, FolderPlus, ListPlus, UserPlus } from "./fab-actions";
+import { NewProjectModal } from "./new-project-modal";
+import { InviteUserModal } from "./invite-user-modal";
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type DemoPayload = {
@@ -276,6 +280,8 @@ export function ControlCenter() {
   // Auth & session
   const [session, setSession] = useState<LoginResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [confirmTaskDeleteId, setConfirmTaskDeleteId] = useState<string | null>(null);
+  const [confirmBlueprintDeleteId, setConfirmBlueprintDeleteId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [authForm, setAuthForm] = useState<AuthFormState>({
@@ -312,6 +318,7 @@ export function ControlCenter() {
   const [clientGalleryTaskId, setClientGalleryTaskId] = useState<string | null>(null);
   const [lastUserInvite, setLastUserInvite] = useState<UserInviteResponse | null>(null);
   const [inviteToken, setInviteToken] = useState("");
+  const [resetToken, setResetToken] = useState("");
   const [inviteSetupForm, setInviteSetupForm] = useState<InviteSetupFormState>({
     password: "",
     confirmPassword: "",
@@ -320,6 +327,8 @@ export function ControlCenter() {
   // Modal state
   const [settingsGeneralOpen, setSettingsGeneralOpen] = useState(false);
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const [newProjectModalOpen, setNewProjectModalOpen] = useState(false);
+  const [inviteUserModalOpen, setInviteUserModalOpen] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState<{ type?: string; error?: string } | null>(null);
 
   // Listen for billing:paywall events dispatched by api() on HTTP 402 responses.
@@ -406,16 +415,41 @@ export function ControlCenter() {
     () => evidences.filter((e) => e.status === "pending_approval").length,
     [evidences]
   );
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
 
   // ── Effects ───────────────────────────────────────────────────────────────
+
+  // Poll unread notification count every 60s while logged in.
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    async function poll() {
+      try {
+        const data = await api<Array<{ read_at?: string | null }>>("/api/v1/notifications?unread=true", {
+          token: session!.access_token,
+        });
+        if (!cancelled) setUnreadNotifCount(data.length);
+      } catch {
+        // silent — bell just won't update
+      }
+    }
+    void poll();
+    const id = window.setInterval(poll, 60000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [session]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const inviteParam = params.get("invite") ?? "";
+    const resetParam = params.get("reset") ?? "";
     setInviteToken(inviteParam);
-    // If the URL carries an invite token, skip restoring any stale session —
-    // the invitee must complete setup before landing on the dashboard.
-    const raw = inviteParam
+    setResetToken(resetParam);
+    // If the URL carries an invite or reset token, skip restoring any stale
+    // session — the user must complete the flow before landing on the dashboard.
+    const raw = inviteParam || resetParam
       ? null
       : window.localStorage.getItem(storageKey) ?? window.localStorage.getItem(legacyStorageKey);
     if (raw) {
@@ -771,6 +805,27 @@ export function ControlCenter() {
     }
   }
 
+  async function handleCreateProjectModal(data: any) {
+    if (!session) return;
+    setLoading(true);
+    try {
+      const project = await api<Project>("/api/v1/projects", {
+        method: "POST",
+        token: session.access_token,
+        body: data,
+      });
+      await refreshRoleData(session);
+      setSelectedProjectId(project.id);
+      setActiveView("projects");
+      setNewProjectModalOpen(false);
+      toast.success(`Project "${project.name}" created.`);
+    } catch (err) {
+      toast.error(messageOf(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleCreateTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!session || !selectedProjectId) return;
@@ -1036,7 +1091,13 @@ export function ControlCenter() {
   }
 
   async function handleTaskDelete(taskId: string) {
-    if (!session || !confirm("Are you sure you want to delete this task?")) return;
+    if (!session) return;
+    setConfirmTaskDeleteId(taskId);
+  }
+
+  async function doTaskDelete(taskId: string) {
+    if (!session) return;
+    setConfirmTaskDeleteId(null);
     setLoading(true);
     try {
       await api(`/api/v1/tasks/${taskId}`, {
@@ -1054,7 +1115,13 @@ export function ControlCenter() {
   }
 
   async function handleBlueprintDelete(blueprintId: string) {
-    if (!session || !confirm("Delete this technical file?")) return;
+    if (!session) return;
+    setConfirmBlueprintDeleteId(blueprintId);
+  }
+
+  async function doBlueprintDelete(blueprintId: string) {
+    if (!session) return;
+    setConfirmBlueprintDeleteId(null);
     setLoading(true);
     try {
       await api(`/api/v1/blueprints/${blueprintId}`, {
@@ -1168,6 +1235,39 @@ export function ControlCenter() {
     }
   }
 
+  async function handleDeliverableApprove(deliverableId: string) {
+    if (!session) return;
+    await api(`/api/v1/deliverables/${deliverableId}/approve`, { token: session.access_token, method: "POST" });
+    // Refresh client summary
+    if (selectedProjectId) {
+      try {
+        const summary = await api<ClientSummary>(
+          `/api/v1/client/projects/${selectedProjectId}/summary`,
+          { token: session.access_token }
+        );
+        setClientSummary(summary);
+      } catch { /* ignore */ }
+    }
+  }
+
+  async function handleDeliverableReject(deliverableId: string, reason: string) {
+    if (!session) return;
+    await api(`/api/v1/deliverables/${deliverableId}/reject`, {
+      token: session.access_token,
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    });
+    if (selectedProjectId) {
+      try {
+        const summary = await api<ClientSummary>(
+          `/api/v1/client/projects/${selectedProjectId}/summary`,
+          { token: session.access_token }
+        );
+        setClientSummary(summary);
+      } catch { /* ignore */ }
+    }
+  }
+
   function handleDeliverableNavigate(deliverableId: string, taskId?: string) {
     setHighlightedDeliverableId(deliverableId);
     if (taskId) {
@@ -1205,12 +1305,21 @@ export function ControlCenter() {
         authForm={authForm}
         setAuthForm={setAuthForm}
         inviteToken={inviteToken}
+        resetToken={resetToken}
         inviteSetupForm={inviteSetupForm}
         setInviteSetupForm={setInviteSetupForm}
         onRegister={handleRegister}
         onLogin={handleLogin}
         onSetupAccount={handleSetupAccount}
         onExitInviteSetup={clearInviteSetupState}
+        onResetComplete={(loginResp) => {
+          setSession(loginResp);
+          window.localStorage.setItem(storageKey, JSON.stringify(loginResp));
+          setResetToken("");
+          const url = new URL(window.location.href);
+          url.searchParams.delete("reset");
+          window.history.replaceState({}, "", url.toString());
+        }}
         loading={loading}
       />
     );
@@ -1326,6 +1435,19 @@ export function ControlCenter() {
       }
       // Helper views
       if (activeView === "capture" || activeView === "history") {
+        if (!currentTask) {
+          return (
+            <div className="flex flex-col items-center justify-center py-20 text-center animate-fadeIn">
+              <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-4">
+                <ListPlus size={28} className="text-white/20" />
+              </div>
+              <h2 className="text-xl font-bold text-white mb-2">No task selected</h2>
+              <p className="text-sm text-white/40 max-w-sm mb-6">
+                Select a task from the sidebar to {activeView === "capture" ? "capture progress" : "view field history"}.
+              </p>
+            </div>
+          );
+        }
         return (
           <HelperCanvas
             activeView={activeView}
@@ -1339,15 +1461,43 @@ export function ControlCenter() {
           />
         );
       }
-      // New Operational Views
-      if (activeView === "finances" && currentProject) {
-        return <FinancialControl project={currentProject} session={session} tasks={tasks} />;
-      }
-      if (activeView === "journal" && currentProject) {
-        return <DailyJournal project={currentProject} session={session} />;
-      }
-      if (activeView === "messages" && currentProject) {
-        return <MessagingHub project={currentProject} session={session} users={users} tasks={tasks} isMobile={isMobile} />;
+      // New Operational Views — require a project selected
+      if (activeView === "finances" || activeView === "journal" || activeView === "messages") {
+        if (!currentProject) {
+          return (
+            <div className="flex flex-col items-center justify-center py-20 text-center animate-fadeIn">
+              <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-4">
+                <FolderPlus size={28} className="text-white/20" />
+              </div>
+              <h2 className="text-xl font-bold text-white mb-2">No project selected</h2>
+              <p className="text-sm text-white/40 max-w-sm mb-6">
+                Select a project from the sidebar to access {activeView === "finances" ? "finance and costs" : activeView === "journal" ? "the daily log" : "messages and RFI"}.
+              </p>
+              {projects.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => { setSelectedProjectId(projects[0].id); }}
+                  className="px-6 py-3 rounded-xl font-bold text-sm text-white transition-all"
+                  style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: "0 4px 20px rgba(59,130,246,0.3)" }}
+                >
+                  Open "{projects[0].name}"
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setNewProjectModalOpen(true)}
+                  className="px-6 py-3 rounded-xl font-bold text-sm text-white transition-all"
+                  style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: "0 4px 20px rgba(59,130,246,0.3)" }}
+                >
+                  Create your first project
+                </button>
+              )}
+            </div>
+          );
+        }
+        if (activeView === "finances") return <FinancialControl project={currentProject} session={session} tasks={tasks} />;
+        if (activeView === "journal") return <DailyJournal project={currentProject} session={session} />;
+        if (activeView === "messages") return <MessagingHub project={currentProject} session={session} users={users} tasks={tasks} isMobile={isMobile} />;
       }
       if (activeView === "ownergallery") {
         return (
@@ -1372,6 +1522,8 @@ export function ControlCenter() {
             selectedTaskId={clientGalleryTaskId}
             onDeliverableClick={(id, taskId) => handleDeliverableNavigate(id, taskId)}
             onClearTaskFilter={() => setClientGalleryTaskId(null)}
+            onApproveDeliverable={handleDeliverableApprove}
+            onRejectDeliverable={handleDeliverableReject}
             isMobile={isMobile}
           />
         );
@@ -1396,25 +1548,36 @@ export function ControlCenter() {
           onEvidenceDecision={handleEvidenceDecision}
           onTaskClick={handleOpenTaskEdit}
           onViewChange={setActiveView}
-          onNewProject={() => setSettingsProjectOpen(true)}
+          onNewProject={() => setNewProjectModalOpen(true)}
           onNewTask={() => {
             setSelectedTaskId("");
             setTaskEditOpen(true);
           }}
+          onInviteUser={() => setInviteUserModalOpen(true)}
+          users={users}
           isMobile={isMobile}
         />
       );
     }
-    
+
     if (role === "supervisor") {
-      if (activeView === "finances" && currentProject) {
-        return <FinancialControl project={currentProject} session={session} tasks={tasks} />;
-      }
-      if (activeView === "journal" && currentProject) {
-        return <DailyJournal project={currentProject} session={session} />;
-      }
-      if (activeView === "messages" && currentProject) {
-        return <MessagingHub project={currentProject} session={session} users={users} tasks={tasks} isMobile={isMobile} />;
+      if (activeView === "finances" || activeView === "journal" || activeView === "messages") {
+        if (!currentProject) {
+          return (
+            <div className="flex flex-col items-center justify-center py-20 text-center animate-fadeIn">
+              <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-4">
+                <FolderPlus size={28} className="text-white/20" />
+              </div>
+              <h2 className="text-xl font-bold text-white mb-2">No project selected</h2>
+              <p className="text-sm text-white/40 max-w-sm">
+                Select a project from the sidebar to access this view.
+              </p>
+            </div>
+          );
+        }
+        if (activeView === "finances") return <FinancialControl project={currentProject} session={session} tasks={tasks} />;
+        if (activeView === "journal") return <DailyJournal project={currentProject} session={session} />;
+        if (activeView === "messages") return <MessagingHub project={currentProject} session={session} users={users} tasks={tasks} isMobile={isMobile} />;
       }
       if (activeView === "gallery") {
         return (
@@ -1512,6 +1675,24 @@ export function ControlCenter() {
     <AuthTokenProvider value={session?.access_token ?? null}>
     <BillingProvider token={session?.access_token ?? null}>
     <div className="app-shell">
+      <ConfirmDialog
+        open={confirmTaskDeleteId !== null}
+        title="Delete task?"
+        body="This task and its evidence will be permanently removed."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => confirmTaskDeleteId && void doTaskDelete(confirmTaskDeleteId)}
+        onCancel={() => setConfirmTaskDeleteId(null)}
+      />
+      <ConfirmDialog
+        open={confirmBlueprintDeleteId !== null}
+        title="Delete technical file?"
+        body="This file will be permanently removed from the project."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => confirmBlueprintDeleteId && void doBlueprintDelete(confirmBlueprintDeleteId)}
+        onCancel={() => setConfirmBlueprintDeleteId(null)}
+      />
       <TrialBanner onUpgrade={() => { setUpgradeReason(null); setUpgradeModalOpen(true); }} />
       <UpgradeModal
         isOpen={upgradeModalOpen}
@@ -1605,6 +1786,9 @@ export function ControlCenter() {
           pendingCount={pendingEvidenceCount}
           isMobile={isMobile}
           onNotificationClick={() => setActiveView("review")}
+          unreadNotifCount={unreadNotifCount}
+          onUnreadNotifCountChange={setUnreadNotifCount}
+          onOpenSettings={() => setSettingsGeneralOpen(true)}
         />
 
         <div className="app-content">
@@ -1612,41 +1796,7 @@ export function ControlCenter() {
             {renderCanvas()}
           </main>
 
-          {!isMobile && (
-            <RightInspector
-              session={session}
-              activeView={activeView}
-              users={users}
-              supervisors={supervisors}
-              helpers={helpers}
-              clients={clients}
-              newUser={newUser}
-              setNewUser={setNewUser}
-              lastUserInvite={lastUserInvite}
-              newProject={newProject}
-              setNewProject={setNewProject}
-              newTask={newTask}
-              setNewTask={setNewTask}
-              currentProject={currentProject}
-              currentTask={currentTask}
-              deliverables={deliverables}
-              evidences={evidences}
-              rbac={rbac}
-              onCreateUser={handleCreateUser}
-              onCopyInviteLink={handleCopyInviteLink}
-              onCreateProject={handleCreateProject}
-              onCreateTask={handleCreateTask}
-              onDeliverableClick={(id) => handleDeliverableNavigate(id)}
-              onOpenSettingsGeneral={() => setSettingsGeneralOpen(true)}
-              onOpenSettingsProject={() => setSettingsProjectOpen(true)}
-              onOpenTaskApproval={(idx = 0) => {
-                setTaskApprovalIndex(idx);
-                setTaskApprovalOpen(true);
-              }}
-              onOpenPhotoUpload={() => setPhotoUploadOpen(true)}
-              loading={loading}
-            />
-          )}
+          {/* Right inspector removed — actions moved to FAB + modals */}
         </div>
 
         {isMobile && (
@@ -1659,6 +1809,29 @@ export function ControlCenter() {
         )}
       </div>
     </div>
+    <NewProjectModal
+        open={newProjectModalOpen}
+        onClose={() => setNewProjectModalOpen(false)}
+        supervisors={supervisors}
+        clients={clients}
+        loading={loading}
+        onSubmit={handleCreateProjectModal}
+      />
+      <InviteUserModal
+        isOpen={inviteUserModalOpen}
+        onClose={() => setInviteUserModalOpen(false)}
+        token={session?.access_token ?? ""}
+        onInvited={() => refreshRoleData(session!)}
+      />
+      {(role === "owner" || role === "supervisor") && (
+        <FabActions
+          actions={[
+            { id: "project", label: "New Project", icon: <FolderPlus size={20} className="text-white" />, color: "#3b82f6", onClick: () => setNewProjectModalOpen(true) },
+            { id: "task", label: "New Task", icon: <ListPlus size={20} className="text-white" />, color: "#10b981", onClick: () => { setSelectedTaskId(""); setTaskEditOpen(true); } },
+            { id: "invite", label: "Invite User", icon: <UserPlus size={20} className="text-white" />, color: "#8b5cf6", onClick: () => setInviteUserModalOpen(true) },
+          ]}
+        />
+      )}
     </BillingProvider>
     </AuthTokenProvider>
   );

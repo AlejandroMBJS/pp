@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, type FormEvent } from "react";
+import { toast } from "sonner";
 import { Input } from "./ui/form-input";
 import { Briefcase, Building2, ChevronRight, Key, Mail, ShieldCheck, User } from "lucide-react";
 
@@ -25,17 +26,21 @@ type InviteSetupFormState = {
   confirmPassword: string;
 };
 
+type LoginResponseLike = { access_token: string; user: { id: string; email: string; role: string; full_name: string; tenant_id: string; is_active?: boolean; email_verified?: boolean } };
+
 type PublicWorkspaceProps = {
   demo: DemoPayload | null;
   authForm: AuthFormState;
   setAuthForm: (state: AuthFormState) => void;
   inviteToken: string;
+  resetToken?: string;
   inviteSetupForm: InviteSetupFormState;
   setInviteSetupForm: (state: InviteSetupFormState) => void;
   onRegister: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onLogin: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onSetupAccount: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onExitInviteSetup: () => void;
+  onResetComplete?: (login: LoginResponseLike) => void;
   loading: boolean;
 };
 
@@ -44,12 +49,14 @@ export function PublicWorkspace({
   authForm,
   setAuthForm,
   inviteToken,
+  resetToken = "",
   inviteSetupForm,
   setInviteSetupForm,
   onRegister,
   onLogin,
   onSetupAccount,
   onExitInviteSetup,
+  onResetComplete,
   loading,
 }: PublicWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<"login" | "register">("login");
@@ -64,6 +71,80 @@ export function PublicWorkspace({
   const [inviteLookupState, setInviteLookupState] = useState<"idle" | "loading" | "ok" | "error">(
     inviteToken ? "loading" : "idle"
   );
+
+  const [resetInfo, setResetInfo] = useState<{ email: string; full_name: string; company_name: string } | null>(null);
+  const [resetLookupState, setResetLookupState] = useState<"idle" | "loading" | "ok" | "error">(
+    resetToken ? "loading" : "idle"
+  );
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirm, setResetConfirm] = useState("");
+  const [resetSubmitting, setResetSubmitting] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotSent, setForgotSent] = useState(false);
+  const [forgotBusy, setForgotBusy] = useState(false);
+
+  useEffect(() => {
+    if (!resetToken) {
+      setResetInfo(null);
+      setResetLookupState("idle");
+      return;
+    }
+    let cancelled = false;
+    setResetLookupState("loading");
+    fetch(`/api/v1/auth/password-reset/${encodeURIComponent(resetToken)}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error("lookup failed");
+        return res.json();
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setResetInfo(data);
+        setResetLookupState("ok");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setResetLookupState("error");
+      });
+    return () => { cancelled = true; };
+  }, [resetToken]);
+
+  async function submitReset(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (resetPassword !== resetConfirm) return;
+    setResetSubmitting(true);
+    try {
+      const res = await fetch("/api/v1/auth/complete-password-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: resetToken, password: resetPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? "Reset failed");
+      onResetComplete?.(data);
+    } catch (err) {
+      setResetLookupState("error");
+      setResetInfo(null);
+      toast.error((err as Error).message);
+    } finally {
+      setResetSubmitting(false);
+    }
+  }
+
+  async function submitForgot(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setForgotBusy(true);
+    try {
+      await fetch("/api/v1/auth/request-password-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: forgotEmail }),
+      });
+      setForgotSent(true);
+    } finally {
+      setForgotBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!inviteToken) {
@@ -224,7 +305,48 @@ export function PublicWorkspace({
             </div>
 
             <div className="p-10">
-              {inviteToken ? (
+              {resetToken ? (
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  <div className="mb-8">
+                    <h2 className="text-2xl font-black text-white tracking-tight">Reset your password</h2>
+                    {resetLookupState === "loading" && <p className="mt-2 text-sm text-white/30 font-medium">Loading reset link…</p>}
+                    {resetLookupState === "error" && (
+                      <p className="mt-2 text-sm text-red-400 font-medium">
+                        This reset link is invalid or has expired. Request a new one from the sign-in screen.
+                      </p>
+                    )}
+                    {resetLookupState === "ok" && resetInfo && (
+                      <div className="mt-3 rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3">
+                        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-300 mb-1">Setting new password for</div>
+                        <div className="text-sm font-bold text-white truncate">{resetInfo.email}</div>
+                        <div className="text-xs text-white/50 mt-0.5">{resetInfo.full_name} · {resetInfo.company_name}</div>
+                      </div>
+                    )}
+                  </div>
+                  <form onSubmit={submitReset} className="grid gap-5">
+                    <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-xs leading-relaxed text-emerald-100/85">
+                      Use a strong password with at least 12 characters, uppercase, lowercase, and numbers.
+                    </div>
+                    <div className="relative group">
+                      <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-white/10 group-focus-within:text-emerald-400 transition-colors" size={18} />
+                      <Input placeholder="New password" type="password" value={resetPassword} className="pl-12 bg-white/[0.03] border-white/5 py-4 h-auto rounded-2xl" onChange={setResetPassword} />
+                    </div>
+                    <div className="relative group">
+                      <ShieldCheck className="absolute left-4 top-1/2 -translate-y-1/2 text-white/10 group-focus-within:text-emerald-400 transition-colors" size={18} />
+                      <Input placeholder="Confirm password" type="password" value={resetConfirm} className="pl-12 bg-white/[0.03] border-white/5 py-4 h-auto rounded-2xl" onChange={setResetConfirm} />
+                    </div>
+                    {resetConfirm && resetPassword !== resetConfirm && (
+                      <p className="text-xs text-red-400/80 font-semibold">Passwords do not match</p>
+                    )}
+                    <button
+                      className="btn-primary w-full py-5 text-sm font-black uppercase tracking-[0.2em] shadow-xl shadow-emerald-500/20 active:scale-98 transition-transform disabled:opacity-50 mt-4 rounded-3xl"
+                      disabled={resetSubmitting || resetLookupState !== "ok" || !resetPassword || resetPassword !== resetConfirm}
+                    >
+                      {resetSubmitting ? "Resetting…" : "Reset password"}
+                    </button>
+                  </form>
+                </div>
+              ) : inviteToken ? (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                   <div className="mb-8">
                     <h2 className="text-2xl font-black text-white tracking-tight">Activate your account</h2>
@@ -328,6 +450,24 @@ export function PublicWorkspace({
                       {loading ? "Validating..." : demoFilled ? "Tap to enter" : "Enter console"}
                     </button>
                   </form>
+                  <div className="mt-4 text-center">
+                    {!forgotOpen ? (
+                      <button type="button" onClick={() => { setForgotOpen(true); setForgotEmail(authForm.email); }} className="text-xs font-bold uppercase tracking-[0.2em] text-white/40 hover:text-blue-300 transition-colors">
+                        Forgot password?
+                      </button>
+                    ) : forgotSent ? (
+                      <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-100/85">
+                        If an account exists for that email, a reset link has been sent. Check your inbox.
+                      </div>
+                    ) : (
+                      <form onSubmit={submitForgot} className="flex gap-2 items-center">
+                        <Input placeholder="Email" type="email" value={forgotEmail} onChange={setForgotEmail} className="flex-1 bg-white/[0.03] border-white/5 py-3 h-auto rounded-xl text-xs" />
+                        <button type="submit" disabled={forgotBusy || !forgotEmail} className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.2em] text-white rounded-xl bg-blue-500/20 hover:bg-blue-500/30 disabled:opacity-40 transition-colors whitespace-nowrap">
+                          {forgotBusy ? "Sending…" : "Send link"}
+                        </button>
+                      </form>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">

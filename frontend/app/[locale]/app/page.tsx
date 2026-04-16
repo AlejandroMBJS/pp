@@ -13,6 +13,15 @@ export default function AppPage() {
   const [authed, setAuthed] = useState(false);
 
   useEffect(() => {
+    // If the URL carries an invite or reset token, skip the auth check —
+    // ControlCenter handles these flows itself (setup-account / password-reset).
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("invite") || params.get("reset")) {
+      setAuthed(true);
+      setChecked(true);
+      return;
+    }
+
     const raw =
       window.localStorage.getItem(STORAGE_KEY) ??
       window.localStorage.getItem(LEGACY_STORAGE_KEY);

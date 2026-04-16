@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Edges, Float, Grid, OrbitControls, RoundedBox, useTexture, useGLTF } from "@react-three/drei";
 import {
@@ -753,7 +754,7 @@ export function PlanViewer({ blueprints, token, onUpload, onDelete, isMobile = f
     
     const MAX_SIZE = 500 * 1024 * 1024;
     if (file.size > MAX_SIZE) {
-      alert(`The file exceeds the 500MB limit (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+      toast.error(`The file exceeds the 500MB limit (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
       e.target.value = "";
       return;
     }
@@ -761,7 +762,7 @@ export function PlanViewer({ blueprints, token, onUpload, onDelete, isMobile = f
     const validExtensions = [".dwg", ".dxf", ".stl", ".3mf", ".glb", ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".svg"];
     const ext = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
     if (!validExtensions.includes(ext)) {
-      alert(`Unsupported format. Use: ${validExtensions.join(", ")}`);
+      toast.error(`Unsupported format. Use: ${validExtensions.join(", ")}`);
       e.target.value = "";
       return;
     }

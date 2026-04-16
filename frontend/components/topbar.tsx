@@ -38,6 +38,7 @@ type TopBarProps = {
   unreadNotifCount: number;
   onUnreadNotifCountChange: (n: number) => void;
   onOpenSettings?: () => void;
+  tenantName?: string;
 };
 
 export function TopBar({
@@ -53,6 +54,7 @@ export function TopBar({
   unreadNotifCount,
   onUnreadNotifCountChange,
   onOpenSettings,
+  tenantName,
 }: TopBarProps) {
   const roleColor = roleColors[session.user.role] ?? "#6b7280";
   const canExport =
@@ -77,7 +79,7 @@ export function TopBar({
       {/* Breadcrumb */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 text-sm">
-          <span className="text-white/40 text-xs">ProjectPulse</span>
+          <span className="text-white/40 text-xs">{tenantName || "ProjectPulse"}</span>
           {currentProject && (
             <>
               <span className="text-white/20 text-xs">/</span>

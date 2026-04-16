@@ -143,6 +143,12 @@ func NewService(cfg Config) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Connection pool tuning — prevent exhausting DB connections under load
+	// and recycle stale connections before PostgreSQL kills them.
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(30 * time.Minute)
+	db.SetConnMaxIdleTime(5 * time.Minute)
 
 	var mailer EmailSender = &ConsoleEmailSender{}
 	if cfg.ResendAPIKey != "" {
@@ -571,6 +577,12 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			ALTER TABLE demo_leads
 				ADD COLUMN IF NOT EXISTS resend_count INTEGER NOT NULL DEFAULT 0,
 				ADD COLUMN IF NOT EXISTS last_resent_at TIMESTAMPTZ
+		`},
+		{31, "alter_tenants_logo_url", `
+			ALTER TABLE tenants ADD COLUMN IF NOT EXISTS logo_url TEXT NOT NULL DEFAULT ''
+		`},
+		{32, "alter_projects_logo_url", `
+			ALTER TABLE projects ADD COLUMN IF NOT EXISTS logo_url TEXT NOT NULL DEFAULT ''
 		`},
 	}
 

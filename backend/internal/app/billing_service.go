@@ -64,14 +64,26 @@ func (s *Service) GetSubscription(ctx context.Context, tenantID string) (Subscri
 	).Scan(&sub.ID, &sub.TenantID, &sub.StripeCustomerID, &sub.StripeSubscriptionID,
 		&sub.Plan, &sub.Status, &trialEnd, &periodEnd, &sub.CancelAtPeriodEnd)
 	if err == sql.ErrNoRows {
-		// Defensive: synthesize a trial entry
+		// Defensive: synthesize a trial entry. Use ON CONFLICT to handle the race
+		// where two concurrent requests both see ErrNoRows.
 		now := time.Now()
 		end := now.Add(14 * 24 * time.Hour)
-		_, _ = s.db.ExecContext(ctx,
-			`INSERT INTO subscriptions (id, tenant_id, plan, status, trial_ends_at) VALUES ($1, $2, 'starter', 'trialing', $3)`,
-			newID("sub"), tenantID, end)
-		sub = Subscription{ID: newID("sub"), TenantID: tenantID, Plan: "starter", Status: "trialing"}
-		trialEnd = sql.NullTime{Time: end, Valid: true}
+		subID := newID("sub")
+		if _, dbErr := s.db.ExecContext(ctx,
+			`INSERT INTO subscriptions (id, tenant_id, plan, status, trial_ends_at) VALUES ($1, $2, 'starter', 'trialing', $3) ON CONFLICT (tenant_id) DO NOTHING`,
+			subID, tenantID, end); dbErr != nil {
+			s.logger.Error("GetSubscription: failed to create fallback subscription", "tenant", tenantID, "err", dbErr)
+		}
+		// Re-read to get the actual row (may have been created by concurrent request).
+		err = s.db.QueryRowContext(ctx, `
+			SELECT id, tenant_id, stripe_customer_id, stripe_subscription_id, plan, status,
+			       trial_ends_at, current_period_ends_at, cancel_at_period_end
+			FROM subscriptions WHERE tenant_id = $1`, tenantID,
+		).Scan(&sub.ID, &sub.TenantID, &sub.StripeCustomerID, &sub.StripeSubscriptionID,
+			&sub.Plan, &sub.Status, &trialEnd, &periodEnd, &sub.CancelAtPeriodEnd)
+		if err != nil {
+			return Subscription{}, fmt.Errorf("subscription fallback re-read: %w", err)
+		}
 	} else if err != nil {
 		return Subscription{}, err
 	}
@@ -92,7 +104,9 @@ func (s *Service) GetSubscription(ctx context.Context, tenantID string) (Subscri
 	// real state. Persist the flip lazily.
 	if sub.Status == "trialing" && sub.TrialEndsAt != nil && time.Now().After(*sub.TrialEndsAt) {
 		sub.Status = "read_only"
-		_, _ = s.db.ExecContext(ctx, `UPDATE subscriptions SET status='read_only', updated_at=NOW() WHERE tenant_id=$1 AND status='trialing'`, tenantID)
+		if _, err := s.db.ExecContext(ctx, `UPDATE subscriptions SET status='read_only', updated_at=NOW() WHERE tenant_id=$1 AND status='trialing'`, tenantID); err != nil {
+			s.logger.Warn("failed to persist trial expiration", "tenant", tenantID, "err", err)
+		}
 	}
 	return sub, nil
 }
@@ -110,8 +124,11 @@ func (s *Service) effectivePlan(ctx context.Context, tenantID string) billing.Pl
 		return billing.PlanStarter
 	}
 	// Trial expired with no payment → flip to read_only on the fly.
+	// Note: GetSubscription already handles this, but guard here too for direct callers.
 	if sub.Status == "trialing" && sub.TrialEndsAt != nil && time.Now().After(*sub.TrialEndsAt) {
-		_, _ = s.db.ExecContext(ctx, `UPDATE subscriptions SET status='read_only', updated_at=NOW() WHERE tenant_id=$1`, tenantID)
+		if _, err := s.db.ExecContext(ctx, `UPDATE subscriptions SET status='read_only', updated_at=NOW() WHERE tenant_id=$1 AND status='trialing'`, tenantID); err != nil {
+			s.logger.Warn("effectivePlan: failed to persist trial expiration", "tenant", tenantID, "err", err)
+		}
 		sub.Status = "read_only"
 	}
 	return billing.Plan(sub.Plan)
@@ -631,17 +648,16 @@ func (s *Service) ContactSales(ctx context.Context, in ContactSalesInput) error 
 	if len(name) > 200 || len(company) > 200 || len(in.Phone) > 40 || len(in.Message) > 4000 {
 		return errors.New("field too long")
 	}
-
-	salesInbox := s.cfg.ResendFromAddr
-	if salesInbox == "" {
-		return errors.New("sales inbox not configured")
-	}
-	// Resend "From" addresses often look like `Name <addr@domain>` — extract the
-	// bare address for the To: field.
-	if i := strings.LastIndex(salesInbox, "<"); i >= 0 {
-		if j := strings.Index(salesInbox[i:], ">"); j > 0 {
-			salesInbox = strings.TrimSpace(salesInbox[i+1 : i+j])
+	// Prevent email header injection — reject fields containing newlines or carriage returns.
+	for _, field := range []string{name, email, company, in.Phone} {
+		if strings.ContainsAny(field, "\r\n") {
+			return errors.New("invalid characters in input")
 		}
+	}
+
+	salesInbox := s.cfg.ResendReplyTo
+	if salesInbox == "" {
+		salesInbox = "sales@projpul.com"
 	}
 
 	leadBody := fmt.Sprintf(

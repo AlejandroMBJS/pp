@@ -1,13 +1,42 @@
 package httpapi
 
 import (
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
 )
+
+// recoverer catches panics in downstream handlers and returns 500 instead of
+// crashing the process. Logs the stack trace for debugging.
+func recoverer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rv := recover(); rv != nil {
+				slog.Error("panic recovered",
+					"method", r.Method,
+					"path", r.URL.Path,
+					"panic", fmt.Sprint(rv),
+					"stack", string(debug.Stack()),
+				)
+				if !headersSent(w) {
+					http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+				}
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// headersSent checks if response headers have already been written.
+func headersSent(w http.ResponseWriter) bool {
+	// If Content-Type is set, headers were likely already sent.
+	return w.Header().Get("Content-Type") != ""
+}
 
 // securityHeaders sets defensive HTTP response headers on every response.
 // HSTS is intentionally NOT set here — nginx terminates TLS and sets it.

@@ -22,12 +22,12 @@ export function ListRow({ title, meta, badge, badgeColor = "gray", compact = fal
   const Tag = onClick ? "button" : "div";
   return (
     <Tag
-      className={`flex w-full items-center justify-between rounded-xl border border-gray-100 bg-white ${compact ? "px-3 py-2.5" : "px-4 py-3.5"} text-left transition-colors ${onClick ? "cursor-pointer hover:bg-gray-50" : ""}`}
+      className={`flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 ${compact ? "px-3 py-2.5" : "px-4 py-3.5"} text-left transition-colors ${onClick ? "cursor-pointer hover:bg-white/10" : ""}`}
       onClick={onClick}
     >
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold text-gray-900">{title}</div>
-        {meta && <div className="mt-0.5 truncate text-xs text-gray-500">{meta}</div>}
+        <div className="truncate text-sm font-semibold text-white">{title}</div>
+        {meta && <div className="mt-0.5 truncate text-xs text-white/50">{meta}</div>}
       </div>
       <div className="ml-3 flex flex-shrink-0 items-center gap-2">
         {badge && <span className={badgeColorMap[badgeColor]}>{badge}</span>}

@@ -58,6 +58,14 @@ type Project = {
   latitude_center: number;
   longitude_center: number;
   geofence_radius_m: number;
+  logo_url?: string;
+};
+
+type TenantInfo = {
+  id: string;
+  name: string;
+  slug: string;
+  logo_url: string;
 };
 
 type Task = {
@@ -309,6 +317,7 @@ export function ControlCenter() {
   const [blueprints, setBlueprints] = useState<Blueprint[]>([]);
   const [tenants, setTenants] = useState<Array<{ id: string; name: string; slug: string }>>([]);
   const [rbac, setRbac] = useState<RBACRule[]>([]);
+  const [currentTenant, setCurrentTenant] = useState<TenantInfo | null>(null);
 
   // UI state
   const [selectedProjectId, setSelectedProjectId] = useState("");
@@ -567,6 +576,11 @@ export function ControlCenter() {
   async function refreshRoleData(activeSession: LoginResponse) {
     const token = activeSession.access_token;
     const role = activeSession.user.role;
+
+    // Fetch tenant branding for all authenticated roles
+    api<TenantInfo>("/api/v1/tenants/current", { token })
+      .then(setCurrentTenant)
+      .catch(() => {});
 
     if (role === "owner") {
       const [dashboardData, userData, projectData] = await Promise.all([
@@ -1711,6 +1725,7 @@ export function ControlCenter() {
         currentUserRole={session.user.role}
         token={session.access_token}
         onUsersChanged={() => refreshRoleData(session)}
+        onTenantUpdated={(t) => setCurrentTenant(t)}
       />
       <SettingsProjectModal
         open={settingsProjectOpen}
@@ -1772,6 +1787,8 @@ export function ControlCenter() {
           onClose={() => setSidebarOpen(false)}
           onOpenSettingsGeneral={() => setSettingsGeneralOpen(true)}
           onOpenSettingsProject={() => setSettingsProjectOpen(true)}
+          tenantLogoUrl={currentTenant?.logo_url}
+          tenantName={currentTenant?.name}
         />
       )}
 
@@ -1789,6 +1806,7 @@ export function ControlCenter() {
           unreadNotifCount={unreadNotifCount}
           onUnreadNotifCountChange={setUnreadNotifCount}
           onOpenSettings={() => setSettingsGeneralOpen(true)}
+          tenantName={currentTenant?.name}
         />
 
         <div className="app-content">

@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"arquicheck/backend/internal/app"
@@ -72,9 +76,26 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	if err := srv.ListenAndServe(); err != nil {
-		log.Fatal(err)
+	// Graceful shutdown: listen for SIGTERM/SIGINT (Docker sends SIGTERM on stop).
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+	}()
+
+	sig := <-quit
+	log.Printf("received %s, shutting down gracefully…", sig)
+
+	// Give in-flight requests 15 seconds to finish before forcing close.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("forced shutdown: %v", err)
 	}
+	log.Println("server stopped")
 }
 
 func envOrDefault(key, fallback string) string {

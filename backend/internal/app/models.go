@@ -123,6 +123,7 @@ type Tenant struct {
 	Currency               string `json:"currency"`
 	PublicDashboardEnabled bool   `json:"public_dashboard_enabled"`
 	PublicGalleryEnabled   bool   `json:"public_gallery_enabled"`
+	LogoURL                string `json:"logo_url"`
 }
 
 type TenantPatch struct {
@@ -133,6 +134,7 @@ type TenantPatch struct {
 	Currency               *string `json:"currency,omitempty"`
 	PublicDashboardEnabled *bool   `json:"public_dashboard_enabled,omitempty"`
 	PublicGalleryEnabled   *bool   `json:"public_gallery_enabled,omitempty"`
+	LogoURL                *string `json:"logo_url,omitempty"`
 }
 
 type Blueprint struct {
@@ -167,6 +169,7 @@ type Project struct {
 	LatitudeCenter   float64 `json:"latitude_center"`
 	LongitudeCenter  float64 `json:"longitude_center"`
 	GeofenceRadiusM  int     `json:"geofence_radius_m"`
+	LogoURL          string  `json:"logo_url"`
 }
 
 type Task struct {

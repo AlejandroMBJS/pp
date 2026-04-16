@@ -27,7 +27,7 @@ export async function SiteFooter() {
           <ul className="space-y-2 text-white/50">
             <li><Link href="/login" className="hover:text-white">{t("login")}</Link></li>
             <li><Link href="/signup" className="hover:text-white">{t("signup")}</Link></li>
-            <li><a href="mailto:hola@projpul.com" className="hover:text-white">{t("contact")}</a></li>
+            <li><a href={`mailto:${t("contactEmail")}`} className="hover:text-white">{t("contact")}</a></li>
           </ul>
         </div>
         <div>

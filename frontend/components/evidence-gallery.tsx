@@ -397,11 +397,12 @@ export function EvidenceGallery({
             .map((evidence) => (
               <div
                 key={evidence.id}
-                className="flex items-center justify-between rounded-xl border border-amber-100 bg-amber-50 px-4 py-3"
+                className="flex items-center justify-between rounded-xl px-4 py-3"
+                style={{ border: "1px solid rgba(245,158,11,0.25)", background: "rgba(245,158,11,0.1)" }}
               >
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">{evidence.file_name}</p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-sm font-semibold text-white">{evidence.file_name}</p>
+                  <p className="text-xs text-white/50">
                     IA: {evidence.ai_processing_status}
                   </p>
                 </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { X, Building2, Bell, Shield, Globe, ChevronRight, Users, ArrowLeft, Loader2, KeyRound, UserX, UserCheck, Trash2, Mail } from "lucide-react";
+import { X, Building2, Bell, Shield, Globe, ChevronRight, Users, ArrowLeft, Loader2, KeyRound, UserX, UserCheck, Trash2, Mail, Upload, ImageIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -16,6 +16,7 @@ type TenantSettings = {
   currency: string;
   public_dashboard_enabled: boolean;
   public_gallery_enabled: boolean;
+  logo_url: string;
 };
 
 type SettingsGeneralModalProps = {
@@ -28,6 +29,7 @@ type SettingsGeneralModalProps = {
   currentUserRole?: string;
   token?: string;
   onUsersChanged?: () => void | Promise<void>;
+  onTenantUpdated?: (t: { id: string; name: string; slug: string; logo_url: string }) => void;
 };
 
 const tabs = [
@@ -63,6 +65,7 @@ export function SettingsGeneralModal({
   currentUserRole,
   token,
   onUsersChanged,
+  onTenantUpdated,
 }: SettingsGeneralModalProps) {
   const [activeTab, setActiveTab] = useState("company");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -72,6 +75,7 @@ export function SettingsGeneralModal({
   const [tenantDraft, setTenantDraft] = useState<TenantSettings | null>(null);
   const [tenantLoading, setTenantLoading] = useState(false);
   const [tenantSaving, setTenantSaving] = useState(false);
+  const [logoUploading, setLogoUploading] = useState(false);
   const [deleteSlugInput, setDeleteSlugInput] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [openingPortal, setOpeningPortal] = useState(false);
@@ -140,17 +144,78 @@ export function SettingsGeneralModal({
           currency: tenantDraft.currency,
           public_dashboard_enabled: tenantDraft.public_dashboard_enabled,
           public_gallery_enabled: tenantDraft.public_gallery_enabled,
+          logo_url: tenantDraft.logo_url,
         }),
       });
       if (!res.ok) throw new Error((await res.json())?.error ?? `HTTP ${res.status}`);
       const updated: TenantSettings = await res.json();
       setTenant(updated);
       setTenantDraft(updated);
+      onTenantUpdated?.(updated);
       toast.success("Company settings saved");
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
       setTenantSaving(false);
+    }
+  };
+
+  const handleLogoUpload = async (file: File) => {
+    if (!token) return;
+    setLogoUploading(true);
+    try {
+      // Phase 1: request upload URL
+      const urlRes = await fetch("/api/v1/tenants/current/logo/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ file_name: file.name, content_type: file.type, file_size_bytes: file.size }),
+      });
+      if (!urlRes.ok) throw new Error((await urlRes.json())?.error ?? `HTTP ${urlRes.status}`);
+      const { id: sessionId, upload_url } = await urlRes.json();
+
+      // Phase 2: PUT file — use pathname only to avoid cross-origin issues
+      const safeUrl = (() => { try { return new URL(upload_url).pathname + "?" + new URL(upload_url).searchParams.toString(); } catch { return upload_url; } })();
+      const putRes = await fetch(safeUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+      if (!putRes.ok) throw new Error(`Upload failed: HTTP ${putRes.status}`);
+
+      // Phase 3: confirm
+      const confirmRes = await fetch("/api/v1/tenants/current/logo/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ upload_session_id: sessionId }),
+      });
+      if (!confirmRes.ok) throw new Error((await confirmRes.json())?.error ?? `HTTP ${confirmRes.status}`);
+      const updated: TenantSettings = await confirmRes.json();
+      setTenant(updated);
+      setTenantDraft(updated);
+      onTenantUpdated?.(updated);
+      toast.success("Logo updated");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setLogoUploading(false);
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    if (!token) return;
+    setLogoUploading(true);
+    try {
+      const res = await fetch("/api/v1/tenants/current", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ logo_url: "" }),
+      });
+      if (!res.ok) throw new Error((await res.json())?.error ?? `HTTP ${res.status}`);
+      const updated: TenantSettings = await res.json();
+      setTenant(updated);
+      setTenantDraft(updated);
+      onTenantUpdated?.(updated);
+      toast.success("Logo removed");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setLogoUploading(false);
     }
   };
 
@@ -272,28 +337,93 @@ export function SettingsGeneralModal({
           {activeTab === "company" && (
             <div className="space-y-5">
               {tenantLoading && !tenantDraft ? (
-                <div className="flex items-center justify-center py-10 text-sm text-gray-500">
+                <div className="flex items-center justify-center py-10 text-sm text-white/40">
                   <Loader2 size={16} className="animate-spin mr-2" /> Loading company settings…
                 </div>
               ) : !tenantDraft ? (
-                <div className="text-sm text-gray-500 py-10 text-center">Could not load company settings.</div>
+                <div className="text-sm text-white/40 py-10 text-center">Could not load company settings.</div>
               ) : (
                 <>
                   <SectionLabel>Company identity</SectionLabel>
                   <div className="flex items-center gap-4">
-                    <div
-                      className="flex h-16 w-16 items-center justify-center rounded-2xl text-white font-bold text-xl flex-shrink-0"
-                      style={{ background: "linear-gradient(135deg, #3b82f6, #0ea5e9)" }}
-                    >
-                      {tenantDraft.name[0] ?? "?"}
+                    <div className="relative flex-shrink-0 group">
+                      {tenantDraft.logo_url ? (
+                        <img
+                          src={tenantDraft.logo_url}
+                          alt=""
+                          className="h-16 w-16 rounded-2xl object-cover border border-white/10"
+                        />
+                      ) : (
+                        <div
+                          className="flex h-16 w-16 items-center justify-center rounded-2xl text-white font-bold text-xl"
+                          style={{ background: "linear-gradient(135deg, #3b82f6, #0ea5e9)" }}
+                        >
+                          {tenantDraft.name[0] ?? "?"}
+                        </div>
+                      )}
+                      {canManageUsers && (
+                        <label
+                          className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                        >
+                          {logoUploading ? (
+                            <Loader2 size={20} className="text-white animate-spin" />
+                          ) : (
+                            <Upload size={20} className="text-white" />
+                          )}
+                          <input
+                            type="file"
+                            accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                            className="hidden"
+                            disabled={logoUploading}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) handleLogoUpload(f);
+                              e.target.value = "";
+                            }}
+                          />
+                        </label>
+                      )}
                     </div>
-                    <div className="flex-1">
+                    <div className="flex-1 space-y-2">
                       <SettingField
                         label="Company name"
                         value={tenantDraft.name}
                         onChange={(v) => setTenantDraft({ ...tenantDraft, name: v })}
                         disabled={!canManageUsers}
                       />
+                      {canManageUsers && (
+                        <div className="flex items-center gap-2">
+                          <label
+                            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                            style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.1)" }}
+                          >
+                            <ImageIcon size={12} />
+                            {tenantDraft.logo_url ? "Change logo" : "Upload logo"}
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                              className="hidden"
+                              disabled={logoUploading}
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (f) handleLogoUpload(f);
+                                e.target.value = "";
+                              }}
+                            />
+                          </label>
+                          {tenantDraft.logo_url && (
+                            <button
+                              type="button"
+                              onClick={handleRemoveLogo}
+                              disabled={logoUploading}
+                              className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors text-red-400 hover:text-red-300"
+                              style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)" }}
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <SettingField
@@ -359,7 +489,7 @@ export function SettingsGeneralModal({
                           type="button"
                           onClick={openBillingPortal}
                           disabled={openingPortal}
-                          className="px-4 py-2 rounded-xl bg-white text-black text-xs font-black uppercase tracking-widest disabled:opacity-50 flex items-center gap-2 flex-shrink-0"
+                          className="px-4 py-2 rounded-xl bg-white/10 text-white text-xs font-black uppercase tracking-widest disabled:opacity-50 flex items-center gap-2 flex-shrink-0 hover:bg-white/15 transition-colors border border-white/10"
                         >
                           {openingPortal ? (
                             <>
@@ -464,11 +594,11 @@ export function SettingsGeneralModal({
           {activeTab === "notifs" && (
             <div className="space-y-4">
               {notifLoading && !notifPrefs ? (
-                <div className="flex items-center justify-center py-8 text-sm text-gray-500">
+                <div className="flex items-center justify-center py-8 text-sm text-white/40">
                   <Loader2 size={16} className="animate-spin mr-2" /> Loading preferences…
                 </div>
               ) : !notifPrefs ? (
-                <div className="text-sm text-gray-500 py-8 text-center">Could not load preferences.</div>
+                <div className="text-sm text-white/40 py-8 text-center">Could not load preferences.</div>
               ) : (
                 <>
                   <SectionLabel>Platform alerts</SectionLabel>

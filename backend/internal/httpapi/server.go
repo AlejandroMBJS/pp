@@ -33,6 +33,7 @@ func (s *Server) Close() error {
 
 func (s *Server) Routes() http.Handler {
 	r := chi.NewRouter()
+	r.Use(recoverer)
 	r.Use(securityHeaders)
 	r.Use(corsWithOrigins(s.service.AllowedOrigins()))
 
@@ -97,6 +98,8 @@ func (s *Server) Routes() http.Handler {
 		protected.Get("/api/v1/tenants/current", s.handleGetCurrentTenant)
 		protected.Patch("/api/v1/tenants/current", s.handlePatchCurrentTenant)
 		protected.Delete("/api/v1/tenants/current", s.handleDeleteCurrentTenant)
+		protected.Post("/api/v1/tenants/current/logo/upload-url", s.handleTenantLogoUploadURL)
+		protected.Post("/api/v1/tenants/current/logo/confirm", s.handleTenantLogoConfirm)
 
 		protected.Get("/api/v1/projects", s.handleListProjects)
 		protected.Get("/api/v1/projects/{projectID}/tasks", s.handleProjectTasks)
@@ -349,7 +352,7 @@ func (s *Server) handleRBACUpsert(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := s.service.ListUsers(r.Context(), s.actor(r))
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, users)
@@ -517,11 +520,51 @@ func (s *Server) handleDeleteCurrentTenant(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+func (s *Server) handleTenantLogoUploadURL(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		FileName      string `json:"file_name"`
+		ContentType   string `json:"content_type"`
+		FileSizeBytes int64  `json:"file_size_bytes"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	session, err := s.service.RequestTenantLogoUpload(r.Context(), s.actor(r), req.FileName, req.ContentType, req.FileSizeBytes, requestBaseURL(r))
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, app.ErrForbidden) {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (s *Server) handleTenantLogoConfirm(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		UploadSessionID string `json:"upload_session_id"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	tenant, err := s.service.ConfirmTenantLogo(r.Context(), s.actor(r), req.UploadSessionID)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, app.ErrForbidden) {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, tenant)
+}
+
 func (s *Server) handleGetNotificationPrefs(w http.ResponseWriter, r *http.Request) {
 	actor := s.actor(r)
 	prefs, err := s.service.GetNotificationPrefs(r.Context(), actor.UserID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to load notification preferences"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"preferences": prefs})
@@ -614,7 +657,7 @@ func (s *Server) handleAdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	projects, err := s.service.ListProjects(r.Context(), s.actor(r))
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, projects)
@@ -623,7 +666,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleProjectTasks(w http.ResponseWriter, r *http.Request) {
 	tasks, err := s.service.ListProjectTasks(r.Context(), s.actor(r), chi.URLParam(r, "projectID"))
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, tasks)
@@ -632,7 +675,7 @@ func (s *Server) handleProjectTasks(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleProjectEvidences(w http.ResponseWriter, r *http.Request) {
 	evidences, err := s.service.ListProjectEvidences(r.Context(), s.actor(r), chi.URLParam(r, "projectID"))
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, evidences)
@@ -641,7 +684,7 @@ func (s *Server) handleProjectEvidences(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleProjectDeliverables(w http.ResponseWriter, r *http.Request) {
 	deliverables, err := s.service.ListProjectDeliverables(r.Context(), s.actor(r), chi.URLParam(r, "projectID"))
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, deliverables)
@@ -650,7 +693,7 @@ func (s *Server) handleProjectDeliverables(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleApproveDeliverable(w http.ResponseWriter, r *http.Request) {
 	deliverable, err := s.service.ApproveDeliverable(r.Context(), s.actor(r), chi.URLParam(r, "deliverableID"))
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, deliverable)
@@ -665,7 +708,7 @@ func (s *Server) handleRejectDeliverable(w http.ResponseWriter, r *http.Request)
 	}
 	deliverable, err := s.service.RejectDeliverable(r.Context(), s.actor(r), chi.URLParam(r, "deliverableID"), req.Reason)
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, deliverable)
@@ -694,7 +737,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleOwnerDashboard(w http.ResponseWriter, r *http.Request) {
 	dashboard, err := s.service.OwnerDashboard(r.Context(), s.actor(r))
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, dashboard)
@@ -703,7 +746,7 @@ func (s *Server) handleOwnerDashboard(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	csvBytes, err := s.service.ExportProjectCSV(r.Context(), s.actor(r), chi.URLParam(r, "projectID"))
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "text/csv")
@@ -714,7 +757,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleClientSummary(w http.ResponseWriter, r *http.Request) {
 	summary, err := s.service.ClientSummaryView(r.Context(), s.actor(r), chi.URLParam(r, "projectID"))
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, summary)
@@ -794,7 +837,7 @@ func (s *Server) handleTaskTimeline(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAssignedTasks(w http.ResponseWriter, r *http.Request) {
 	tasks, err := s.service.ListAssignedTasks(r.Context(), s.actor(r))
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, tasks)
@@ -803,7 +846,7 @@ func (s *Server) handleAssignedTasks(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTaskEvidences(w http.ResponseWriter, r *http.Request) {
 	evidences, err := s.service.ListTaskEvidences(r.Context(), s.actor(r), chi.URLParam(r, "taskID"))
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, evidences)
@@ -928,7 +971,7 @@ func (s *Server) handleDeleteEvidence(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleEvidenceFile(w http.ResponseWriter, r *http.Request) {
 	rc, contentType, err := s.service.EvidenceFile(r.Context(), s.actor(r), chi.URLParam(r, "evidenceID"))
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	defer rc.Close()
@@ -942,7 +985,7 @@ func (s *Server) handleEvidenceFile(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListExpenses(w http.ResponseWriter, r *http.Request) {
 	expenses, err := s.service.ListExpenses(r.Context(), s.actor(r), chi.URLParam(r, "projectID"))
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, expenses)
@@ -977,7 +1020,11 @@ func (s *Server) handleUpdateExpense(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteExpense(w http.ResponseWriter, r *http.Request) {
 	if err := s.service.DeleteExpense(r.Context(), s.actor(r), chi.URLParam(r, "expenseID")); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "forbidden") || errors.Is(err, app.ErrForbidden) {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
@@ -986,7 +1033,7 @@ func (s *Server) handleDeleteExpense(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListDailyLogs(w http.ResponseWriter, r *http.Request) {
 	logs, err := s.service.ListDailyLogs(r.Context(), s.actor(r), chi.URLParam(r, "projectID"))
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, logs)
@@ -1021,7 +1068,11 @@ func (s *Server) handleUpdateDailyLog(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteDailyLog(w http.ResponseWriter, r *http.Request) {
 	if err := s.service.DeleteDailyLog(r.Context(), s.actor(r), chi.URLParam(r, "logID")); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "forbidden") || errors.Is(err, app.ErrForbidden) {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
@@ -1162,6 +1213,22 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
+// classifyAndWriteError inspects the error and responds with the appropriate
+// HTTP status code instead of using a catch-all. Internal errors are masked.
+func classifyAndWriteError(w http.ResponseWriter, err error) {
+	msg := err.Error()
+	switch {
+	case errors.Is(err, app.ErrForbidden) || strings.Contains(msg, "forbidden"):
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": msg})
+	case strings.Contains(msg, "not found") || strings.Contains(msg, "no rows"):
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": msg})
+	case strings.Contains(msg, "quota") || strings.Contains(msg, "limit") || strings.Contains(msg, "plan"):
+		writeJSON(w, http.StatusPaymentRequired, map[string]any{"error": msg})
+	default:
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "internal server error"})
+	}
+}
+
 func requestBaseURL(r *http.Request) string {
 	host := r.Header.Get("X-Forwarded-Host")
 	if host == "" {
@@ -1220,7 +1287,7 @@ func (s *Server) handleBlueprintUploadURL(w http.ResponseWriter, r *http.Request
 func (s *Server) handleBlueprintFile(w http.ResponseWriter, r *http.Request) {
 	rc, contentType, filename, err := s.service.BlueprintFile(r.Context(), s.actor(r), chi.URLParam(r, "blueprintID"))
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	defer rc.Close()
@@ -1236,7 +1303,11 @@ func (s *Server) handleBlueprintFile(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteBlueprint(w http.ResponseWriter, r *http.Request) {
 	if err := s.service.DeleteBlueprint(r.Context(), s.actor(r), chi.URLParam(r, "blueprintID")); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "forbidden") || errors.Is(err, app.ErrForbidden) {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})

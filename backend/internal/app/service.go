@@ -481,6 +481,9 @@ func (s *Service) RegisterBlueprint(ctx context.Context, actor Claims, sessionID
 	if err != nil {
 		return Blueprint{}, err
 	}
+	if tenantID != actor.TenantID {
+		return Blueprint{}, ErrForbidden
+	}
 	if status != "uploaded" || localPath == "" {
 		return Blueprint{}, errors.New("upload not completed")
 	}
@@ -719,6 +722,9 @@ func (s *Service) ConvertDwgToDxf(ctx context.Context, r io.Reader) ([]byte, err
 func (s *Service) RequestBlueprintUpload(ctx context.Context, actor Claims, projectID, fileName, contentType string, intendedSize int64, baseURL string) (UploadSession, error) {
 	if err := validateBlueprintMIME(contentType); err != nil {
 		return UploadSession{}, err
+	}
+	if intendedSize > 200*1024*1024 {
+		return UploadSession{}, errors.New("blueprint file exceeds 200 MB limit")
 	}
 	project, err := s.projectByID(ctx, projectID)
 	if err != nil {
@@ -1174,7 +1180,7 @@ func (s *Service) GetCurrentTenant(ctx context.Context, actor Claims) (Tenant, e
 		return Tenant{}, ErrForbidden
 	}
 	var t Tenant
-	err := s.db.QueryRowContext(ctx, `SELECT id, name, slug, COALESCE(website,''), COALESCE(country,''), COALESCE(timezone,'UTC'), COALESCE(currency,'USD'), COALESCE(public_dashboard_enabled, TRUE), COALESCE(public_gallery_enabled, FALSE) FROM tenants WHERE id = $1 AND deleted_at IS NULL`, actor.TenantID).Scan(&t.ID, &t.Name, &t.Slug, &t.Website, &t.Country, &t.Timezone, &t.Currency, &t.PublicDashboardEnabled, &t.PublicGalleryEnabled)
+	err := s.db.QueryRowContext(ctx, `SELECT id, name, slug, COALESCE(website,''), COALESCE(country,''), COALESCE(timezone,'UTC'), COALESCE(currency,'USD'), COALESCE(public_dashboard_enabled, TRUE), COALESCE(public_gallery_enabled, FALSE), COALESCE(logo_url,'') FROM tenants WHERE id = $1 AND deleted_at IS NULL`, actor.TenantID).Scan(&t.ID, &t.Name, &t.Slug, &t.Website, &t.Country, &t.Timezone, &t.Currency, &t.PublicDashboardEnabled, &t.PublicGalleryEnabled, &t.LogoURL)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Tenant{}, errors.New("tenant not found")
@@ -1223,6 +1229,9 @@ func (s *Service) UpdateCurrentTenant(ctx context.Context, actor Claims, patch T
 	if patch.PublicGalleryEnabled != nil {
 		add("public_gallery_enabled", *patch.PublicGalleryEnabled)
 	}
+	if patch.LogoURL != nil {
+		add("logo_url", *patch.LogoURL)
+	}
 	if len(sets) > 0 {
 		sets = append(sets, "updated_at = NOW()")
 		args = append(args, actor.TenantID)
@@ -1232,6 +1241,85 @@ func (s *Service) UpdateCurrentTenant(ctx context.Context, actor Claims, patch T
 		}
 		s.logger.Info("tenant.updated", "actor_id", actor.UserID, "tenant_id", actor.TenantID, "fields", len(sets)-1)
 	}
+	return s.GetCurrentTenant(ctx, actor)
+}
+
+// RequestTenantLogoUpload creates an upload session for a tenant logo image.
+func (s *Service) RequestTenantLogoUpload(ctx context.Context, actor Claims, fileName, contentType string, intendedSize int64, baseURL string) (UploadSession, error) {
+	if actor.TenantID == "" {
+		return UploadSession{}, ErrForbidden
+	}
+	if actor.Role != RoleOwner && actor.Role != RoleAdmin {
+		return UploadSession{}, ErrForbidden
+	}
+	allowed := map[string]bool{"image/png": true, "image/jpeg": true, "image/svg+xml": true, "image/webp": true}
+	if !allowed[contentType] {
+		return UploadSession{}, errors.New("unsupported image type; allowed: png, jpeg, svg, webp")
+	}
+	if intendedSize > 5*1024*1024 {
+		return UploadSession{}, errors.New("logo must be under 5 MB")
+	}
+	sessionID := newID("upl")
+	token, err := GenerateSecureToken(32)
+	if err != nil {
+		return UploadSession{}, err
+	}
+	expiresAt := time.Now().Add(15 * time.Minute).UTC().Format(time.RFC3339)
+	if baseURL == "" {
+		baseURL = strings.TrimSuffix(s.cfg.PublicBase, "/")
+	}
+	uploadPath := fmt.Sprintf("/uploads/%s?token=%s", sessionID, token)
+	uploadURL := uploadPath
+	if baseURL != "" {
+		uploadURL = strings.TrimSuffix(baseURL, "/") + uploadPath
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO upload_sessions (id, tenant_id, project_id, task_id, requested_by_user_id, file_name, content_type, intended_size_bytes, latitude, longitude, upload_token, status, expires_at, created_at) VALUES ($1, $2, '', 'SYSTEM', $3, $4, $5, $6, 0, 0, $7, 'issued', $8, $9)`,
+		sessionID, actor.TenantID, actor.UserID, fileNameSafe(fileName), contentType, intendedSize, token, expiresAt, nowText())
+	if err != nil {
+		return UploadSession{}, err
+	}
+	return UploadSession{
+		ID:           sessionID,
+		UploadURL:    uploadURL,
+		Method:       "PUT",
+		ExpiresAt:    expiresAt,
+		FileName:     fileName,
+		ContentType:  contentType,
+		IntendedSize: intendedSize,
+	}, nil
+}
+
+// ConfirmTenantLogo finalises a tenant logo upload and sets the logo_url on the tenant.
+func (s *Service) ConfirmTenantLogo(ctx context.Context, actor Claims, sessionID string) (Tenant, error) {
+	if actor.TenantID == "" {
+		return Tenant{}, ErrForbidden
+	}
+	if actor.Role != RoleOwner && actor.Role != RoleAdmin {
+		return Tenant{}, ErrForbidden
+	}
+	var us struct {
+		TenantID string
+		FileName string
+		Status   string
+	}
+	err := s.db.QueryRowContext(ctx, `SELECT tenant_id, file_name, status FROM upload_sessions WHERE id = $1`, sessionID).Scan(&us.TenantID, &us.FileName, &us.Status)
+	if err != nil {
+		return Tenant{}, errors.New("upload session not found")
+	}
+	if us.TenantID != actor.TenantID {
+		return Tenant{}, ErrForbidden
+	}
+	if us.Status != "uploaded" {
+		return Tenant{}, errors.New("file has not been uploaded yet")
+	}
+	logoURL := "/uploads/" + us.FileName
+	if _, err := s.db.ExecContext(ctx, `UPDATE tenants SET logo_url = $1, updated_at = NOW() WHERE id = $2`, logoURL, actor.TenantID); err != nil {
+		return Tenant{}, err
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE upload_sessions SET status = 'confirmed' WHERE id = $1`, sessionID); err != nil {
+		s.logger.Warn("failed to confirm upload session", "session_id", sessionID, "err", err)
+	}
+	s.logger.Info("tenant.logo.updated", "actor_id", actor.UserID, "tenant_id", actor.TenantID, "logo_url", logoURL)
 	return s.GetCurrentTenant(ctx, actor)
 }
 
@@ -1266,7 +1354,7 @@ func (s *Service) ListTenants(ctx context.Context, actor Claims) ([]Tenant, erro
 	if err := s.requirePlatformAdmin(actor); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, slug, COALESCE(website,''), COALESCE(country,''), COALESCE(timezone,'UTC'), COALESCE(currency,'USD'), COALESCE(public_dashboard_enabled, TRUE), COALESCE(public_gallery_enabled, FALSE) FROM tenants WHERE deleted_at IS NULL ORDER BY created_at`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, slug, COALESCE(website,''), COALESCE(country,''), COALESCE(timezone,'UTC'), COALESCE(currency,'USD'), COALESCE(public_dashboard_enabled, TRUE), COALESCE(public_gallery_enabled, FALSE), COALESCE(logo_url,'') FROM tenants WHERE deleted_at IS NULL ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -1274,7 +1362,7 @@ func (s *Service) ListTenants(ctx context.Context, actor Claims) ([]Tenant, erro
 	tenants := make([]Tenant, 0)
 	for rows.Next() {
 		var tenant Tenant
-		if err := rows.Scan(&tenant.ID, &tenant.Name, &tenant.Slug, &tenant.Website, &tenant.Country, &tenant.Timezone, &tenant.Currency, &tenant.PublicDashboardEnabled, &tenant.PublicGalleryEnabled); err != nil {
+		if err := rows.Scan(&tenant.ID, &tenant.Name, &tenant.Slug, &tenant.Website, &tenant.Country, &tenant.Timezone, &tenant.Currency, &tenant.PublicDashboardEnabled, &tenant.PublicGalleryEnabled, &tenant.LogoURL); err != nil {
 			return nil, err
 		}
 		tenants = append(tenants, tenant)
@@ -1344,11 +1432,11 @@ func (s *Service) ListProjects(ctx context.Context, actor Claims) ([]Project, er
 	var err error
 	switch actor.Role {
 	case RoleOwner:
-		rows, err = s.db.QueryContext(ctx, `SELECT id, tenant_id, name, description, status, client_user_id, supervisor_user_id, budget_total_cents, spent_total_cents, start_date, planned_end_date, latitude_center, longitude_center, geofence_radius_m FROM projects WHERE tenant_id = $1 ORDER BY created_at DESC`, actor.TenantID)
+		rows, err = s.db.QueryContext(ctx, `SELECT id, tenant_id, name, description, status, client_user_id, supervisor_user_id, budget_total_cents, spent_total_cents, start_date, planned_end_date, latitude_center, longitude_center, geofence_radius_m, COALESCE(logo_url,'') FROM projects WHERE tenant_id = $1 ORDER BY created_at DESC`, actor.TenantID)
 	case RoleSupervisor:
-		rows, err = s.db.QueryContext(ctx, `SELECT id, tenant_id, name, description, status, client_user_id, supervisor_user_id, budget_total_cents, spent_total_cents, start_date, planned_end_date, latitude_center, longitude_center, geofence_radius_m FROM projects WHERE supervisor_user_id = $1 ORDER BY created_at DESC`, actor.UserID)
+		rows, err = s.db.QueryContext(ctx, `SELECT id, tenant_id, name, description, status, client_user_id, supervisor_user_id, budget_total_cents, spent_total_cents, start_date, planned_end_date, latitude_center, longitude_center, geofence_radius_m, COALESCE(logo_url,'') FROM projects WHERE supervisor_user_id = $1 ORDER BY created_at DESC`, actor.UserID)
 	case RoleClient:
-		rows, err = s.db.QueryContext(ctx, `SELECT id, tenant_id, name, description, status, client_user_id, supervisor_user_id, budget_total_cents, spent_total_cents, start_date, planned_end_date, latitude_center, longitude_center, geofence_radius_m FROM projects WHERE client_user_id = $1 ORDER BY created_at DESC`, actor.UserID)
+		rows, err = s.db.QueryContext(ctx, `SELECT id, tenant_id, name, description, status, client_user_id, supervisor_user_id, budget_total_cents, spent_total_cents, start_date, planned_end_date, latitude_center, longitude_center, geofence_radius_m, COALESCE(logo_url,'') FROM projects WHERE client_user_id = $1 ORDER BY created_at DESC`, actor.UserID)
 	default:
 		return nil, errors.New("forbidden")
 	}
@@ -1359,7 +1447,7 @@ func (s *Service) ListProjects(ctx context.Context, actor Claims) ([]Project, er
 	projects := make([]Project, 0)
 	for rows.Next() {
 		var project Project
-		if err := rows.Scan(&project.ID, &project.TenantID, &project.Name, &project.Description, &project.Status, &project.ClientUserID, &project.SupervisorUserID, &project.BudgetTotalCents, &project.SpentTotalCents, &project.StartDate, &project.PlannedEndDate, &project.LatitudeCenter, &project.LongitudeCenter, &project.GeofenceRadiusM); err != nil {
+		if err := rows.Scan(&project.ID, &project.TenantID, &project.Name, &project.Description, &project.Status, &project.ClientUserID, &project.SupervisorUserID, &project.BudgetTotalCents, &project.SpentTotalCents, &project.StartDate, &project.PlannedEndDate, &project.LatitudeCenter, &project.LongitudeCenter, &project.GeofenceRadiusM, &project.LogoURL); err != nil {
 			return nil, err
 		}
 		projects = append(projects, project)
@@ -1369,8 +1457,8 @@ func (s *Service) ListProjects(ctx context.Context, actor Claims) ([]Project, er
 
 func (s *Service) projectByID(ctx context.Context, projectID string) (Project, error) {
 	var project Project
-	err := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, name, description, status, client_user_id, supervisor_user_id, budget_total_cents, spent_total_cents, start_date, planned_end_date, latitude_center, longitude_center, geofence_radius_m FROM projects WHERE id = $1`, projectID).
-		Scan(&project.ID, &project.TenantID, &project.Name, &project.Description, &project.Status, &project.ClientUserID, &project.SupervisorUserID, &project.BudgetTotalCents, &project.SpentTotalCents, &project.StartDate, &project.PlannedEndDate, &project.LatitudeCenter, &project.LongitudeCenter, &project.GeofenceRadiusM)
+	err := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, name, description, status, client_user_id, supervisor_user_id, budget_total_cents, spent_total_cents, start_date, planned_end_date, latitude_center, longitude_center, geofence_radius_m, COALESCE(logo_url,'') FROM projects WHERE id = $1`, projectID).
+		Scan(&project.ID, &project.TenantID, &project.Name, &project.Description, &project.Status, &project.ClientUserID, &project.SupervisorUserID, &project.BudgetTotalCents, &project.SpentTotalCents, &project.StartDate, &project.PlannedEndDate, &project.LatitudeCenter, &project.LongitudeCenter, &project.GeofenceRadiusM, &project.LogoURL)
 	return project, err
 }
 
@@ -1615,6 +1703,9 @@ func (s *Service) RequestUpload(ctx context.Context, actor Claims, taskID, fileN
 	if err := validateEvidenceMIME(contentType); err != nil {
 		return UploadSession{}, err
 	}
+	if intendedSize > 500*1024*1024 {
+		return UploadSession{}, errors.New("file exceeds 500 MB limit")
+	}
 
 	var project Project
 	var task Task
@@ -1750,6 +1841,9 @@ func (s *Service) ConfirmUpload(ctx context.Context, actor Claims, sessionID, me
 	}
 	if actor.UserID != requestedByUserID {
 		return Evidence{}, errors.New("forbidden")
+	}
+	if tenantID != actor.TenantID {
+		return Evidence{}, ErrForbidden
 	}
 	if status != "uploaded" || localPath == "" {
 		return Evidence{}, errors.New("upload not completed")
@@ -2019,9 +2113,15 @@ func (s *Service) processAudit(evidenceID string) {
 	if err != nil {
 		return
 	}
-	avanceBytes, err := io.ReadAll(rc)
+	// Cap at 50MB to prevent OOM — images larger than this are not useful for AI audit.
+	const maxAuditImageSize = 50 << 20
+	avanceBytes, err := io.ReadAll(io.LimitReader(rc, maxAuditImageSize+1))
 	rc.Close()
 	if err != nil {
+		return
+	}
+	if len(avanceBytes) > maxAuditImageSize {
+		log.Printf("AI audit skipped: image too large (%d bytes) for evidence=%s", len(avanceBytes), evidenceID)
 		return
 	}
 
@@ -2033,10 +2133,14 @@ func (s *Service) processAudit(evidenceID string) {
 		// and leave the evidence as pending_approval for manual review.
 		log.Printf("AI audit disabled: GEMINI_API_KEY not set (evidence=%s)", evidenceID)
 		disabledPayload := `{"status":"ai_disabled","message":"AI audits disabled: GEMINI_API_KEY not set"}`
-		_, _ = s.db.ExecContext(ctx, `INSERT INTO ia_audits (id, tenant_id, evidence_id, score, json_feedback, critical_alert, model_version, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			newID("audit"), evidence.TenantID, evidence.ID, 0, disabledPayload, 0, "disabled", nowText())
-		_, _ = s.db.ExecContext(ctx, `UPDATE evidences SET ai_processing_status = $1, updated_at = $2 WHERE id = $3`,
-			"disabled", nowText(), evidence.ID)
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO ia_audits (id, tenant_id, evidence_id, score, json_feedback, critical_alert, model_version, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			newID("audit"), evidence.TenantID, evidence.ID, 0, disabledPayload, 0, "disabled", nowText()); err != nil {
+			log.Printf("audit worker: failed to insert disabled audit for evidence=%s: %v", evidenceID, err)
+		}
+		if _, err := s.db.ExecContext(ctx, `UPDATE evidences SET ai_processing_status = $1, updated_at = $2 WHERE id = $3`,
+			"disabled", nowText(), evidence.ID); err != nil {
+			log.Printf("audit worker: failed to update evidence status=%s: %v", evidenceID, err)
+		}
 		return
 	}
 
@@ -2050,10 +2154,10 @@ func (s *Service) processAudit(evidenceID string) {
 			if len(parts) > 0 {
 				refEviID := parts[len(parts)-1]
 				var refPath, refMimeType string
-				if err := s.db.QueryRowContext(ctx, `SELECT object_path, mime_type FROM evidences WHERE id = $1`, refEviID).Scan(&refPath, &refMimeType); err == nil {
+				if err := s.db.QueryRowContext(ctx, `SELECT object_path, mime_type FROM evidences WHERE id = $1 AND tenant_id = $2`, refEviID, evidence.TenantID).Scan(&refPath, &refMimeType); err == nil {
 					refRC, refErr := s.storage.Open(ctx, refPath)
 					if refErr == nil {
-						referenceBytes, _ = io.ReadAll(refRC)
+						referenceBytes, _ = io.ReadAll(io.LimitReader(refRC, maxAuditImageSize))
 						refRC.Close()
 						refMime = refMimeType
 					}
@@ -2068,26 +2172,38 @@ func (s *Service) processAudit(evidenceID string) {
 		// Fail-safe: leave the evidence pending_approval for manual review.
 		// Do NOT auto-approve with score=0 — that silently passes everything.
 		errPayload := fmt.Sprintf(`{"status":"needs_review","error":%q}`, err.Error())
-		_, _ = s.db.ExecContext(ctx, `INSERT INTO ia_audits (id, tenant_id, evidence_id, score, json_feedback, critical_alert, model_version, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			newID("audit"), evidence.TenantID, evidence.ID, 0, errPayload, 0, "gemini-error", nowText())
-		_, _ = s.db.ExecContext(ctx, `UPDATE evidences SET ai_processing_status = $1, updated_at = $2 WHERE id = $3`,
-			"needs_review", nowText(), evidence.ID)
+		if _, dbErr := s.db.ExecContext(ctx, `INSERT INTO ia_audits (id, tenant_id, evidence_id, score, json_feedback, critical_alert, model_version, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			newID("audit"), evidence.TenantID, evidence.ID, 0, errPayload, 0, "gemini-error", nowText()); dbErr != nil {
+			log.Printf("audit worker: failed to insert error audit for evidence=%s: %v", evidenceID, dbErr)
+		}
+		if _, dbErr := s.db.ExecContext(ctx, `UPDATE evidences SET ai_processing_status = $1, updated_at = $2 WHERE id = $3`,
+			"needs_review", nowText(), evidence.ID); dbErr != nil {
+			log.Printf("audit worker: failed to update evidence status=%s: %v", evidenceID, dbErr)
+		}
 		return
 	}
 
 	payload, _ := json.Marshal(feedback)
-	_, _ = s.db.ExecContext(ctx, `INSERT INTO ia_audits (id, tenant_id, evidence_id, score, json_feedback, critical_alert, model_version, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, newID("audit"), evidence.TenantID, evidence.ID, feedback.QualityScore, string(payload), boolToInt(feedback.StatusLogic == "critical_alert"), modelVersion, nowText())
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO ia_audits (id, tenant_id, evidence_id, score, json_feedback, critical_alert, model_version, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, newID("audit"), evidence.TenantID, evidence.ID, feedback.QualityScore, string(payload), boolToInt(feedback.StatusLogic == "critical_alert"), modelVersion, nowText()); err != nil {
+		log.Printf("audit worker: failed to insert audit result for evidence=%s: %v", evidenceID, err)
+	}
 
 	if feedback.QualityScore < 80 && feedback.QualityScore > 0 {
 		// Auto-reject: score below threshold
-		_, _ = s.db.ExecContext(ctx, `UPDATE evidences SET status = $1, ai_processing_status = $2, quality_score = $3, rejection_reason = $4, updated_at = $5 WHERE id = $6`,
-			"rejected", "completed", feedback.QualityScore, fmt.Sprintf("Calificación IA: %d%% — %s", feedback.QualityScore, feedback.AnalysisSummary), nowText(), evidence.ID)
-		_, _ = s.db.ExecContext(ctx, `INSERT INTO quality_alerts (id, tenant_id, project_id, task_id, evidence_id, severity, title, description, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-			newID("alt"), evidence.TenantID, evidence.ProjectID, evidence.TaskID, evidence.ID, "red", "Calidad por debajo del umbral (< 80%)", feedback.AnalysisSummary, "open", nowText())
+		if _, err := s.db.ExecContext(ctx, `UPDATE evidences SET status = $1, ai_processing_status = $2, quality_score = $3, rejection_reason = $4, updated_at = $5 WHERE id = $6`,
+			"rejected", "completed", feedback.QualityScore, fmt.Sprintf("Calificación IA: %d%% — %s", feedback.QualityScore, feedback.AnalysisSummary), nowText(), evidence.ID); err != nil {
+			log.Printf("audit worker: failed to reject evidence=%s: %v", evidenceID, err)
+		}
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO quality_alerts (id, tenant_id, project_id, task_id, evidence_id, severity, title, description, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+			newID("alt"), evidence.TenantID, evidence.ProjectID, evidence.TaskID, evidence.ID, "red", "Calidad por debajo del umbral (< 80%)", feedback.AnalysisSummary, "open", nowText()); err != nil {
+			log.Printf("audit worker: failed to insert quality alert for evidence=%s: %v", evidenceID, err)
+		}
 	} else {
 		// Approve
-		_, _ = s.db.ExecContext(ctx, `UPDATE evidences SET status = $1, ai_processing_status = $2, quality_score = $3, updated_at = $4 WHERE id = $5`,
-			"approved", "completed", feedback.QualityScore, nowText(), evidence.ID)
+		if _, err := s.db.ExecContext(ctx, `UPDATE evidences SET status = $1, ai_processing_status = $2, quality_score = $3, updated_at = $4 WHERE id = $5`,
+			"approved", "completed", feedback.QualityScore, nowText(), evidence.ID); err != nil {
+			log.Printf("audit worker: failed to approve evidence=%s: %v", evidenceID, err)
+		}
 	}
 }
 
@@ -2173,7 +2289,16 @@ status_logic debe ser "approved" si quality_score >= 80, o "critical_alert" si <
 
 	var feedback AuditFeedback
 	if err := json.Unmarshal([]byte(text), &feedback); err != nil {
-		return AuditFeedback{}, fmt.Errorf("gemini json parse: %w (raw: %s)", err, string(text))
+		// Log raw text server-side only; never return it in error — could contain sensitive data.
+		log.Printf("gemini json parse failed: %v (raw length=%d)", err, len(text))
+		return AuditFeedback{}, fmt.Errorf("gemini json parse: %w", err)
+	}
+
+	// Clamp quality score to 0-100 range
+	if feedback.QualityScore < 0 {
+		feedback.QualityScore = 0
+	} else if feedback.QualityScore > 100 {
+		feedback.QualityScore = 100
 	}
 
 	// Ensure status_logic is consistent with score

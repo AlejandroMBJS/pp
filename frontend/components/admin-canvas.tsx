@@ -23,33 +23,33 @@ const effectColor: Record<string, "green" | "red"> = {
 export function AdminCanvas({ activeView, tenants, rbac, token, onRefresh }: AdminCanvasProps) {
   if (activeView === "platform") {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 animate-fadeIn">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Platform</h1>
-          <p className="mt-1 text-sm text-gray-500">
+          <h1 className="text-3xl font-black text-white tracking-tight uppercase">Platform</h1>
+          <p className="mt-1 text-sm text-white/40 font-medium">
             Active tenants and centralized platform configuration.
           </p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="card px-5 py-5">
-            <div className="text-xs font-semibold uppercase tracking-widest text-gray-400">
+          <div className="glass-card px-5 py-5">
+            <div className="text-xs font-semibold uppercase tracking-widest text-white/40">
               Active tenants
             </div>
-            <div className="mt-2 text-4xl font-bold text-gray-900">{tenants.length}</div>
-            <div className="text-sm text-gray-500">registered companies</div>
+            <div className="mt-2 text-4xl font-bold text-white">{tenants.length}</div>
+            <div className="text-sm text-white/50">registered companies</div>
           </div>
-          <div className="card px-5 py-5">
-            <div className="text-xs font-semibold uppercase tracking-widest text-gray-400">
+          <div className="glass-card px-5 py-5">
+            <div className="text-xs font-semibold uppercase tracking-widest text-white/40">
               RBAC rules
             </div>
-            <div className="mt-2 text-4xl font-bold text-gray-900">{rbac.length}</div>
-            <div className="text-sm text-gray-500">configured permissions</div>
+            <div className="mt-2 text-4xl font-bold text-white">{rbac.length}</div>
+            <div className="text-sm text-white/50">configured permissions</div>
           </div>
         </div>
 
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-400">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40">
             Registered tenants
           </h2>
           {tenants.length === 0 ? (

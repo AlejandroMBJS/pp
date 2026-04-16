@@ -18,7 +18,7 @@ type InputProps = {
 export function Input({ placeholder, value, onChange, type = "text", label, required, className, autoFocus, id, minLength, maxLength, pattern, title, autoComplete }: InputProps) {
   return (
     <div className={`flex flex-col gap-1 ${className || ""}`}>
-      {label && <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</label>}
+      {label && <label className="text-xs font-semibold uppercase tracking-wide text-white/40">{label}</label>}
       <input
         id={id}
         className="form-input"
@@ -50,7 +50,7 @@ type SelectProps = {
 export function Select({ value, onChange, options, label, placeholder, className }: SelectProps) {
   return (
     <div className={`flex flex-col gap-1 ${className || ""}`}>
-      {label && <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</label>}
+      {label && <label className="text-xs font-semibold uppercase tracking-wide text-white/40">{label}</label>}
       <select className="form-select" value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">{placeholder ?? "Select..."}</option>
         {options.map((opt) => (

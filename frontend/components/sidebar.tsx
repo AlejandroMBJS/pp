@@ -129,6 +129,8 @@ type SidebarProps = {
   onClose: () => void;
   onOpenSettingsGeneral?: () => void;
   onOpenSettingsProject?: () => void;
+  tenantLogoUrl?: string;
+  tenantName?: string;
 };
 
 export function Sidebar({
@@ -147,6 +149,8 @@ export function Sidebar({
   onClose,
   onOpenSettingsGeneral,
   onOpenSettingsProject,
+  tenantLogoUrl,
+  tenantName,
 }: SidebarProps) {
   const [projectOpen, setProjectOpen] = useState(false);
   const menu = menuForRole(session.user.role);
@@ -177,20 +181,28 @@ export function Sidebar({
           style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
         >
           <div className="flex items-center gap-3">
-            <div
-              className="flex h-9 w-9 items-center justify-center rounded-xl text-xs font-bold tracking-widest text-white"
-              style={{ background: `linear-gradient(135deg, ${roleColor}, ${roleColor}bb)` }}
-            >
-              PP
-            </div>
+            {tenantLogoUrl ? (
+              <img
+                src={tenantLogoUrl}
+                alt=""
+                className="h-9 w-9 rounded-xl object-cover"
+              />
+            ) : (
+              <div
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-xs font-bold tracking-widest text-white"
+                style={{ background: `linear-gradient(135deg, ${roleColor}, ${roleColor}bb)` }}
+              >
+                {tenantName ? tenantName[0].toUpperCase() : "PP"}
+              </div>
+            )}
             <div>
-              <div className="text-sm font-semibold text-white leading-tight">ProjectPulse</div>
+              <div className="text-sm font-semibold text-white leading-tight">{tenantName || "ProjectPulse"}</div>
               <div className="text-xs leading-tight" style={{ color: "#4b5563" }}>Project Control</div>
             </div>
           </div>
           <button
             type="button"
-            className="text-gray-500 hover:text-white transition-colors lg:hidden"
+            className="text-white/40 hover:text-white transition-colors lg:hidden"
             onClick={onClose}
             aria-label="Close menu"
           >
@@ -252,7 +264,7 @@ export function Sidebar({
                   </span>
                   <ChevronDown
                     size={14}
-                    className="ml-2 flex-shrink-0 text-gray-500 transition-transform"
+                    className="ml-2 flex-shrink-0 text-white/40 transition-transform"
                     style={{ transform: projectOpen ? "rotate(180deg)" : "none" }}
                   />
                 </button>

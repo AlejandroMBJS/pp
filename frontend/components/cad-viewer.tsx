@@ -167,6 +167,7 @@ export function CadViewer({ fileUrl, fileType, fileName, rawPreviewUrl, token }:
             // Fallback: upload to backend convert endpoint
             onProgress(5, "Downloading DWG…");
             const res = await fetch(fileUrl);
+            if (!res.ok) throw new Error(`Failed to download DWG: HTTP ${res.status}`);
             const blob = await res.blob();
             onProgress(20, "Converting DWG → DXF…");
             const file = new File([blob], "model.dwg", { type: "application/octet-stream" });
@@ -176,17 +177,17 @@ export function CadViewer({ fileUrl, fileType, fileName, rawPreviewUrl, token }:
           resolvedType = "dxf";
         } else if (ext === "dxf") {
           onProgress(5, "Downloading DXF…");
-          const text = await fetch(fileUrl).then((r) => r.text());
+          const text = await fetch(fileUrl).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); });
           group = await renderDxf(text, onProgress, 15);
           resolvedType = "dxf";
         } else if (ext === "stl") {
           onProgress(10, "Loading STL…");
-          const buf = await fetch(fileUrl).then((r) => r.arrayBuffer());
+          const buf = await fetch(fileUrl).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); });
           group = await loadSTL(buf);
           resolvedType = "stl";
         } else if (ext === "3mf") {
           onProgress(10, "Loading 3MF…");
-          const buf = await fetch(fileUrl).then((r) => r.arrayBuffer());
+          const buf = await fetch(fileUrl).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); });
           group = await load3MF(buf);
           resolvedType = "3mf";
         } else {

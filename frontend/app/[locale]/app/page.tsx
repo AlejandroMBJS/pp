@@ -13,6 +13,23 @@ export default function AppPage() {
   const [authed, setAuthed] = useState(false);
 
   useEffect(() => {
+    // Platform operator impersonation: fragment `#imp=<base64(session)>` hands off a
+    // session to this tab without touching localStorage — we use sessionStorage so the
+    // operator's own tab keeps its admin session.
+    if (window.location.hash.startsWith("#imp=")) {
+      try {
+        const encoded = window.location.hash.slice(5);
+        const decoded = decodeURIComponent(escape(atob(encoded)));
+        const parsed = JSON.parse(decoded);
+        if (parsed?.access_token && parsed?.user) {
+          window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+        }
+      } catch {
+        // ignore — fall through to normal auth
+      }
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+
     // If the URL carries an invite or reset token, skip the auth check —
     // ControlCenter handles these flows itself (setup-account / password-reset).
     const params = new URLSearchParams(window.location.search);
@@ -23,6 +40,7 @@ export default function AppPage() {
     }
 
     const raw =
+      window.sessionStorage.getItem(STORAGE_KEY) ??
       window.localStorage.getItem(STORAGE_KEY) ??
       window.localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) {

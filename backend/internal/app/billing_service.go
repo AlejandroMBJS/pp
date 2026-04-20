@@ -49,6 +49,12 @@ func (s *Service) stripePriceMap() map[billing.Plan]string {
 // days-until-trial-end. If no row exists (shouldn't happen post-backfill), it
 // synthesizes a default trialing one.
 func (s *Service) GetSubscription(ctx context.Context, tenantID string) (Subscription, error) {
+	if tenantID == "" {
+		// Platform admin has no tenant → no subscription. Callers (billing UI)
+		// should never hit this path; we return a harmless synthetic so the
+		// admin dashboard doesn't 500 if it accidentally polls the endpoint.
+		return Subscription{ID: "platform", TenantID: "", Plan: "enterprise", Status: "active"}, nil
+	}
 	if s.isDemoTenant(ctx, tenantID) {
 		return Subscription{
 			ID: "demo", TenantID: tenantID,
@@ -59,10 +65,11 @@ func (s *Service) GetSubscription(ctx context.Context, tenantID string) (Subscri
 	var trialEnd, periodEnd sql.NullTime
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, tenant_id, stripe_customer_id, stripe_subscription_id, plan, status,
-		       trial_ends_at, current_period_ends_at, cancel_at_period_end
+		       trial_ends_at, current_period_ends_at, cancel_at_period_end,
+		       COALESCE(currency,'usd')
 		FROM subscriptions WHERE tenant_id = $1`, tenantID,
 	).Scan(&sub.ID, &sub.TenantID, &sub.StripeCustomerID, &sub.StripeSubscriptionID,
-		&sub.Plan, &sub.Status, &trialEnd, &periodEnd, &sub.CancelAtPeriodEnd)
+		&sub.Plan, &sub.Status, &trialEnd, &periodEnd, &sub.CancelAtPeriodEnd, &sub.Currency)
 	if err == sql.ErrNoRows {
 		// Defensive: synthesize a trial entry. Use ON CONFLICT to handle the race
 		// where two concurrent requests both see ErrNoRows.
@@ -77,10 +84,11 @@ func (s *Service) GetSubscription(ctx context.Context, tenantID string) (Subscri
 		// Re-read to get the actual row (may have been created by concurrent request).
 		err = s.db.QueryRowContext(ctx, `
 			SELECT id, tenant_id, stripe_customer_id, stripe_subscription_id, plan, status,
-			       trial_ends_at, current_period_ends_at, cancel_at_period_end
+			       trial_ends_at, current_period_ends_at, cancel_at_period_end,
+			       COALESCE(currency,'usd')
 			FROM subscriptions WHERE tenant_id = $1`, tenantID,
 		).Scan(&sub.ID, &sub.TenantID, &sub.StripeCustomerID, &sub.StripeSubscriptionID,
-			&sub.Plan, &sub.Status, &trialEnd, &periodEnd, &sub.CancelAtPeriodEnd)
+			&sub.Plan, &sub.Status, &trialEnd, &periodEnd, &sub.CancelAtPeriodEnd, &sub.Currency)
 		if err != nil {
 			return Subscription{}, fmt.Errorf("subscription fallback re-read: %w", err)
 		}
@@ -413,6 +421,26 @@ func (s *Service) ParseStripeWebhook(payload []byte, sigHeader string) (stripe.E
 	return s.stripe.ParseWebhook(payload, sigHeader)
 }
 
+// StripeWebhookConfigured reports whether the shared webhook secret is present.
+// Handlers use this to fail closed with 503 when Stripe is half-configured.
+func (s *Service) StripeWebhookConfigured() bool {
+	return s.stripe.WebhookConfigured()
+}
+
+// PlanSnapshot returns the tenant's effective plan and its static limits so
+// handlers can enrich 402 responses without additional queries.
+func (s *Service) PlanSnapshot(ctx context.Context, tenantID string) (string, billing.Limits, bool) {
+	if tenantID == "" {
+		return "", billing.Limits{}, false
+	}
+	plan := s.effectivePlan(ctx, tenantID)
+	limits, ok := billing.PlanLimits[plan]
+	if !ok {
+		return string(plan), billing.Limits{}, false
+	}
+	return string(plan), limits, true
+}
+
 // HandleStripeWebhook processes a verified Stripe event. Idempotent: dedupes
 // by stripe_event_id via the payment_events table.
 func (s *Service) HandleStripeWebhook(ctx context.Context, event stripe.Event) error {
@@ -681,3 +709,90 @@ func (s *Service) ContactSales(ctx context.Context, in ContactSalesInput) error 
 	}
 	return nil
 }
+
+// AdminExtendTrial extends the trial_ends_at of a tenant by N days. Only the
+// platform admin may call this. Days is clamped to [1, 365].
+func (s *Service) AdminExtendTrial(ctx context.Context, actor Claims, tenantID string, days int) (Subscription, error) {
+	if err := s.requirePlatformAdmin(actor); err != nil {
+		return Subscription{}, err
+	}
+	if tenantID == "" {
+		return Subscription{}, errors.New("tenant_id required")
+	}
+	if days < 1 || days > 365 {
+		return Subscription{}, errors.New("days must be between 1 and 365")
+	}
+	sub, err := s.GetSubscription(ctx, tenantID)
+	if err != nil {
+		return Subscription{}, err
+	}
+	if sub.ID == "" {
+		return Subscription{}, errors.New("no subscription found for tenant")
+	}
+	base := time.Now()
+	if sub.TrialEndsAt != nil && sub.TrialEndsAt.After(base) {
+		base = *sub.TrialEndsAt
+	}
+	newEnd := base.Add(time.Duration(days) * 24 * time.Hour)
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE subscriptions SET trial_ends_at = $1, status = 'trialing' WHERE tenant_id = $2`,
+		newEnd, tenantID); err != nil {
+		return Subscription{}, err
+	}
+	s.logger.Warn("admin.extend_trial", "admin_id", actor.UserID, "tenant_id", tenantID, "days", days, "new_end", newEnd)
+	return s.GetSubscription(ctx, tenantID)
+}
+
+// AdminCompPlan sets a complimentary plan for a tenant (no Stripe charge).
+// Valid plans: starter, professional, business, enterprise. Optional periodEnd
+// determines when the comp expires; nil means no expiry.
+func (s *Service) AdminCompPlan(ctx context.Context, actor Claims, tenantID, plan string, periodEnd *time.Time) (Subscription, error) {
+	if err := s.requirePlatformAdmin(actor); err != nil {
+		return Subscription{}, err
+	}
+	if tenantID == "" {
+		return Subscription{}, errors.New("tenant_id required")
+	}
+	switch billing.Plan(plan) {
+	case billing.PlanStarter, billing.PlanProfessional, billing.PlanBusiness, billing.PlanEnterprise:
+	default:
+		return Subscription{}, errors.New("invalid plan; must be starter|professional|business|enterprise")
+	}
+	if _, err := s.GetSubscription(ctx, tenantID); err != nil {
+		return Subscription{}, err
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE subscriptions SET plan = $1, status = 'active', current_period_ends_at = $2, cancel_at_period_end = FALSE WHERE tenant_id = $3`,
+		plan, periodEnd, tenantID); err != nil {
+		return Subscription{}, err
+	}
+	s.logger.Warn("admin.comp_plan", "admin_id", actor.UserID, "tenant_id", tenantID, "plan", plan, "period_end", periodEnd)
+	return s.GetSubscription(ctx, tenantID)
+}
+
+// AdminOverrideStatus forces a subscription status. Useful for unblocking a
+// tenant or marking one read-only without touching Stripe.
+func (s *Service) AdminOverrideStatus(ctx context.Context, actor Claims, tenantID, status string) (Subscription, error) {
+	if err := s.requirePlatformAdmin(actor); err != nil {
+		return Subscription{}, err
+	}
+	if tenantID == "" {
+		return Subscription{}, errors.New("tenant_id required")
+	}
+	switch status {
+	case "trialing", "active", "past_due", "canceled", "read_only":
+	default:
+		return Subscription{}, errors.New("invalid status")
+	}
+	if _, err := s.GetSubscription(ctx, tenantID); err != nil {
+		return Subscription{}, err
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE subscriptions SET status = $1 WHERE tenant_id = $2`,
+		status, tenantID); err != nil {
+		return Subscription{}, err
+	}
+	s.logger.Warn("admin.override_status", "admin_id", actor.UserID, "tenant_id", tenantID, "status", status)
+	return s.GetSubscription(ctx, tenantID)
+}
+

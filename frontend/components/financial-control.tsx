@@ -18,6 +18,15 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "./ui/confirm-dialog";
+import {
+  Toolbar,
+  SearchInput,
+  FilterChips,
+  DateRangeInputs,
+  ExportButton,
+  downloadCSV,
+  type FilterChipOption,
+} from "./ui/toolbar";
 
 type Expense = {
   id: string;
@@ -71,6 +80,11 @@ export function FinancialControl({ project, session, tasks }: FinancialControlPr
   const [showAdjForm, setShowAdjForm] = useState(false);
   const [adjForm, setAdjForm] = useState({ amount_mxn: "", reason: "", date: new Date().toISOString().slice(0, 10) });
   const [submittingAdj, setSubmittingAdj] = useState(false);
+  const [txSearch, setTxSearch] = useState("");
+  const [txCategory, setTxCategory] = useState<"all" | "material" | "labor" | "equipment" | "misc">("all");
+  const [txStatus, setTxStatus] = useState<"all" | "approved" | "pending" | "disputed">("all");
+  const [txFrom, setTxFrom] = useState("");
+  const [txTo, setTxTo] = useState("");
 
   useEffect(() => {
     void fetchExpenses();
@@ -258,6 +272,57 @@ export function FinancialControl({ project, session, tasks }: FinancialControlPr
     equipment: "#f59e0b",
     misc: "#94a3b8",
   };
+
+  const filteredExpenses = useMemo(() => {
+    const q = txSearch.trim().toLowerCase();
+    return expenses.filter((e) => {
+      if (txCategory !== "all" && e.category !== txCategory) return false;
+      if (txStatus !== "all" && e.status !== txStatus) return false;
+      if (txFrom && e.date < txFrom) return false;
+      if (txTo && e.date > txTo) return false;
+      if (q) {
+        const hay = `${e.title} ${e.vendor}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [expenses, txSearch, txCategory, txStatus, txFrom, txTo]);
+
+  const categoryFilterOptions: FilterChipOption<"all" | "material" | "labor" | "equipment" | "misc">[] = [
+    { value: "all", label: "All", count: expenses.length },
+    { value: "material", label: "Material", count: expenses.filter((e) => e.category === "material").length, color: "#3b82f6" },
+    { value: "labor", label: "Labor", count: expenses.filter((e) => e.category === "labor").length, color: "#0ea5e9" },
+    { value: "equipment", label: "Equipment", count: expenses.filter((e) => e.category === "equipment").length, color: "#f59e0b" },
+    { value: "misc", label: "Misc", count: expenses.filter((e) => e.category === "misc").length, color: "#94a3b8" },
+  ];
+
+  const statusFilterOptions: FilterChipOption<"all" | "approved" | "pending" | "disputed">[] = [
+    { value: "all", label: "Any status" },
+    { value: "approved", label: "Approved", color: "#10b981" },
+    { value: "pending", label: "Pending", color: "#f59e0b" },
+    { value: "disputed", label: "Disputed", color: "#ef4444" },
+  ];
+
+  async function handleExportExpensesCSV() {
+    if (filteredExpenses.length === 0) {
+      toast.error("Nothing to export.");
+      return;
+    }
+    const rows: string[][] = [
+      ["Date", "Concept", "Vendor", "Category", "Status", "Amount (MXN)"],
+      ...filteredExpenses.map((e) => [
+        e.date,
+        e.title,
+        e.vendor,
+        e.category,
+        e.status,
+        (e.amount_cents / 100).toFixed(2),
+      ]),
+    ];
+    const safeName = project.name.replace(/[^a-z0-9]+/gi, "_").toLowerCase();
+    downloadCSV(`${safeName}_expenses_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+    toast.success(`Exported ${filteredExpenses.length} expense${filteredExpenses.length === 1 ? "" : "s"}.`);
+  }
 
   const categoryBreakdown = useMemo(() => {
     if (spentFromExpenses === 0) return [];
@@ -491,8 +556,36 @@ export function FinancialControl({ project, session, tasks }: FinancialControlPr
             </div>
           </div>
 
+          {expenses.length > 0 && (
+            <Toolbar>
+              <SearchInput
+                value={txSearch}
+                onChange={setTxSearch}
+                placeholder="Search concept or vendor…"
+              />
+              <FilterChips
+                options={categoryFilterOptions}
+                value={txCategory}
+                onChange={setTxCategory}
+              />
+              <FilterChips
+                options={statusFilterOptions}
+                value={txStatus}
+                onChange={setTxStatus}
+              />
+              <DateRangeInputs
+                from={txFrom}
+                to={txTo}
+                onFromChange={setTxFrom}
+                onToChange={setTxTo}
+              />
+              <div className="flex-1" />
+              <ExportButton onExport={handleExportExpensesCSV} />
+            </Toolbar>
+          )}
+
           <div className="space-y-2">
-            {expenses.map((expense) => (
+            {filteredExpenses.map((expense) => (
               <div key={expense.id} className="inspector-action-btn w-full group">
                 <div className="flex items-center justify-between w-full">
                   <div className="flex items-center gap-4">
@@ -558,6 +651,25 @@ export function FinancialControl({ project, session, tasks }: FinancialControlPr
               <div className="py-20 text-center glass-card border-dashed border-white/10">
                 <AlertCircle className="mx-auto text-white/10 mb-4" size={48} />
                 <div className="text-sm font-bold text-white/20 uppercase tracking-[0.2em]">No transactions recorded</div>
+              </div>
+            )}
+
+            {expenses.length > 0 && filteredExpenses.length === 0 && (
+              <div className="py-12 text-center glass-card border-dashed border-white/10">
+                <div className="text-sm font-bold text-white/30 uppercase tracking-[0.2em]">No transactions match the filters</div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTxSearch("");
+                    setTxCategory("all");
+                    setTxStatus("all");
+                    setTxFrom("");
+                    setTxTo("");
+                  }}
+                  className="mt-3 text-[10px] font-black uppercase tracking-widest text-blue-400 hover:text-blue-300"
+                >
+                  Clear filters
+                </button>
               </div>
             )}
           </div>

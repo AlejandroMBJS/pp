@@ -428,7 +428,45 @@
       "users": "Users",
       "projects": "Projects",
       "evidence": "Evidence",
+      "actions": "Actions",
       "empty": "No tenants yet"
+    },
+    "actions": {
+      "impersonate": "Impersonate",
+      "impersonateConfirm": "Open an impersonation session for {name}? This action is audited.",
+      "impersonateOpened": "Impersonation tab opened for {name}.",
+      "suspend": "Suspend",
+      "reactivate": "Reactivate",
+      "billing": "Billing",
+      "suspendDone": "{name} has been suspended.",
+      "reactivateDone": "{name} has been reactivated.",
+      "extendTrialDone": "Trial extended by {days} days for {name}.",
+      "compPlanDone": "Plan set to {plan} for {name}.",
+      "overrideStatusDone": "Status set to {status} for {name}."
+    },
+    "common": {
+      "cancel": "Cancel",
+      "close": "Close"
+    },
+    "suspendModal": {
+      "title": "Suspend {name}",
+      "description": "Suspension freezes writes for this tenant. Data is preserved; reactivation is reversible.",
+      "reasonLabel": "Reason (internal, optional)",
+      "reasonPlaceholder": "e.g. payment failure, abuse report, support escalation…",
+      "confirm": "Suspend tenant"
+    },
+    "reactivateModal": {
+      "title": "Reactivate {name}",
+      "description": "Writes will be restored for this tenant immediately.",
+      "confirm": "Reactivate tenant"
+    },
+    "billingModal": {
+      "title": "Billing admin — {name}",
+      "extendTrial": "Extend trial",
+      "compPlan": "Comp plan",
+      "overrideStatus": "Override subscription status",
+      "days": "days",
+      "apply": "Apply"
     },
     "backToApp": "← Back to standard console"
   },

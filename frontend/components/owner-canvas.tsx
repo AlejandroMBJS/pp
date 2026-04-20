@@ -1,6 +1,16 @@
 "use client";
 
-import { TrendingUp, AlertTriangle, Activity, DollarSign, Plus, LayoutGrid, ClipboardList, Users, UserPlus, Mail } from "lucide-react";
+import { useMemo, useState } from "react";
+import { TrendingUp, AlertTriangle, Activity, DollarSign, Plus, LayoutGrid, ClipboardList, Users, UserPlus, Mail, FolderKanban, ChevronRight, Cog } from "lucide-react";
+import { toast } from "sonner";
+import {
+  Toolbar,
+  SearchInput,
+  FilterChips,
+  SortMenu,
+  ExportButton,
+  downloadCSV,
+} from "./ui/toolbar";
 import { MetricCard } from "./ui/metric-card";
 import { EmptyState } from "./ui/empty-state";
 import { ListRow } from "./ui/list-row";
@@ -9,6 +19,7 @@ import { BudgetPanel } from "./budget-panel";
 import { GanttTimeline } from "./gantt-timeline";
 import { EvidenceGallery } from "./evidence-gallery";
 import { UsagePanel } from "./usage-panel";
+import { TeamMemberDetail, type TeamProjectLite, type TeamUser } from "./team-member-detail";
 
 type Dashboard = {
   product_name: string;
@@ -24,6 +35,7 @@ type Project = {
   spent_total_cents: number;
   start_date: string;
   planned_end_date: string;
+  logo_url?: string;
 };
 
 type Task = {
@@ -61,7 +73,7 @@ type Evidence = {
   created_at?: string;
 };
 
-type UserType = { id: string; email: string; full_name: string; role: string };
+type UserType = { id: string; email: string; full_name: string; role: string; is_active?: boolean; email_verified?: boolean };
 
 type OwnerCanvasProps = {
   activeView: string;
@@ -82,6 +94,9 @@ type OwnerCanvasProps = {
   onInviteUser?: () => void;
   users?: UserType[];
   isMobile?: boolean;
+  token?: string;
+  currentUserId?: string;
+  onTeamChanged?: () => void | Promise<void>;
 };
 
 function money(value: number) {
@@ -119,7 +134,56 @@ export function OwnerCanvas({
   onInviteUser,
   users = [],
   isMobile = false,
+  token,
+  currentUserId,
+  onTeamChanged,
 }: OwnerCanvasProps) {
+  const [selectedTeamUserId, setSelectedTeamUserId] = useState<string | null>(null);
+  const canManageTeam = !!token;
+
+  // Projects / Timeline toolbar state
+  const [taskSearch, setTaskSearch] = useState("");
+  const [taskStatusFilter, setTaskStatusFilter] = useState<"all" | "pending" | "in_progress" | "completed">("all");
+  const [taskSort, setTaskSort] = useState<"end_asc" | "end_desc" | "progress_desc" | "progress_asc" | "budget_desc" | "title_asc">("end_asc");
+
+  // Team toolbar state
+  const [teamSearch, setTeamSearch] = useState("");
+  const [teamRoleFilter, setTeamRoleFilter] = useState<"all" | "owner" | "supervisor" | "helper" | "client">("all");
+
+  const filteredTasks = useMemo(() => {
+    const q = taskSearch.trim().toLowerCase();
+    const filtered = tasks.filter((t) => {
+      if (taskStatusFilter !== "all" && t.status !== taskStatusFilter) return false;
+      if (q && !t.title.toLowerCase().includes(q)) return false;
+      return true;
+    });
+    const sorted = [...filtered];
+    sorted.sort((a, b) => {
+      switch (taskSort) {
+        case "end_asc": return (a.end_date || "").localeCompare(b.end_date || "");
+        case "end_desc": return (b.end_date || "").localeCompare(a.end_date || "");
+        case "progress_desc": return b.progress_percent - a.progress_percent;
+        case "progress_asc": return a.progress_percent - b.progress_percent;
+        case "budget_desc": return (b.budget_cents || 0) - (a.budget_cents || 0);
+        case "title_asc": return a.title.localeCompare(b.title);
+        default: return 0;
+      }
+    });
+    return sorted;
+  }, [tasks, taskSearch, taskStatusFilter, taskSort]);
+
+  const filteredUsers = useMemo(() => {
+    const q = teamSearch.trim().toLowerCase();
+    return users.filter((u) => {
+      if (teamRoleFilter !== "all" && u.role !== teamRoleFilter) return false;
+      if (q) {
+        const hay = `${u.full_name ?? ""} ${u.email}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [users, teamSearch, teamRoleFilter]);
+
   // ── Overview ──
   if (activeView === "overview") {
     return (
@@ -276,16 +340,31 @@ export function OwnerCanvas({
             <EmptyState text="No active projects in the portfolio." />
           ) : (
             <div className="card-grid">
-              {(dashboard?.projects ?? []).map((project) => (
+              {(dashboard?.projects ?? []).map((project) => {
+                const fullProject = projects.find((p) => p.id === project.id);
+                const logoUrl = fullProject?.logo_url;
+                return (
                 <div key={project.id} className="glass-card p-6 border-white/5 hover:border-white/20">
                   <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h3 className="text-lg font-bold text-white tracking-tight">{project.name}</h3>
-                      <div className="mt-1 flex gap-2">
-                        <span className={statusBadge(project.status)}>{project.status}</span>
+                    <div className="flex items-start gap-3 min-w-0">
+                      {logoUrl ? (
+                        <img src={logoUrl} alt="" className="h-10 w-10 rounded-xl object-cover flex-shrink-0 border border-white/10" />
+                      ) : (
+                        <div
+                          className="flex h-10 w-10 items-center justify-center rounded-xl flex-shrink-0"
+                          style={{ background: "linear-gradient(135deg, #10b981, #059669)" }}
+                        >
+                          <FolderKanban size={18} className="text-white" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <h3 className="text-lg font-bold text-white tracking-tight truncate">{project.name}</h3>
+                        <div className="mt-1 flex gap-2">
+                          <span className={statusBadge(project.status)}>{project.status}</span>
+                        </div>
                       </div>
                     </div>
-                    <div className="rounded-lg bg-white/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/80 border border-white/5">
+                    <div className="rounded-lg bg-white/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/80 border border-white/5 flex-shrink-0">
                        {project.deliverables_due} deliverables
                     </div>
                   </div>
@@ -310,7 +389,8 @@ export function OwnerCanvas({
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -357,9 +437,53 @@ export function OwnerCanvas({
                 Task timeline
               </h2>
             )}
+
+            <Toolbar>
+              <SearchInput
+                value={taskSearch}
+                onChange={setTaskSearch}
+                placeholder="Search tasks…"
+              />
+              <FilterChips<"all" | "pending" | "in_progress" | "completed">
+                options={[
+                  { value: "all", label: "All", count: tasks.length },
+                  { value: "pending", label: "Pending", count: tasks.filter((t) => t.status === "pending").length, color: "#6b7280" },
+                  { value: "in_progress", label: "Active", count: tasks.filter((t) => t.status === "in_progress").length, color: "#3b82f6" },
+                  { value: "completed", label: "Done", count: tasks.filter((t) => t.status === "completed").length, color: "#10b981" },
+                ]}
+                value={taskStatusFilter}
+                onChange={setTaskStatusFilter}
+              />
+              <SortMenu<"end_asc" | "end_desc" | "progress_desc" | "progress_asc" | "budget_desc" | "title_asc">
+                options={[
+                  { value: "end_asc", label: "End date ↑" },
+                  { value: "end_desc", label: "End date ↓" },
+                  { value: "progress_desc", label: "Progress ↓" },
+                  { value: "progress_asc", label: "Progress ↑" },
+                  { value: "budget_desc", label: "Budget ↓" },
+                  { value: "title_asc", label: "Title A-Z" },
+                ]}
+                value={taskSort}
+                onChange={setTaskSort}
+              />
+            </Toolbar>
+
+            {filteredTasks.length === 0 && (
+              <div className="py-10 text-center glass-card border-dashed border-white/10">
+                <div className="text-sm font-bold text-white/30 uppercase tracking-[0.2em]">No tasks match the filters</div>
+                <button
+                  type="button"
+                  onClick={() => { setTaskSearch(""); setTaskStatusFilter("all"); }}
+                  className="mt-3 text-[10px] font-black uppercase tracking-widest text-blue-400 hover:text-blue-300"
+                >
+                  Clear filters
+                </button>
+              </div>
+            )}
+
             {isMobile ? (
               <div className="space-y-3">
-                {tasks.map((task) => (
+                {filteredTasks.map((task) => (
                   <div key={task.id} className="glass-card p-4 border-white/5">
                     <div className="flex justify-between items-start mb-2">
                       <div className="font-bold text-white text-sm">{task.title}</div>
@@ -378,16 +502,16 @@ export function OwnerCanvas({
                   </div>
                 ))}
               </div>
-            ) : (
+            ) : filteredTasks.length > 0 ? (
               <GanttTimeline
-                tasks={tasks}
+                tasks={filteredTasks}
                 deliverables={deliverables}
                 allEvidences={allEvidences}
                 highlightDeliverableId={highlightedDeliverableId}
                 onDeliverableClick={onDeliverableNavigate}
                 onTaskClick={onTaskClick}
               />
-            )}
+            ) : null}
           </div>
         ) : (
            <EmptyState text="No tasks in this project yet." />
@@ -420,6 +544,54 @@ export function OwnerCanvas({
       owner: "Owner", supervisor: "Supervisor", helper: "Operator", client: "Client", admin: "Admin",
     };
 
+    const selectedUser = selectedTeamUserId ? users.find((u) => u.id === selectedTeamUserId) : null;
+
+    async function handleExportTeamCSV() {
+      if (users.length === 0) {
+        toast.error("No team members to export.");
+        return;
+      }
+      const rows: string[][] = [
+        ["Name", "Email", "Role", "Active", "Projects"],
+        ...users.map((u) => {
+          const assignedProjects = u.role === "supervisor"
+            ? projects.filter((p: any) => p.supervisor_user_id === u.id).length
+            : u.role === "client"
+            ? projects.filter((p: any) => p.client_user_id === u.id).length
+            : 0;
+          return [
+            u.full_name || "",
+            u.email,
+            roleLabels[u.role] ?? u.role,
+            u.is_active === false ? "suspended" : "active",
+            String(assignedProjects),
+          ];
+        }),
+      ];
+      downloadCSV(`team_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+      toast.success(`Exported ${users.length} member${users.length === 1 ? "" : "s"}.`);
+    }
+
+    if (selectedUser && canManageTeam && token) {
+      return (
+        <div className={`space-y-6 animate-fadeIn ${isMobile ? "pb-20" : ""}`}>
+          <div className="glass-card p-5">
+            <TeamMemberDetail
+              user={selectedUser as TeamUser}
+              isSelf={selectedUser.id === currentUserId}
+              token={token}
+              projects={projects as unknown as TeamProjectLite[]}
+              canAssignProjects
+              onBack={() => setSelectedTeamUserId(null)}
+              onChanged={async () => { await onTeamChanged?.(); }}
+              onDeleted={async () => { setSelectedTeamUserId(null); await onTeamChanged?.(); }}
+              onProjectAssignmentChanged={async () => { await onTeamChanged?.(); }}
+            />
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className={`space-y-6 animate-fadeIn ${isMobile ? "pb-20" : ""}`}>
         <div className="flex items-center justify-between pb-4 border-b border-white/5">
@@ -442,6 +614,29 @@ export function OwnerCanvas({
           )}
         </div>
 
+        {users.length > 0 && (
+          <Toolbar>
+            <SearchInput
+              value={teamSearch}
+              onChange={setTeamSearch}
+              placeholder="Search name or email…"
+            />
+            <FilterChips<"all" | "owner" | "supervisor" | "helper" | "client">
+              options={[
+                { value: "all", label: "All", count: users.length },
+                { value: "owner", label: "Owner", count: users.filter((u) => u.role === "owner").length, color: "#3b82f6" },
+                { value: "supervisor", label: "Supervisor", count: users.filter((u) => u.role === "supervisor").length, color: "#0ea5e9" },
+                { value: "helper", label: "Operator", count: users.filter((u) => u.role === "helper").length, color: "#f59e0b" },
+                { value: "client", label: "Client", count: users.filter((u) => u.role === "client").length, color: "#10b981" },
+              ]}
+              value={teamRoleFilter}
+              onChange={setTeamRoleFilter}
+            />
+            <div className="flex-1" />
+            <ExportButton onExport={handleExportTeamCSV} />
+          </Toolbar>
+        )}
+
         {/* Team members */}
         {users.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -463,14 +658,36 @@ export function OwnerCanvas({
           </div>
         ) : (
           <div className="space-y-2">
-            {users.map((u) => {
+            {filteredUsers.length === 0 && (
+              <div className="py-10 text-center glass-card border-dashed border-white/10">
+                <div className="text-sm font-bold text-white/30 uppercase tracking-[0.2em]">No members match the filters</div>
+                <button
+                  type="button"
+                  onClick={() => { setTeamSearch(""); setTeamRoleFilter("all"); }}
+                  className="mt-3 text-[10px] font-black uppercase tracking-widest text-blue-400 hover:text-blue-300"
+                >
+                  Clear filters
+                </button>
+              </div>
+            )}
+            {filteredUsers.map((u) => {
               const rc = roleColors[u.role] ?? "#6b7280";
               const userTasks = tasks.filter((t) => t.assigned_to_user_id === u.id);
               const completedTasks = userTasks.filter((t) => t.status === "completed").length;
+              const clickable = canManageTeam;
+              const assignedProjects = u.role === "supervisor"
+                ? projects.filter((p: any) => p.supervisor_user_id === u.id).length
+                : u.role === "client"
+                ? projects.filter((p: any) => p.client_user_id === u.id).length
+                : 0;
+              const suspended = u.is_active === false;
               return (
-                <div
+                <button
                   key={u.id}
-                  className="flex items-center gap-3 rounded-xl px-4 py-3 transition-colors hover:bg-white/5"
+                  type="button"
+                  onClick={() => clickable && setSelectedTeamUserId(u.id)}
+                  disabled={!clickable}
+                  className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 transition-colors text-left ${clickable ? "hover:bg-white/10 cursor-pointer" : "cursor-default"}`}
                   style={{ border: "1px solid rgba(255,255,255,0.06)" }}
                 >
                   <div
@@ -480,7 +697,11 @@ export function OwnerCanvas({
                     {u.full_name?.[0] ?? u.email[0]}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-white truncate">{u.full_name || u.email}</div>
+                    <div className="text-sm font-semibold text-white truncate">
+                      {u.full_name || u.email}
+                      {suspended && <span className="ml-2 text-[9px] font-bold uppercase tracking-wider text-red-400">Suspended</span>}
+                      {u.id === currentUserId && <span className="ml-2 text-[9px] font-bold uppercase tracking-wider text-blue-400">You</span>}
+                    </div>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: rc }}>
                         {roleLabels[u.role] ?? u.role}
@@ -489,13 +710,26 @@ export function OwnerCanvas({
                       <span className="text-[11px] text-white/30 truncate">{u.email}</span>
                     </div>
                   </div>
+                  {(u.role === "supervisor" || u.role === "client") && (
+                    <div className="text-right flex-shrink-0 hidden sm:block">
+                      <div className="text-xs font-bold text-white/60">{assignedProjects}</div>
+                      <div className="text-[10px] text-white/30">project{assignedProjects === 1 ? "" : "s"}</div>
+                    </div>
+                  )}
                   {userTasks.length > 0 && (
-                    <div className="text-right flex-shrink-0">
+                    <div className="text-right flex-shrink-0 hidden sm:block">
                       <div className="text-xs font-bold text-white/60">{completedTasks}/{userTasks.length}</div>
                       <div className="text-[10px] text-white/30">tasks done</div>
                     </div>
                   )}
-                </div>
+                  {clickable && (
+                    <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-white/40 flex-shrink-0">
+                      <Cog size={12} />
+                      <span className="hidden sm:inline">Manage</span>
+                      <ChevronRight size={14} />
+                    </div>
+                  )}
+                </button>
               );
             })}
           </div>

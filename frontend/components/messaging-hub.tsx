@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Check, CheckCheck, Info, MessageSquare, Pencil, Search, Send, Trash2, User } from "lucide-react";
+import { AlertCircle, Check, CheckCheck, Info, MessageSquare, Pencil, Send, Trash2, User } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "./ui/confirm-dialog";
+import { Toolbar, SearchInput, FilterChips } from "./ui/toolbar";
 
 type ProjectMessage = {
   id: string;
@@ -68,6 +69,7 @@ export function MessagingHub({
   const [recipientId, setRecipientId] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [messageTypeFilter, setMessageTypeFilter] = useState<"all" | "chat" | "rfi" | "announcement">("all");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
   const [sending, setSending] = useState(false);
@@ -255,6 +257,7 @@ export function MessagingHub({
   const filteredMessages = useMemo(() => {
     const normalizedQuery = query.toLowerCase();
     return messages.filter((message) => {
+      if (messageTypeFilter !== "all" && message.type !== messageTypeFilter) return false;
       const searchable = [
         message.text,
         messageTypeLabels[message.type] ?? message.type,
@@ -265,7 +268,7 @@ export function MessagingHub({
         .toLowerCase();
       return searchable.includes(normalizedQuery);
     });
-  }, [messages, query, session.user.id, userMap]);
+  }, [messages, query, messageTypeFilter, session.user.id, userMap]);
 
   const formatTime = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -297,17 +300,29 @@ export function MessagingHub({
           </div>
         </div>
 
-        <div className="relative hidden md:block">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20" />
-          <input
-            type="text"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="SEARCH MESSAGES..."
-            className="bg-white/5 border border-white/5 rounded-xl pl-9 pr-4 py-2 text-[10px] font-black uppercase tracking-widest text-white placeholder:text-white/10 w-56 focus:border-blue-500/30 transition-all outline-none"
-          />
-        </div>
       </div>
+
+      {messages.length > 0 && (
+        <div className="px-6 py-3 border-b border-white/5">
+          <Toolbar className="!p-2">
+            <SearchInput
+              value={query}
+              onChange={setQuery}
+              placeholder="Search messages, authors, topics…"
+            />
+            <FilterChips<"all" | "chat" | "rfi" | "announcement">
+              options={[
+                { value: "all", label: "All", count: messages.length },
+                { value: "chat", label: "General", count: messages.filter((m) => m.type === "chat").length, color: "#3b82f6" },
+                { value: "rfi", label: "RFI", count: messages.filter((m) => m.type === "rfi").length, color: "#f59e0b" },
+                { value: "announcement", label: "Announce", count: messages.filter((m) => m.type === "announcement").length, color: "#10b981" },
+              ]}
+              value={messageTypeFilter}
+              onChange={setMessageTypeFilter}
+            />
+          </Toolbar>
+        </div>
+      )}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar scroll-smooth">
         {filteredMessages.map((message) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { X, Calendar, User, DollarSign, Activity, AlertCircle, CheckCircle2, Trash2, Plus, ImageIcon, Upload } from "lucide-react";
+import { X, Calendar, User, DollarSign, Activity, AlertCircle, CheckCircle2, Trash2, Plus, ImageIcon, Upload, FolderKanban } from "lucide-react";
 import { useEffect, useState, useRef, useCallback } from "react";
 
 type Task = {
@@ -23,15 +23,22 @@ type UserType = {
   email: string;
 };
 
+type ProjectOption = {
+  id: string;
+  name: string;
+};
+
 type TaskEditModalProps = {
   isOpen: boolean;
   onClose: () => void;
   task: Task | null;
   users: UserType[];
-  onSave: (taskId: string, data: Partial<Task>, comparisonFile?: File | null) => Promise<void>;
+  onSave: (taskId: string, data: Partial<Task> & { project_id?: string }, comparisonFile?: File | null) => Promise<void>;
   onDelete?: (taskId: string) => Promise<void>;
   loading: boolean;
   token?: string;
+  projects?: ProjectOption[];
+  defaultProjectId?: string;
 };
 
 export function TaskEditModal({
@@ -43,8 +50,11 @@ export function TaskEditModal({
   onDelete,
   loading,
   token,
+  projects = [],
+  defaultProjectId = "",
 }: TaskEditModalProps) {
   const [formData, setFormData] = useState<Partial<Task>>({});
+  const [formProjectId, setFormProjectId] = useState<string>(defaultProjectId);
   const [formError, setFormError] = useState<string | null>(null);
   const [comparisonEnabled, setComparisonEnabled] = useState(false);
   const [comparisonFile, setComparisonFile] = useState<File | null>(null);
@@ -102,7 +112,9 @@ export function TaskEditModal({
       setComparisonFile(null);
       setComparisonPreview(null);
     }
-  }, [task]);
+    setFormProjectId(defaultProjectId);
+    setFormError(null);
+  }, [task, defaultProjectId, isOpen]);
 
   if (!isOpen) return null;
   const isNew = !task || !task.id;
@@ -113,12 +125,18 @@ export function TaskEditModal({
       setFormError("Task title is required.");
       return;
     }
+    if (isNew && !formProjectId) {
+      setFormError("Select a project for this task.");
+      return;
+    }
     if (formData.start_date && formData.end_date && formData.start_date > formData.end_date) {
       setFormError("Start date must be before due date.");
       return;
     }
     setFormError(null);
-    onSave(isNew ? "" : (task as Task).id, formData, comparisonEnabled ? comparisonFile : null);
+    const payload: Partial<Task> & { project_id?: string } = { ...formData };
+    if (isNew) payload.project_id = formProjectId;
+    onSave(isNew ? "" : (task as Task).id, payload, comparisonEnabled ? comparisonFile : null);
   };
 
   const money = (cents: number) => (cents / 100).toLocaleString("es-MX", { style: "currency", currency: "MXN" });
@@ -147,6 +165,25 @@ export function TaskEditModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
+          {isNew && projects.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-white/40 uppercase ml-1">Project</label>
+              <div className="relative">
+                <FolderKanban className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30" size={16} />
+                <select
+                  value={formProjectId}
+                  onChange={(e) => setFormProjectId(e.target.value)}
+                  className="w-full bg-[#0f172a] border border-white/10 rounded-xl pl-11 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all text-sm appearance-none"
+                >
+                  <option value="">Select a project…</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
           {/* Main Info */}
           <div className="space-y-4">
             <div className="space-y-1.5">

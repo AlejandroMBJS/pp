@@ -1,10 +1,10 @@
 "use client";
 
-import { X, Building2, Bell, Shield, Globe, ChevronRight, Users, ArrowLeft, Loader2, KeyRound, UserX, UserCheck, Trash2, Mail, Upload, ImageIcon } from "lucide-react";
+import { X, Building2, Bell, Shield, Globe, ChevronRight, Users, Loader2, Upload, ImageIcon, Palette, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-
-type User = { id: string; email: string; full_name: string; role: string; is_active?: boolean; email_verified?: boolean };
+import { HexColorPicker, HexColorInput } from "react-colorful";
+import { TeamMemberDetail, type TeamUser as User, type TeamProjectLite as ProjectLite } from "./team-member-detail";
 
 type TenantSettings = {
   id: string;
@@ -17,7 +17,12 @@ type TenantSettings = {
   public_dashboard_enabled: boolean;
   public_gallery_enabled: boolean;
   logo_url: string;
+  primary_color: string;
+  secondary_color: string;
 };
+
+const DEFAULT_PRIMARY = "#3b82f6";
+const DEFAULT_SECONDARY = "#8b5cf6";
 
 type SettingsGeneralModalProps = {
   open: boolean;
@@ -28,8 +33,10 @@ type SettingsGeneralModalProps = {
   currentUserId?: string;
   currentUserRole?: string;
   token?: string;
+  projects?: ProjectLite[];
   onUsersChanged?: () => void | Promise<void>;
-  onTenantUpdated?: (t: { id: string; name: string; slug: string; logo_url: string }) => void;
+  onTenantUpdated?: (t: { id: string; name: string; slug: string; logo_url: string; primary_color?: string; secondary_color?: string }) => void;
+  onProjectAssignmentChanged?: () => void | Promise<void>;
 };
 
 const tabs = [
@@ -64,8 +71,10 @@ export function SettingsGeneralModal({
   currentUserId,
   currentUserRole,
   token,
+  projects = [],
   onUsersChanged,
   onTenantUpdated,
+  onProjectAssignmentChanged,
 }: SettingsGeneralModalProps) {
   const [activeTab, setActiveTab] = useState("company");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -145,6 +154,8 @@ export function SettingsGeneralModal({
           public_dashboard_enabled: tenantDraft.public_dashboard_enabled,
           public_gallery_enabled: tenantDraft.public_gallery_enabled,
           logo_url: tenantDraft.logo_url,
+          primary_color: tenantDraft.primary_color,
+          secondary_color: tenantDraft.secondary_color,
         }),
       });
       if (!res.ok) throw new Error((await res.json())?.error ?? `HTTP ${res.status}`);
@@ -441,6 +452,36 @@ export function SettingsGeneralModal({
                     disabled={!canManageUsers}
                   />
 
+                  <SectionLabel>Brand colors</SectionLabel>
+                  <div className="text-xs -mt-2" style={{ color: "var(--text-tertiary)" }}>
+                    Used across the app — headers, buttons and accents. Click a swatch to open the picker.
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <BrandColorPicker
+                      label="Primary"
+                      value={tenantDraft.primary_color}
+                      fallback={DEFAULT_PRIMARY}
+                      onChange={(v) => setTenantDraft({ ...tenantDraft, primary_color: v })}
+                      disabled={!canManageUsers}
+                    />
+                    <BrandColorPicker
+                      label="Secondary"
+                      value={tenantDraft.secondary_color}
+                      fallback={DEFAULT_SECONDARY}
+                      onChange={(v) => setTenantDraft({ ...tenantDraft, secondary_color: v })}
+                      disabled={!canManageUsers}
+                    />
+                  </div>
+                  <div
+                    className="rounded-2xl p-4 border border-white/10"
+                    style={{
+                      background: `linear-gradient(135deg, ${tenantDraft.primary_color || DEFAULT_PRIMARY}, ${tenantDraft.secondary_color || DEFAULT_SECONDARY})`,
+                    }}
+                  >
+                    <div className="text-xs font-black uppercase tracking-widest text-white/80">Live preview</div>
+                    <div className="text-base font-bold text-white mt-1">{tenantDraft.name || "Your brand"}</div>
+                  </div>
+
                   <SectionLabel>Timezone and currency</SectionLabel>
                   <div className="grid grid-cols-2 gap-3">
                     <SettingFieldSelect
@@ -580,6 +621,8 @@ export function SettingsGeneralModal({
               user={selectedUser}
               isSelf={selectedUser.id === currentUserId}
               token={token ?? ""}
+              projects={projects}
+              canAssignProjects={currentUserRole === "owner" || currentUserRole === "admin"}
               onBack={() => setSelectedUserId(null)}
               onChanged={async () => {
                 await onUsersChanged?.();
@@ -587,6 +630,9 @@ export function SettingsGeneralModal({
               onDeleted={async () => {
                 await onUsersChanged?.();
                 setSelectedUserId(null);
+              }}
+              onProjectAssignmentChanged={async () => {
+                await onProjectAssignmentChanged?.();
               }}
             />
           )}
@@ -617,6 +663,8 @@ export function SettingsGeneralModal({
 
           {activeTab === "security" && (
             <div className="space-y-4">
+              <SectionLabel>Change your password</SectionLabel>
+              <SelfPasswordChange token={token ?? ""} />
               <SectionLabel className="text-red-600">Danger zone</SectionLabel>
               <div className="rounded-xl p-4 space-y-3" style={{ border: "1px solid rgba(239,68,68,0.25)", background: "rgba(239,68,68,0.1)" }}>
                 <div className="text-sm font-semibold text-red-400">Delete company</div>
@@ -680,280 +728,200 @@ export function SettingsGeneralModal({
 
 // ── Sub-components ──────────────────────────────────────────────────────────
 
-type TeamMemberDetailProps = {
-  user: User;
-  isSelf: boolean;
-  token: string;
-  onBack: () => void;
-  onChanged: () => void | Promise<void>;
-  onDeleted: () => void | Promise<void>;
-};
 
-function TeamMemberDetail({ user, isSelf, token, onBack, onChanged, onDeleted }: TeamMemberDetailProps) {
-  const [role, setRole] = useState(user.role);
+function SelfPasswordChange({ token }: { token: string }) {
+  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [busy, setBusy] = useState<null | "role" | "password" | "suspend" | "invite" | "delete">(null);
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  async function callAdmin(path: string, init: RequestInit) {
-    const res = await fetch(path, {
-      ...init,
-      headers: {
-        ...(init.headers ?? {}),
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body?.error ?? `HTTP ${res.status}`);
-    }
-    return res.json().catch(() => ({}));
-  }
+  const canSubmit =
+    token &&
+    !busy &&
+    currentPassword.length > 0 &&
+    newPassword.length >= 12 &&
+    newPassword === confirmPassword;
 
-  async function handleSaveRole() {
-    if (role === user.role) return;
-    setBusy("role");
+  async function submit() {
+    if (!canSubmit) return;
+    setBusy(true);
     try {
-      await callAdmin(`/api/v1/users/${user.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ role }),
-      });
-      toast.success("Role updated");
-      await onChanged();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update role");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleSetPassword() {
-    if (newPassword.length < 12) {
-      toast.error("Password must be at least 12 characters");
-      return;
-    }
-    setBusy("password");
-    try {
-      await callAdmin(`/api/v1/users/${user.id}/set-password`, {
+      const res = await fetch("/api/v1/me/password", {
         method: "POST",
-        body: JSON.stringify({ password: newPassword }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          current_password: currentPassword,
+          new_password: newPassword,
+        }),
       });
-      toast.success(`Password updated for ${user.email}`);
-      setNewPassword("");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to set password");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleToggleSuspend() {
-    const nextActive = !(user.is_active ?? true);
-    setBusy("suspend");
-    try {
-      await callAdmin(`/api/v1/users/${user.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ is_active: nextActive }),
-      });
-      toast.success(nextActive ? "User reactivated" : "User suspended");
-      await onChanged();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update status");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleResendInvite() {
-    setBusy("invite");
-    try {
-      const res = await fetch(`/api/v1/users/${user.id}/resend-invite`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to regenerate invite");
-      if (data.invite_url) {
-        await navigator.clipboard.writeText(data.invite_url);
-        toast.success("Invite link regenerated and copied to clipboard.");
-      } else {
-        toast.success("Invite regenerated.");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(
+          typeof data?.error === "string" ? data.error : `HTTP ${res.status}`,
+        );
       }
+      toast.success("Contraseña actualizada.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to regenerate invite");
+      toast.error(
+        err instanceof Error ? err.message : "No se pudo cambiar la contraseña.",
+      );
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
-
-  async function handleDelete() {
-    setBusy("delete");
-    try {
-      await callAdmin(`/api/v1/users/${user.id}`, { method: "DELETE" });
-      toast.success(`${user.full_name || user.email} deleted`);
-      await onDeleted();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  const isActive = user.is_active ?? true;
 
   return (
-    <div className="space-y-5">
-      <button
-        type="button"
-        onClick={onBack}
-        className="inline-flex items-center gap-1.5 text-xs font-semibold hover:underline"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        <ArrowLeft size={14} /> Back to team list
-      </button>
-
-      <div className="flex items-center gap-4">
-        <div
-          className="flex h-14 w-14 items-center justify-center rounded-2xl text-lg font-bold text-white"
-          style={{ background: roleColors[user.role] ?? "#6b7280" }}
+    <div
+      className="rounded-xl p-4 space-y-3"
+      style={{
+        border: "1px solid var(--glass-border)",
+        background: "rgba(255,255,255,0.02)",
+      }}
+    >
+      <div className="space-y-1.5">
+        <label
+          className="text-xs font-semibold"
+          style={{ color: "var(--text-secondary)" }}
         >
-          {user.full_name?.[0] ?? user.email[0]}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-base font-bold truncate" style={{ color: "var(--text-primary)" }}>
-            {user.full_name || user.email}
-            {!isActive && <span className="ml-2 text-[10px] font-bold uppercase tracking-wider text-red-600">Suspended</span>}
-            {isSelf && <span className="ml-2 text-[10px] font-bold uppercase tracking-wider text-blue-600">You</span>}
-          </div>
-          <div className="text-xs truncate" style={{ color: "var(--text-tertiary)" }}>{user.email}</div>
-        </div>
-      </div>
-
-      <div className="space-y-1.5">
-        <label className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>Role</label>
-        <div className="flex gap-2">
-          <select
-            className="form-select flex-1"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            disabled={isSelf}
-          >
-            <option value="owner">Owner</option>
-            <option value="supervisor">Supervisor</option>
-            <option value="helper">Operator</option>
-            <option value="client">Client</option>
-          </select>
-          <button
-            type="button"
-            onClick={handleSaveRole}
-            disabled={isSelf || busy !== null || role === user.role}
-            className="btn-primary px-4 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {busy === "role" ? <Loader2 size={14} className="animate-spin" /> : "Save"}
-          </button>
-        </div>
-        {isSelf && <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>You cannot change your own role.</p>}
-      </div>
-
-      <div className="space-y-1.5">
-        <label className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "var(--text-secondary)" }}>
-          <KeyRound size={12} /> Set new password
+          Current password
         </label>
-        <div className="flex gap-2">
-          <input
-            type="password"
-            className="form-input flex-1"
-            placeholder="At least 12 characters"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            autoComplete="new-password"
+        <input
+          type="password"
+          className="form-input w-full"
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+          autoComplete="current-password"
+          placeholder="Your current password"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label
+          className="text-xs font-semibold"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          New password
+        </label>
+        <input
+          type="password"
+          className="form-input w-full"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          autoComplete="new-password"
+          placeholder="At least 12 characters"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label
+          className="text-xs font-semibold"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          Confirm new password
+        </label>
+        <input
+          type="password"
+          className="form-input w-full"
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+          autoComplete="new-password"
+          placeholder="Repeat the new password"
+        />
+        {confirmPassword.length > 0 && confirmPassword !== newPassword && (
+          <p className="text-[11px] text-red-400">Passwords do not match.</p>
+        )}
+      </div>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={submit}
+          disabled={!canSubmit}
+          className="btn-primary px-4 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
+        >
+          {busy && <Loader2 size={14} className="animate-spin" />}
+          Update password
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function BrandColorPicker({
+  label,
+  value,
+  fallback,
+  onChange,
+  disabled = false,
+}: {
+  label: string;
+  value: string;
+  fallback: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const displayed = value || fallback;
+  const isCustom = value !== "";
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "var(--text-secondary)" }}>
+        <Palette size={12} />
+        {label}
+      </label>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => !disabled && setOpen((v) => !v)}
+          disabled={disabled}
+          className="h-10 w-10 rounded-xl border border-white/15 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed transition-transform hover:scale-105"
+          style={{ background: displayed }}
+          aria-label={`Pick ${label.toLowerCase()} color`}
+        />
+        <div className="flex-1 min-w-0">
+          <HexColorInput
+            color={displayed}
+            onChange={(c) => onChange(c)}
+            prefixed
+            disabled={disabled}
+            className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm font-mono text-white outline-none focus:border-white/25 disabled:opacity-50 uppercase"
+            aria-label={`${label} hex value`}
           />
+        </div>
+        {isCustom && !disabled && (
           <button
             type="button"
-            onClick={handleSetPassword}
-            disabled={busy !== null || newPassword.length < 12}
-            className="btn-primary px-4 disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={() => onChange("")}
+            className="h-10 w-10 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/60 hover:text-white transition-colors flex-shrink-0"
+            title="Reset to default"
+            aria-label="Reset to default"
           >
-            {busy === "password" ? <Loader2 size={14} className="animate-spin" /> : "Update"}
-          </button>
-        </div>
-        <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
-          The user will need to sign in again with the new password. Share it over a secure channel.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={handleToggleSuspend}
-          disabled={busy !== null || isSelf}
-          className="flex items-center justify-center gap-2 rounded-xl py-3 text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{
-            background: isActive ? "rgba(245, 158, 11, 0.1)" : "rgba(16, 185, 129, 0.1)",
-            color: isActive ? "#d97706" : "#059669",
-            border: `1px solid ${isActive ? "rgba(245, 158, 11, 0.2)" : "rgba(16, 185, 129, 0.2)"}`,
-          }}
-        >
-          {busy === "suspend" ? <Loader2 size={14} className="animate-spin" /> : isActive ? <UserX size={14} /> : <UserCheck size={14} />}
-          {isActive ? "Suspend" : "Reactivate"}
-        </button>
-        <button
-          type="button"
-          onClick={handleResendInvite}
-          disabled={busy !== null}
-          className="flex items-center justify-center gap-2 rounded-xl py-3 text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{
-            background: "rgba(59, 130, 246, 0.1)",
-            color: "#2563eb",
-            border: "1px solid rgba(59, 130, 246, 0.2)",
-          }}
-        >
-          {busy === "invite" ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />}
-          Regenerate invite link
-        </button>
-      </div>
-
-      <div className="rounded-xl p-4 space-y-3" style={{ border: "1px solid rgba(239,68,68,0.25)", background: "rgba(239,68,68,0.1)" }}>
-        <div className="text-sm font-semibold text-red-400 flex items-center gap-2">
-          <Trash2 size={14} /> Delete user
-        </div>
-        <div className="text-xs text-red-300">
-          This user will lose access immediately. Projects they created stay, but the account is archived.
-        </div>
-        {deleteConfirm ? (
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={busy !== null || isSelf}
-              className="text-xs font-bold px-3 py-1.5 rounded-lg bg-red-600 text-white disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
-            >
-              {busy === "delete" && <Loader2 size={12} className="animate-spin" />}
-              Yes, delete
-            </button>
-            <button
-              type="button"
-              onClick={() => setDeleteConfirm(false)}
-              className="text-xs font-semibold px-3 py-1.5 rounded-lg border text-white/70"
-              style={{ background: "rgba(255,255,255,0.08)", borderColor: "rgba(255,255,255,0.15)" }}
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setDeleteConfirm(true)}
-            disabled={isSelf}
-            className="text-xs font-semibold px-3 py-1.5 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ background: "var(--red-light)", color: "var(--red-strong)", border: "none" }}
-          >
-            Delete user
+            <RotateCcw size={14} />
           </button>
         )}
-        {isSelf && <p className="text-[11px] text-red-400">You cannot delete yourself.</p>}
       </div>
+      {open && !disabled && (
+        <div className="relative">
+          <div
+            className="absolute z-20 mt-1 p-3 rounded-2xl border border-white/15 shadow-xl"
+            style={{ background: "var(--glass-bg, rgba(20,20,30,0.95))", backdropFilter: "blur(20px)" }}
+          >
+            <HexColorPicker color={displayed} onChange={(c) => onChange(c)} />
+            <div className="flex justify-end mt-2">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-white text-xs font-bold uppercase tracking-widest"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1085,3 +1053,4 @@ function SettingToggle({
     </div>
   );
 }
+

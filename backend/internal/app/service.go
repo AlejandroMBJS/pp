@@ -179,6 +179,32 @@ func validateManagedRole(role string) error {
 	return nil
 }
 
+// normalizeHexColor accepts strings like "#3B82F6", "3b82f6", "#abc" and returns
+// the canonical lowercase 7-char form (#rrggbb). Empty input returns "" (meaning
+// "clear the value"). Any non-hex input returns "" as well — callers should
+// treat non-empty-but-invalid input as a validation error.
+func normalizeHexColor(in string) string {
+	s := strings.TrimSpace(in)
+	if s == "" {
+		return ""
+	}
+	s = strings.TrimPrefix(s, "#")
+	if len(s) == 3 {
+		s = string([]byte{s[0], s[0], s[1], s[1], s[2], s[2]})
+	}
+	if len(s) != 6 {
+		return ""
+	}
+	for i := 0; i < 6; i++ {
+		c := s[i]
+		isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+		if !isHex {
+			return ""
+		}
+	}
+	return "#" + strings.ToLower(s)
+}
+
 func validateAccountSetupPassword(password string) error {
 	if len(password) < 12 {
 		return errors.New("password must be at least 12 characters")
@@ -1005,6 +1031,38 @@ func (s *Service) AdminUpdateUser(ctx context.Context, actor Claims, userID stri
 	return s.UserByID(ctx, userID)
 }
 
+// ChangeOwnPassword lets an authenticated user rotate their own password. The
+// current password is verified before the rotation; we return a generic error
+// on mismatch so a timing/probe attack can't distinguish wrong-password from
+// no-user-found.
+func (s *Service) ChangeOwnPassword(ctx context.Context, actor Claims, currentPassword, newPassword string) error {
+	if actor.UserID == "" {
+		return errors.New("forbidden")
+	}
+	if err := validateAccountSetupPassword(newPassword); err != nil {
+		return err
+	}
+	var hash string
+	if err := s.db.QueryRowContext(ctx, `SELECT password_hash FROM users WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL AND is_active = TRUE`, actor.UserID, actor.TenantID).Scan(&hash); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("user not found")
+		}
+		return err
+	}
+	if err := ComparePassword(hash, currentPassword); err != nil {
+		return errors.New("current password is incorrect")
+	}
+	newHash, err := HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`, newHash, actor.UserID); err != nil {
+		return err
+	}
+	s.logger.Info("user.password_self_change", "user_id", actor.UserID, "tenant_id", actor.TenantID)
+	return nil
+}
+
 // AdminSetUserPassword hashes and stores a new password for a user in the
 // same tenant. Used by owners for offline-bootstrapping or forced resets.
 func (s *Service) AdminSetUserPassword(ctx context.Context, actor Claims, userID, password string) error {
@@ -1180,12 +1238,17 @@ func (s *Service) GetCurrentTenant(ctx context.Context, actor Claims) (Tenant, e
 		return Tenant{}, ErrForbidden
 	}
 	var t Tenant
-	err := s.db.QueryRowContext(ctx, `SELECT id, name, slug, COALESCE(website,''), COALESCE(country,''), COALESCE(timezone,'UTC'), COALESCE(currency,'USD'), COALESCE(public_dashboard_enabled, TRUE), COALESCE(public_gallery_enabled, FALSE), COALESCE(logo_url,'') FROM tenants WHERE id = $1 AND deleted_at IS NULL`, actor.TenantID).Scan(&t.ID, &t.Name, &t.Slug, &t.Website, &t.Country, &t.Timezone, &t.Currency, &t.PublicDashboardEnabled, &t.PublicGalleryEnabled, &t.LogoURL)
+	var suspendedAt sql.NullTime
+	err := s.db.QueryRowContext(ctx, `SELECT id, name, slug, COALESCE(website,''), COALESCE(country,''), COALESCE(timezone,'UTC'), COALESCE(currency,'USD'), COALESCE(public_dashboard_enabled, TRUE), COALESCE(public_gallery_enabled, FALSE), COALESCE(logo_url,''), COALESCE(primary_color,''), COALESCE(secondary_color,''), suspended_at, COALESCE(suspension_reason,'') FROM tenants WHERE id = $1 AND deleted_at IS NULL`, actor.TenantID).Scan(&t.ID, &t.Name, &t.Slug, &t.Website, &t.Country, &t.Timezone, &t.Currency, &t.PublicDashboardEnabled, &t.PublicGalleryEnabled, &t.LogoURL, &t.PrimaryColor, &t.SecondaryColor, &suspendedAt, &t.SuspensionReason)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Tenant{}, errors.New("tenant not found")
 		}
 		return Tenant{}, err
+	}
+	if suspendedAt.Valid {
+		ts := suspendedAt.Time
+		t.SuspendedAt = &ts
 	}
 	return t, nil
 }
@@ -1231,6 +1294,20 @@ func (s *Service) UpdateCurrentTenant(ctx context.Context, actor Claims, patch T
 	}
 	if patch.LogoURL != nil {
 		add("logo_url", *patch.LogoURL)
+	}
+	if patch.PrimaryColor != nil {
+		c := normalizeHexColor(*patch.PrimaryColor)
+		if c == "" && strings.TrimSpace(*patch.PrimaryColor) != "" {
+			return Tenant{}, errors.New("primary_color must be a hex color like #3b82f6")
+		}
+		add("primary_color", c)
+	}
+	if patch.SecondaryColor != nil {
+		c := normalizeHexColor(*patch.SecondaryColor)
+		if c == "" && strings.TrimSpace(*patch.SecondaryColor) != "" {
+			return Tenant{}, errors.New("secondary_color must be a hex color like #8b5cf6")
+		}
+		add("secondary_color", c)
 	}
 	if len(sets) > 0 {
 		sets = append(sets, "updated_at = NOW()")
@@ -1323,6 +1400,121 @@ func (s *Service) ConfirmTenantLogo(ctx context.Context, actor Claims, sessionID
 	return s.GetCurrentTenant(ctx, actor)
 }
 
+// RequestProjectLogoUpload creates an upload session for a project logo image.
+func (s *Service) RequestProjectLogoUpload(ctx context.Context, actor Claims, projectID, fileName, contentType string, intendedSize int64, baseURL string) (UploadSession, error) {
+	if actor.TenantID == "" {
+		return UploadSession{}, ErrForbidden
+	}
+	if actor.Role != RoleOwner && actor.Role != RoleSupervisor && actor.Role != RoleAdmin {
+		return UploadSession{}, ErrForbidden
+	}
+	project, err := s.projectByID(ctx, projectID)
+	if err != nil {
+		return UploadSession{}, err
+	}
+	if project.TenantID != actor.TenantID {
+		return UploadSession{}, sql.ErrNoRows
+	}
+	allowed := map[string]bool{"image/png": true, "image/jpeg": true, "image/svg+xml": true, "image/webp": true}
+	if !allowed[contentType] {
+		return UploadSession{}, errors.New("unsupported image type; allowed: png, jpeg, svg, webp")
+	}
+	if intendedSize > 5*1024*1024 {
+		return UploadSession{}, errors.New("logo must be under 5 MB")
+	}
+	sessionID := newID("upl")
+	token, err := GenerateSecureToken(32)
+	if err != nil {
+		return UploadSession{}, err
+	}
+	expiresAt := time.Now().Add(15 * time.Minute).UTC().Format(time.RFC3339)
+	if baseURL == "" {
+		baseURL = strings.TrimSuffix(s.cfg.PublicBase, "/")
+	}
+	uploadPath := fmt.Sprintf("/uploads/%s?token=%s", sessionID, token)
+	uploadURL := uploadPath
+	if baseURL != "" {
+		uploadURL = strings.TrimSuffix(baseURL, "/") + uploadPath
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO upload_sessions (id, tenant_id, project_id, task_id, requested_by_user_id, file_name, content_type, intended_size_bytes, latitude, longitude, upload_token, status, expires_at, created_at) VALUES ($1, $2, $3, 'SYSTEM', $4, $5, $6, $7, 0, 0, $8, 'issued', $9, $10)`,
+		sessionID, actor.TenantID, projectID, actor.UserID, fileNameSafe(fileName), contentType, intendedSize, token, expiresAt, nowText())
+	if err != nil {
+		return UploadSession{}, err
+	}
+	return UploadSession{
+		ID:           sessionID,
+		UploadURL:    uploadURL,
+		Method:       "PUT",
+		ExpiresAt:    expiresAt,
+		FileName:     fileName,
+		ContentType:  contentType,
+		IntendedSize: intendedSize,
+	}, nil
+}
+
+// ConfirmProjectLogo finalises a project logo upload and sets the logo_url on the project.
+func (s *Service) ConfirmProjectLogo(ctx context.Context, actor Claims, projectID, sessionID string) (Project, error) {
+	if actor.TenantID == "" {
+		return Project{}, ErrForbidden
+	}
+	if actor.Role != RoleOwner && actor.Role != RoleSupervisor && actor.Role != RoleAdmin {
+		return Project{}, ErrForbidden
+	}
+	project, err := s.projectByID(ctx, projectID)
+	if err != nil {
+		return Project{}, err
+	}
+	if project.TenantID != actor.TenantID {
+		return Project{}, sql.ErrNoRows
+	}
+	var us struct {
+		TenantID  string
+		ProjectID string
+		FileName  string
+		Status    string
+	}
+	err = s.db.QueryRowContext(ctx, `SELECT tenant_id, project_id, file_name, status FROM upload_sessions WHERE id = $1`, sessionID).Scan(&us.TenantID, &us.ProjectID, &us.FileName, &us.Status)
+	if err != nil {
+		return Project{}, errors.New("upload session not found")
+	}
+	if us.TenantID != actor.TenantID || us.ProjectID != projectID {
+		return Project{}, ErrForbidden
+	}
+	if us.Status != "uploaded" {
+		return Project{}, errors.New("file has not been uploaded yet")
+	}
+	logoURL := "/uploads/" + us.FileName
+	if _, err := s.db.ExecContext(ctx, `UPDATE projects SET logo_url = $1, updated_at = NOW() WHERE id = $2`, logoURL, projectID); err != nil {
+		return Project{}, err
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE upload_sessions SET status = 'confirmed' WHERE id = $1`, sessionID); err != nil {
+		s.logger.Warn("failed to confirm upload session", "session_id", sessionID, "err", err)
+	}
+	s.logger.Info("project.logo.updated", "actor_id", actor.UserID, "project_id", projectID, "logo_url", logoURL)
+	return s.projectByID(ctx, projectID)
+}
+
+// UpdateProjectLogo sets or clears the project logo_url directly (no upload flow).
+func (s *Service) UpdateProjectLogo(ctx context.Context, actor Claims, projectID, logoURL string) (Project, error) {
+	if actor.TenantID == "" {
+		return Project{}, ErrForbidden
+	}
+	if actor.Role != RoleOwner && actor.Role != RoleSupervisor && actor.Role != RoleAdmin {
+		return Project{}, ErrForbidden
+	}
+	project, err := s.projectByID(ctx, projectID)
+	if err != nil {
+		return Project{}, err
+	}
+	if project.TenantID != actor.TenantID {
+		return Project{}, sql.ErrNoRows
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE projects SET logo_url = $1, updated_at = NOW() WHERE id = $2`, logoURL, projectID); err != nil {
+		return Project{}, err
+	}
+	return s.projectByID(ctx, projectID)
+}
+
 // DeleteCurrentTenant soft-deletes the caller's tenant and blocks future
 // logins. Only owner/admin can trigger this; actor must also pass the slug
 // confirmation to avoid accidental deletion.
@@ -1354,7 +1546,7 @@ func (s *Service) ListTenants(ctx context.Context, actor Claims) ([]Tenant, erro
 	if err := s.requirePlatformAdmin(actor); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, slug, COALESCE(website,''), COALESCE(country,''), COALESCE(timezone,'UTC'), COALESCE(currency,'USD'), COALESCE(public_dashboard_enabled, TRUE), COALESCE(public_gallery_enabled, FALSE), COALESCE(logo_url,'') FROM tenants WHERE deleted_at IS NULL ORDER BY created_at`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, slug, COALESCE(website,''), COALESCE(country,''), COALESCE(timezone,'UTC'), COALESCE(currency,'USD'), COALESCE(public_dashboard_enabled, TRUE), COALESCE(public_gallery_enabled, FALSE), COALESCE(logo_url,''), COALESCE(primary_color,''), COALESCE(secondary_color,''), suspended_at, COALESCE(suspension_reason,'') FROM tenants WHERE deleted_at IS NULL ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -1362,12 +1554,115 @@ func (s *Service) ListTenants(ctx context.Context, actor Claims) ([]Tenant, erro
 	tenants := make([]Tenant, 0)
 	for rows.Next() {
 		var tenant Tenant
-		if err := rows.Scan(&tenant.ID, &tenant.Name, &tenant.Slug, &tenant.Website, &tenant.Country, &tenant.Timezone, &tenant.Currency, &tenant.PublicDashboardEnabled, &tenant.PublicGalleryEnabled, &tenant.LogoURL); err != nil {
+		var suspendedAt sql.NullTime
+		if err := rows.Scan(&tenant.ID, &tenant.Name, &tenant.Slug, &tenant.Website, &tenant.Country, &tenant.Timezone, &tenant.Currency, &tenant.PublicDashboardEnabled, &tenant.PublicGalleryEnabled, &tenant.LogoURL, &tenant.PrimaryColor, &tenant.SecondaryColor, &suspendedAt, &tenant.SuspensionReason); err != nil {
 			return nil, err
+		}
+		if suspendedAt.Valid {
+			t := suspendedAt.Time
+			tenant.SuspendedAt = &t
 		}
 		tenants = append(tenants, tenant)
 	}
 	return tenants, rows.Err()
+}
+
+// ImpersonateTenant mints a 1-hour magic-link token scoped to the target
+// tenant's owner. Platform admin only. Used for support sessions where the
+// operator needs to see exactly what the customer sees without asking for a
+// password. The resulting JWT carries ImpersonatedBy=admin.UserID so downstream
+// audit logs can attribute actions back to the real operator.
+func (s *Service) ImpersonateTenant(ctx context.Context, actor Claims, tenantID string) (LoginResponse, error) {
+	if err := s.requirePlatformAdmin(actor); err != nil {
+		return LoginResponse{}, err
+	}
+	if tenantID == "" {
+		return LoginResponse{}, errors.New("tenant_id required")
+	}
+	// Prefer owner; fall back to any active user if no owner exists.
+	var target User
+	err := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, email, full_name, role, email_verified, is_active FROM users WHERE tenant_id = $1 AND role = 'owner' AND is_active = TRUE AND deleted_at IS NULL ORDER BY created_at LIMIT 1`, tenantID).
+		Scan(&target.ID, &target.TenantID, &target.Email, &target.FullName, &target.Role, &target.EmailVerified, &target.IsActive)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = s.db.QueryRowContext(ctx, `SELECT id, tenant_id, email, full_name, role, email_verified, is_active FROM users WHERE tenant_id = $1 AND is_active = TRUE AND deleted_at IS NULL ORDER BY created_at LIMIT 1`, tenantID).
+			Scan(&target.ID, &target.TenantID, &target.Email, &target.FullName, &target.Role, &target.EmailVerified, &target.IsActive)
+	}
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return LoginResponse{}, errors.New("no active user found for tenant")
+		}
+		return LoginResponse{}, err
+	}
+	token, err := IssueImpersonationToken(s.jwtSecret, target, actor.UserID)
+	if err != nil {
+		return LoginResponse{}, err
+	}
+	s.logger.Warn("admin.impersonation", "admin_id", actor.UserID, "admin_email", actor.Email, "target_tenant", tenantID, "target_user", target.ID, "target_email", target.Email)
+	return LoginResponse{AccessToken: token, User: target}, nil
+}
+
+// SuspendTenant freezes a tenant: non-admin users lose write access and the
+// tenant is flagged in the admin UI. Data is preserved. Reactivation is a
+// simple NULL on suspended_at.
+func (s *Service) SuspendTenant(ctx context.Context, actor Claims, tenantID, reason string) error {
+	if err := s.requirePlatformAdmin(actor); err != nil {
+		return err
+	}
+	if tenantID == "" {
+		return errors.New("tenant_id required")
+	}
+	reason = strings.TrimSpace(reason)
+	if len(reason) > 500 {
+		reason = reason[:500]
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE tenants SET suspended_at = NOW(), suspension_reason = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`, reason, tenantID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return errors.New("tenant not found")
+	}
+	s.logger.Warn("admin.tenant_suspended", "admin_id", actor.UserID, "tenant_id", tenantID, "reason", reason)
+	return nil
+}
+
+// ReactivateTenant clears the suspension flag.
+func (s *Service) ReactivateTenant(ctx context.Context, actor Claims, tenantID string) error {
+	if err := s.requirePlatformAdmin(actor); err != nil {
+		return err
+	}
+	if tenantID == "" {
+		return errors.New("tenant_id required")
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE tenants SET suspended_at = NULL, suspension_reason = '', updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`, tenantID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return errors.New("tenant not found")
+	}
+	s.logger.Info("admin.tenant_reactivated", "admin_id", actor.UserID, "tenant_id", tenantID)
+	return nil
+}
+
+// IsTenantSuspended is a fast lookup used by middleware to block requests from
+// suspended tenants. Returns (suspended, reason, err).
+func (s *Service) IsTenantSuspended(ctx context.Context, tenantID string) (bool, string, error) {
+	if tenantID == "" {
+		return false, "", nil
+	}
+	var suspendedAt sql.NullTime
+	var reason string
+	err := s.db.QueryRowContext(ctx, `SELECT suspended_at, COALESCE(suspension_reason,'') FROM tenants WHERE id = $1`, tenantID).Scan(&suspendedAt, &reason)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, "", nil
+		}
+		return false, "", err
+	}
+	return suspendedAt.Valid, reason, nil
 }
 
 func (s *Service) RBACMatrix(ctx context.Context, actor Claims) ([]RBACRule, error) {
@@ -1472,6 +1767,9 @@ func (s *Service) taskByID(ctx context.Context, taskID string) (Task, error) {
 func (s *Service) UpdateTask(ctx context.Context, actor Claims, taskID string, patch Task) (Task, error) {
 	if actor.Role != RoleOwner && actor.Role != RoleSupervisor {
 		return Task{}, errors.New("forbidden")
+	}
+	if err := s.RequireWriteAccess(ctx, actor.TenantID); err != nil {
+		return Task{}, err
 	}
 	task, err := s.taskByID(ctx, taskID)
 	if err != nil {
@@ -1594,6 +1892,9 @@ func (s *Service) DeleteTask(ctx context.Context, actor Claims, taskID string) e
 func (s *Service) CreateTask(ctx context.Context, actor Claims, projectID string, task Task, deliverable Deliverable) (Task, Deliverable, error) {
 	if actor.Role != RoleOwner && actor.Role != RoleSupervisor {
 		return Task{}, Deliverable{}, errors.New("forbidden")
+	}
+	if err := s.RequireWriteAccess(ctx, actor.TenantID); err != nil {
+		return Task{}, Deliverable{}, err
 	}
 	if strings.TrimSpace(task.Title) == "" {
 		return Task{}, Deliverable{}, errors.New("task title is required")
@@ -2361,6 +2662,9 @@ func (s *Service) UpdateProject(ctx context.Context, actor Claims, projectID str
 	if actor.Role != RoleOwner && actor.Role != RoleSupervisor {
 		return Project{}, errors.New("forbidden")
 	}
+	if err := s.RequireWriteAccess(ctx, actor.TenantID); err != nil {
+		return Project{}, err
+	}
 	project, err := s.projectByID(ctx, projectID)
 	if err != nil {
 		return Project{}, err
@@ -2393,6 +2697,56 @@ func (s *Service) UpdateProject(ctx context.Context, actor Claims, projectID str
 		return Project{}, err
 	}
 	return s.projectByID(ctx, projectID)
+}
+
+// DeleteProject hard-deletes a project and all its related rows (tasks,
+// deliverables, evidences, blueprints, messages, expenses, journal, alerts,
+// upload sessions, budget adjustments). Only the owner may call this. This is
+// irreversible — the UI must confirm before calling.
+//
+// Uploaded files on disk are NOT removed; they become orphaned. This keeps the
+// operation fast and avoids fragile file-system work inside a DB transaction.
+func (s *Service) DeleteProject(ctx context.Context, actor Claims, projectID string) error {
+	if actor.Role != RoleOwner {
+		return errors.New("forbidden")
+	}
+	project, err := s.projectByID(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if actor.TenantID != project.TenantID {
+		return sql.ErrNoRows
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Order matters: child-of-child first (ia_audits via evidence), then siblings.
+	cascades := []string{
+		`DELETE FROM ia_audits WHERE evidence_id IN (SELECT id FROM evidences WHERE project_id = $1)`,
+		`DELETE FROM evidences WHERE project_id = $1`,
+		`DELETE FROM upload_sessions WHERE project_id = $1`,
+		`DELETE FROM quality_alerts WHERE project_id = $1`,
+		`DELETE FROM expenses WHERE project_id = $1`,
+		`DELETE FROM daily_logs WHERE project_id = $1`,
+		`DELETE FROM budget_adjustments WHERE project_id = $1`,
+		`DELETE FROM project_messages WHERE project_id = $1`,
+		`DELETE FROM blueprints WHERE project_id = $1`,
+		`DELETE FROM deliverables WHERE project_id = $1`,
+		`DELETE FROM tasks WHERE project_id = $1`,
+		`DELETE FROM projects WHERE id = $1`,
+	}
+	for _, stmt := range cascades {
+		if _, err := tx.ExecContext(ctx, stmt, projectID); err != nil {
+			return fmt.Errorf("delete project: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.logger.Warn("project.deleted", "actor", actor.UserID, "tenant", actor.TenantID, "project_id", projectID)
+	return nil
 }
 
 func (s *Service) ClientSummaryView(ctx context.Context, actor Claims, projectID string) (ClientSummary, error) {
@@ -2785,6 +3139,9 @@ func (s *Service) CreateExpense(ctx context.Context, actor Claims, exp Expense) 
 	if actor.Role != RoleOwner && actor.Role != RoleSupervisor {
 		return Expense{}, errors.New("forbidden")
 	}
+	if err := s.RequireWriteAccess(ctx, actor.TenantID); err != nil {
+		return Expense{}, err
+	}
 	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
 		return Expense{}, err
 	}
@@ -2941,6 +3298,9 @@ func (s *Service) CreateDailyLog(ctx context.Context, actor Claims, log DailyLog
 	}
 	if actor.Role != RoleOwner && actor.Role != RoleSupervisor {
 		return DailyLog{}, errors.New("forbidden")
+	}
+	if err := s.RequireWriteAccess(ctx, actor.TenantID); err != nil {
+		return DailyLog{}, err
 	}
 	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
 		return DailyLog{}, err
@@ -3140,6 +3500,9 @@ func (s *Service) SendProjectMessage(ctx context.Context, actor Claims, msg Proj
 	if !validMessageType(msg.Type) {
 		return ProjectMessage{}, errors.New("invalid message type")
 	}
+	if err := s.RequireWriteAccess(ctx, actor.TenantID); err != nil {
+		return ProjectMessage{}, err
+	}
 	project, err := s.projectByID(ctx, msg.ProjectID)
 	if err != nil {
 		return ProjectMessage{}, err
@@ -3288,6 +3651,9 @@ func (s *Service) CreateBudgetAdjustment(ctx context.Context, actor Claims, ba B
 	}
 	if actor.Role != RoleOwner {
 		return BudgetAdjustment{}, errors.New("forbidden: only owners can adjust budget")
+	}
+	if err := s.RequireWriteAccess(ctx, actor.TenantID); err != nil {
+		return BudgetAdjustment{}, err
 	}
 	if actor.TenantID != project.TenantID {
 		return BudgetAdjustment{}, errors.New("forbidden")

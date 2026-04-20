@@ -35,6 +35,11 @@ func (c *Client) Enabled() bool {
 	return c != nil && c.secretKey != ""
 }
 
+// WebhookConfigured reports whether a shared webhook secret is set.
+func (c *Client) WebhookConfigured() bool {
+	return c != nil && c.webhookSecret != ""
+}
+
 // CreateCustomer creates a Stripe customer linked to a tenant via metadata.
 func (c *Client) CreateCustomer(email, name, tenantID string) (*stripe.Customer, error) {
 	if !c.Enabled() {

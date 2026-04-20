@@ -19,6 +19,7 @@ type Project = {
   geofence_radius_m: number;
   supervisor_user_id?: string;
   client_user_id?: string;
+  logo_url?: string;
 };
 
 type User = { id: string; full_name: string; email: string; role: string };
@@ -31,6 +32,7 @@ type SettingsProjectModalProps = {
   clients?: User[];
   token?: string;
   onSaved?: (updated: Project) => void;
+  onDeleted?: (projectId: string) => void;
 };
 
 const tabs = [
@@ -59,11 +61,15 @@ export function SettingsProjectModal({
   clients = [],
   token,
   onSaved,
+  onDeleted,
 }: SettingsProjectModalProps) {
   const [activeTab, setActiveTab] = useState("general");
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<Project | null>(null);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [logoUploading, setLogoUploading] = useState(false);
 
   // Reset form when project changes
   useEffect(() => {
@@ -114,6 +120,100 @@ export function SettingsProjectModal({
     }
   }
 
+  async function handleDelete() {
+    if (!form) return;
+    if (deleteConfirmName.trim() !== form.name.trim()) {
+      toast.error("Project name does not match.");
+      return;
+    }
+    setDeleteOpen(false);
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/v1/projects/${form.id}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+      toast.success("Proyecto eliminado permanentemente.");
+      onDeleted?.(form.id);
+      setDeleteConfirmName("");
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo eliminar el proyecto.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleLogoUpload(file: File) {
+    if (!form) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Logo debe ser menor a 5 MB.");
+      return;
+    }
+    setLogoUploading(true);
+    try {
+      const urlRes = await fetch(`/api/v1/projects/${form.id}/logo/upload-url`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ file_name: file.name, content_type: file.type, file_size_bytes: file.size }),
+      });
+      const urlData = await urlRes.json().catch(() => ({}));
+      if (!urlRes.ok) throw new Error(urlData?.error ?? `HTTP ${urlRes.status}`);
+      const putRes = await fetch(urlData.upload_url, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!putRes.ok) throw new Error(`Upload failed HTTP ${putRes.status}`);
+      const confirmRes = await fetch(`/api/v1/projects/${form.id}/logo/confirm`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ upload_session_id: urlData.id }),
+      });
+      const confirmData = await confirmRes.json().catch(() => ({}));
+      if (!confirmRes.ok) throw new Error(confirmData?.error ?? `HTTP ${confirmRes.status}`);
+      setForm((prev) => prev ? { ...prev, logo_url: confirmData.logo_url } : prev);
+      onSaved?.(confirmData as Project);
+      toast.success("Logo del proyecto actualizado.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo subir el logo.");
+    } finally {
+      setLogoUploading(false);
+    }
+  }
+
+  async function handleLogoRemove() {
+    if (!form) return;
+    setLogoUploading(true);
+    try {
+      const res = await fetch(`/api/v1/projects/${form.id}/logo`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ logo_url: "" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+      setForm((prev) => prev ? { ...prev, logo_url: "" } : prev);
+      onSaved?.(data as Project);
+      toast.success("Logo removido.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo remover el logo.");
+    } finally {
+      setLogoUploading(false);
+    }
+  }
+
   async function handleArchive() {
     if (!form) return;
     setArchiveOpen(false);
@@ -150,6 +250,66 @@ export function SettingsProjectModal({
         onConfirm={() => void handleArchive()}
         onCancel={() => setArchiveOpen(false)}
       />
+      {deleteOpen && form && (
+        <div
+          className="modal-overlay"
+          style={{ zIndex: 70 }}
+          onClick={(e) => e.target === e.currentTarget && setDeleteOpen(false)}
+        >
+          <div className="modal-sheet" style={{ maxWidth: 440 }}>
+            <div className="modal-body space-y-4">
+              <div className="flex items-start gap-3">
+                <div
+                  className="flex h-10 w-10 items-center justify-center rounded-xl flex-shrink-0"
+                  style={{ background: "#dc2626" }}
+                >
+                  <AlertTriangle size={18} className="text-white" />
+                </div>
+                <div>
+                  <div className="text-base font-bold" style={{ color: "var(--text-primary)" }}>
+                    Delete "{form.name}" permanently?
+                  </div>
+                  <div className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                    This will remove the project and ALL related tasks, deliverables, evidences, blueprints, expenses, logs, and messages. This cannot be undone.
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold block" style={{ color: "var(--text-secondary)" }}>
+                  Type <span style={{ color: "#dc2626" }}>{form.name}</span> to confirm:
+                </label>
+                <input
+                  autoFocus
+                  type="text"
+                  className="form-input"
+                  value={deleteConfirmName}
+                  onChange={(e) => setDeleteConfirmName(e.target.value)}
+                  placeholder={form.name}
+                />
+              </div>
+              <div className="flex justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => { setDeleteOpen(false); setDeleteConfirmName(""); }}
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="text-xs font-semibold py-2 px-4 rounded-xl transition-colors disabled:opacity-40"
+                  style={{ background: "#dc2626", color: "white" }}
+                  disabled={saving || deleteConfirmName.trim() !== form.name.trim()}
+                  onClick={() => void handleDelete()}
+                >
+                  {saving ? <><Loader2 size={14} className="animate-spin inline mr-1" />Deleting...</> : "Delete permanently"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="modal-sheet" style={{ maxWidth: 580 }}>
         {/* Header */}
         <div className="modal-header">
@@ -201,6 +361,57 @@ export function SettingsProjectModal({
         <div className="modal-body">
           {activeTab === "general" && (
             <div className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold mb-1.5 block" style={{ color: "var(--text-secondary)" }}>
+                  Project logo
+                </label>
+                <div className="flex items-center gap-3">
+                  {form.logo_url ? (
+                    <img
+                      src={form.logo_url}
+                      alt="Project logo"
+                      className="h-14 w-14 rounded-xl object-cover border border-white/10"
+                    />
+                  ) : (
+                    <div
+                      className="flex h-14 w-14 items-center justify-center rounded-xl flex-shrink-0"
+                      style={{ background: "linear-gradient(135deg, #10b981, #059669)" }}
+                    >
+                      <FolderKanban size={22} className="text-white" />
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <label className="btn-secondary cursor-pointer">
+                      {logoUploading ? (
+                        <><Loader2 size={14} className="animate-spin inline mr-1" />Subiendo...</>
+                      ) : (
+                        form.logo_url ? "Cambiar logo" : "Subir logo"
+                      )}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                        className="hidden"
+                        disabled={logoUploading}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) void handleLogoUpload(f);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    {form.logo_url && (
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={logoUploading}
+                        onClick={() => void handleLogoRemove()}
+                      >
+                        Quitar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
               <Field label="Project name" value={form.name} onChange={(v) => set("name", v)} />
               <Field label="Description" value={form.description} onChange={(v) => set("description", v)} multiline />
               <div className="grid grid-cols-2 gap-3">
@@ -358,15 +569,24 @@ export function SettingsProjectModal({
 
         <div className="modal-footer flex-col" style={{ gap: 0 }}>
           {/* Danger zone */}
-          <div className="w-full mb-3">
+          <div className="w-full mb-3 grid grid-cols-2 gap-2">
             <button
               type="button"
               disabled={saving}
               onClick={() => setArchiveOpen(true)}
-              className="w-full text-xs font-semibold py-2 rounded-xl transition-colors disabled:opacity-40"
+              className="text-xs font-semibold py-2 rounded-xl transition-colors disabled:opacity-40"
               style={{ background: "var(--red-light)", color: "var(--red-strong)", border: "1px solid rgba(220,38,38,0.15)" }}
             >
-               Archive project
+              Archive project
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => { setDeleteConfirmName(""); setDeleteOpen(true); }}
+              className="text-xs font-semibold py-2 rounded-xl transition-colors disabled:opacity-40"
+              style={{ background: "#dc2626", color: "white", border: "1px solid rgba(220,38,38,0.4)" }}
+            >
+              Delete permanently
             </button>
           </div>
           <div className="flex justify-end gap-2.5 w-full">

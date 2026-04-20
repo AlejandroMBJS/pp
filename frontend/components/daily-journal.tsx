@@ -4,6 +4,7 @@ import React, { FormEvent, useEffect, useMemo, useState } from "react";
 import { AlertCircle, AlertTriangle, CheckCircle, Cloud, CloudSun, History, Pencil, Plus, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "./ui/confirm-dialog";
+import { Toolbar, SearchInput, DateRangeInputs } from "./ui/toolbar";
 
 type DailyLog = {
   id: string;
@@ -44,6 +45,22 @@ export function DailyJournal({ project, session }: { project: Project; session: 
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [logSearch, setLogSearch] = useState("");
+  const [logFrom, setLogFrom] = useState("");
+  const [logTo, setLogTo] = useState("");
+
+  const filteredLogs = useMemo(() => {
+    const q = logSearch.trim().toLowerCase();
+    return logs.filter((log) => {
+      if (logFrom && log.date < logFrom) return false;
+      if (logTo && log.date > logTo) return false;
+      if (q) {
+        const hay = `${log.narrative} ${log.accidents}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [logs, logSearch, logFrom, logTo]);
 
   useEffect(() => {
     void fetchLogs();
@@ -299,9 +316,25 @@ export function DailyJournal({ project, session }: { project: Project; session: 
         </form>
       )}
 
+      {logs.length > 0 && (
+        <Toolbar>
+          <SearchInput
+            value={logSearch}
+            onChange={setLogSearch}
+            placeholder="Search narrative or issues…"
+          />
+          <DateRangeInputs
+            from={logFrom}
+            to={logTo}
+            onFromChange={setLogFrom}
+            onToChange={setLogTo}
+          />
+        </Toolbar>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
         <div className="lg:col-span-3 space-y-4">
-          {logs.map((log) => (
+          {filteredLogs.map((log) => (
             <div key={log.id} className="glass-card p-6 border-white/5 bg-white/[0.02] relative group overflow-hidden">
               <div className="absolute top-0 right-0 p-6 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
                 <button
@@ -385,6 +418,19 @@ export function DailyJournal({ project, session }: { project: Project; session: 
             <div className="py-24 text-center glass-card border-dashed border-white/10">
               <History className="mx-auto text-white/10 mb-4" size={48} />
               <div className="text-sm font-bold text-white/20 uppercase tracking-[0.2em]">No log history yet</div>
+            </div>
+          )}
+
+          {logs.length > 0 && filteredLogs.length === 0 && !loading && (
+            <div className="py-12 text-center glass-card border-dashed border-white/10">
+              <div className="text-sm font-bold text-white/30 uppercase tracking-[0.2em]">No entries match the filters</div>
+              <button
+                type="button"
+                onClick={() => { setLogSearch(""); setLogFrom(""); setLogTo(""); }}
+                className="mt-3 text-[10px] font-black uppercase tracking-widest text-blue-400 hover:text-blue-300"
+              >
+                Clear filters
+              </button>
             </div>
           )}
         </div>

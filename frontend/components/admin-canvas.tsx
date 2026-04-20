@@ -101,13 +101,15 @@ export function AdminCanvas({ activeView, tenants, rbac, token, onRefresh }: Adm
           },
           body: JSON.stringify({ ...rule, effect: nextEffect }),
         });
-        if (res.ok) {
-          toast.success("Regla RBAC actualizada.");
-          onRefresh?.();
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error ?? `HTTP ${res.status}`);
         }
+        toast.success("Regla RBAC actualizada.");
+        onRefresh?.();
       } catch (e) {
         console.error(e);
-        toast.error("No se pudo actualizar la regla RBAC.");
+        toast.error(e instanceof Error ? e.message : "No se pudo actualizar la regla RBAC.");
       } finally {
         setUpdating(null);
       }

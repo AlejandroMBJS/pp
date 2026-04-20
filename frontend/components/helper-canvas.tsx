@@ -6,7 +6,7 @@ import { Upload, ImageIcon, X } from "lucide-react";
 import { EmptyState } from "./ui/empty-state";
 import { ListRow } from "./ui/list-row";
 
-type Task = { id: string; title: string; status: string; end_date: string; progress_percent: number; description: string };
+type Task = { id: string; title: string; status: string; end_date: string; progress_percent: number; description: string; comparison_photo_url?: string };
 type Evidence = { id: string; file_name: string; status: string; quality_score: number };
 
 type HelperCanvasProps = {
@@ -120,43 +120,67 @@ export function HelperCanvas({
 
 
             <form onSubmit={onUpload} className="space-y-6">
-              {/* Preview or dropzone */}
-              {previewUrl ? (
-                <div className="relative group animate-scale-in">
-                  <div className="aspect-video rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl">
-                    <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+              {(() => {
+                const hasReference = !!currentTask?.comparison_photo_url;
+                const captureBlock = previewUrl ? (
+                  <div className="relative group animate-scale-in">
+                    <div className="aspect-video rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl">
+                      <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                    </div>
+                    <button
+                      type="button"
+                      className="absolute top-4 right-4 flex h-10 w-10 items-center justify-center rounded-2xl bg-black/60 backdrop-blur-md border border-white/20 text-white hover:bg-red-500/80 transition-all transform hover:rotate-90 active:scale-90"
+                      onClick={clearFile}
+                      aria-label="Remove image"
+                    >
+                      <X size={20} />
+                    </button>
+                    <div className="absolute bottom-4 left-4 right-4 bg-black/40 backdrop-blur-lg border border-white/10 rounded-xl px-4 py-2 flex items-center gap-3">
+                      <div className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
+                      <span className="text-xs text-white/80 font-mono truncate">{fileName}</span>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    className="absolute top-4 right-4 flex h-10 w-10 items-center justify-center rounded-2xl bg-black/60 backdrop-blur-md border border-white/20 text-white hover:bg-red-500/80 transition-all transform hover:rotate-90 active:scale-90"
-                    onClick={clearFile}
-                    aria-label="Remove image"
-                  >
-                    <X size={20} />
-                  </button>
-                  <div className="absolute bottom-4 left-4 right-4 bg-black/40 backdrop-blur-lg border border-white/10 rounded-xl px-4 py-2 flex items-center gap-3">
-                    <div className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
-                    <span className="text-xs text-white/80 font-mono truncate">{fileName}</span>
+                ) : (
+                  <label className="flex aspect-video cursor-pointer flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-white/10 bg-white/5 p-6 text-center transition-all hover:bg-white/10 hover:border-blue-500/50 group relative overflow-hidden">
+                    <div className="absolute inset-0 bg-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
+                    />
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-500/10 text-blue-400 group-hover:scale-110 group-hover:rotate-3 transition-transform duration-500">
+                      <Upload size={28} />
+                    </div>
+                    <div>
+                      <p className="text-base font-bold text-white tracking-tight">Capture Evidence</p>
+                      <p className="mt-1 text-xs text-white/40 font-medium">JPG, PNG, HEIC · Max 50MB</p>
+                    </div>
+                  </label>
+                );
+                if (!hasReference) return captureBlock;
+                return (
+                  <div className={`grid gap-4 ${isMobile ? "grid-cols-1" : "grid-cols-2"}`}>
+                    <div className="space-y-2">
+                      <div className="text-[10px] text-blue-400/80 font-black uppercase tracking-widest">Reference</div>
+                      <div className="aspect-video rounded-2xl overflow-hidden border-2 border-white/10 bg-white/5">
+                        <img
+                          src={currentTask!.comparison_photo_url}
+                          alt="Reference render"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <p className="text-[11px] text-white/40 leading-snug">
+                        Match this reference: framing, angle and lighting should resemble it.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="text-[10px] text-green-400/80 font-black uppercase tracking-widest">Your capture</div>
+                      {captureBlock}
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <label className="flex min-h-[220px] cursor-pointer flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-white/10 bg-white/5 p-8 text-center transition-all hover:bg-white/10 hover:border-blue-500/50 group relative overflow-hidden">
-                  <div className="absolute inset-0 bg-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
-                  />
-                  <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-500/10 text-blue-400 group-hover:scale-110 group-hover:rotate-3 transition-transform duration-500">
-                    <Upload size={32} />
-                  </div>
-                  <div>
-                     <p className="text-lg font-bold text-white tracking-tight">Capture Evidence</p>
-                     <p className="mt-1 text-sm text-white/40 font-medium">JPG, PNG, HEIC · Max 50MB</p>
-                  </div>
-                </label>
-              )}
+                );
+              })()}
 
               <button
                 className="btn-glass w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-black text-lg shadow-xl shadow-blue-500/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-[0.98] flex items-center justify-center gap-3"

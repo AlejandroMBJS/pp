@@ -66,6 +66,8 @@ type TenantInfo = {
   name: string;
   slug: string;
   logo_url: string;
+  primary_color?: string;
+  secondary_color?: string;
 };
 
 type Task = {
@@ -255,6 +257,7 @@ async function api<T = unknown>(
   if (response.status === 401) {
     // Token expired — clear session
     if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem(storageKey);
       window.localStorage.removeItem(storageKey);
       window.localStorage.removeItem(legacyStorageKey);
       window.location.reload();
@@ -409,7 +412,21 @@ export function ControlCenter() {
 
   // ── Computed ──────────────────────────────────────────────────────────────
 
-  const supervisors = useMemo(() => users.filter((u) => u.role === "supervisor"), [users]);
+  // Supervisors the owner can assign to a project. A solo owner should be able
+  // to assign themselves, so we include the current user (if they're owner)
+  // as the first option with a clear "(you)" label.
+  const supervisors = useMemo(() => {
+    const actual = users.filter((u) => u.role === "supervisor");
+    if (session?.user.role === "owner") {
+      const me = users.find((u) => u.id === session.user.id);
+      if (me) {
+        const meAsSupervisor = { ...me, full_name: `${me.full_name || me.email} (you)` };
+        // De-dupe in case the owner has also been given the supervisor role.
+        return [meAsSupervisor, ...actual.filter((u) => u.id !== me.id)];
+      }
+    }
+    return actual;
+  }, [users, session?.user.role, session?.user.id]);
   const helpers = useMemo(() => users.filter((u) => u.role === "helper"), [users]);
   const clients = useMemo(() => users.filter((u) => u.role === "client"), [users]);
   const currentProject = useMemo(
@@ -458,25 +475,33 @@ export function ControlCenter() {
     setResetToken(resetParam);
     // If the URL carries an invite or reset token, skip restoring any stale
     // session — the user must complete the flow before landing on the dashboard.
+    const impRaw = window.sessionStorage.getItem(storageKey);
     const raw = inviteParam || resetParam
       ? null
-      : window.localStorage.getItem(storageKey) ?? window.localStorage.getItem(legacyStorageKey);
+      : impRaw
+        ?? window.localStorage.getItem(storageKey)
+        ?? window.localStorage.getItem(legacyStorageKey);
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
         // Check JWT expiry before restoring session
         const payload = JSON.parse(atob(parsed.access_token.split(".")[1]));
         if (payload.exp && payload.exp * 1000 < Date.now()) {
+          window.sessionStorage.removeItem(storageKey);
           window.localStorage.removeItem(storageKey);
           window.localStorage.removeItem(legacyStorageKey);
           toast.info("Tu sesión ha expirado. Por favor inicia sesión nuevamente.");
         } else {
           setSession(parsed);
-          window.localStorage.setItem(storageKey, raw);
-          window.localStorage.removeItem(legacyStorageKey);
+          if (!impRaw) {
+            // Normal session → normalize into localStorage and clear legacy key.
+            window.localStorage.setItem(storageKey, raw);
+            window.localStorage.removeItem(legacyStorageKey);
+          }
         }
       } catch {
         // Corrupted session data — clear it
+        window.sessionStorage.removeItem(storageKey);
         window.localStorage.removeItem(storageKey);
         window.localStorage.removeItem(legacyStorageKey);
       }
@@ -580,7 +605,7 @@ export function ControlCenter() {
     // Fetch tenant branding for all authenticated roles
     api<TenantInfo>("/api/v1/tenants/current", { token })
       .then(setCurrentTenant)
-      .catch(() => {});
+      .catch((err) => console.error("tenant branding fetch failed", err));
 
     if (role === "owner") {
       const [dashboardData, userData, projectData] = await Promise.all([
@@ -1043,8 +1068,14 @@ export function ControlCenter() {
     return `/api/v1/files/${evidence.id}`;
   }
 
-  async function handleTaskEditSave(taskId: string, data: Partial<Task>, comparisonFile?: File | null) {
+  async function handleTaskEditSave(taskId: string, data: Partial<Task> & { project_id?: string }, comparisonFile?: File | null) {
     if (!session) return;
+    const targetProjectId = data.project_id || selectedProjectId;
+    if (!taskId && !targetProjectId) {
+      toast.error("Select a project for this task.");
+      return;
+    }
+    const { project_id: _pid, ...taskFields } = data;
     setLoading(true);
     try {
       let savedTaskId = taskId;
@@ -1052,25 +1083,25 @@ export function ControlCenter() {
         await api(`/api/v1/tasks/${taskId}`, {
           method: "PATCH",
           token: session.access_token,
-          body: data,
+          body: taskFields,
         });
         toast.success("Task updated successfully.");
       } else {
         // Map data to the format handleCreateTask expects
-        const result = await api<{ task: Task }>(`/api/v1/projects/${selectedProjectId}/tasks`, {
+        const result = await api<{ task: Task }>(`/api/v1/projects/${targetProjectId}/tasks`, {
           method: "POST",
           token: session.access_token,
           body: {
             task: {
-              ...data,
-              budget_cents: Number(data.budget_cents),
-              spent_cents: Number(data.spent_cents),
-              progress_percent: Number(data.progress_percent),
+              ...taskFields,
+              budget_cents: Number(taskFields.budget_cents),
+              spent_cents: Number(taskFields.spent_cents),
+              progress_percent: Number(taskFields.progress_percent),
             },
             deliverable: {
-              title: data.title,
-              description: data.description,
-              due_date: data.end_date,
+              title: taskFields.title,
+              description: taskFields.description,
+              due_date: taskFields.end_date,
               status: "pending",
               client_visible: true,
             }
@@ -1084,7 +1115,7 @@ export function ControlCenter() {
       if (comparisonFile && savedTaskId) {
         const toastId = toast.loading("Subiendo foto de comparación...");
         try {
-          const photoUrl = await uploadComparisonPhoto(comparisonFile, selectedProjectId);
+          const photoUrl = await uploadComparisonPhoto(comparisonFile, targetProjectId);
           await api(`/api/v1/tasks/${savedTaskId}`, {
             method: "PATCH",
             token: session.access_token,
@@ -1097,6 +1128,22 @@ export function ControlCenter() {
           toast.error("Error subiendo foto de comparación: " + messageOf(err));
         }
       }
+      // Refresh: switch to the target project (if different), reload its tasks,
+      // and refresh the projects list so task counts on cards stay accurate.
+      if (targetProjectId && targetProjectId !== selectedProjectId) {
+        setSelectedProjectId(targetProjectId);
+      }
+      if (targetProjectId) {
+        await loadProjectContext(targetProjectId);
+      }
+      try {
+        const refreshed = await api<Project[]>("/api/v1/projects", { token: session.access_token });
+        setProjects(refreshed);
+      } catch {
+        // non-fatal: task counts may be stale until next navigation
+      }
+      setTaskEditOpen(false);
+      if (savedTaskId) setSelectedTaskId(savedTaskId);
     } catch (err) {
       toast.error(messageOf(err));
     } finally {
@@ -1191,6 +1238,7 @@ export function ControlCenter() {
   }
 
   function handleLogout() {
+    window.sessionStorage.removeItem(storageKey);
     window.localStorage.removeItem(storageKey);
     setSession(null);
     setProjects([]);
@@ -1442,6 +1490,12 @@ export function ControlCenter() {
             onEvidenceDecision={handleEvidenceDecision}
             highlightedDeliverableId={highlightedDeliverableId}
             onDeliverableNavigate={handleDeliverableNavigate}
+            onTaskClick={handleOpenTaskEdit}
+            onViewChange={setActiveView}
+            onNewTask={() => {
+              setSelectedTaskId("");
+              setTaskEditOpen(true);
+            }}
             loading={loading}
             isMobile={isMobile}
           />
@@ -1450,15 +1504,42 @@ export function ControlCenter() {
       // Helper views
       if (activeView === "capture" || activeView === "history") {
         if (!currentTask) {
+          const hasNoTasks = tasks.length === 0;
+          const hasNoProjects = projects.length === 0;
           return (
             <div className="flex flex-col items-center justify-center py-20 text-center animate-fadeIn">
               <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-4">
                 <ListPlus size={28} className="text-white/20" />
               </div>
-              <h2 className="text-xl font-bold text-white mb-2">No task selected</h2>
+              <h2 className="text-xl font-bold text-white mb-2">
+                {hasNoTasks ? (hasNoProjects ? "No projects yet" : "No tasks in this project") : "No task selected"}
+              </h2>
               <p className="text-sm text-white/40 max-w-sm mb-6">
-                Select a task from the sidebar to {activeView === "capture" ? "capture progress" : "view field history"}.
+                {hasNoProjects
+                  ? "Create your first project, then add tasks to it to start capturing evidence."
+                  : hasNoTasks
+                  ? "Add at least one task to this project to start capturing evidence."
+                  : `Select a task from the sidebar to ${activeView === "capture" ? "capture progress" : "view field history"}.`}
               </p>
+              {hasNoProjects ? (
+                <button
+                  type="button"
+                  onClick={() => setNewProjectModalOpen(true)}
+                  className="px-6 py-3 rounded-xl font-bold text-sm text-white transition-all"
+                  style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: "0 4px 20px rgba(59,130,246,0.3)" }}
+                >
+                  Create your first project
+                </button>
+              ) : hasNoTasks ? (
+                <button
+                  type="button"
+                  onClick={() => { setSelectedTaskId(""); setTaskEditOpen(true); }}
+                  className="px-6 py-3 rounded-xl font-bold text-sm text-white transition-all"
+                  style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: "0 4px 20px rgba(59,130,246,0.3)" }}
+                >
+                  Add a task
+                </button>
+              ) : null}
             </div>
           );
         }
@@ -1570,6 +1651,9 @@ export function ControlCenter() {
           onInviteUser={() => setInviteUserModalOpen(true)}
           users={users}
           isMobile={isMobile}
+          token={session.access_token}
+          currentUserId={session.user.id}
+          onTeamChanged={() => refreshRoleData(session)}
         />
       );
     }
@@ -1582,16 +1666,57 @@ export function ControlCenter() {
               <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-4">
                 <FolderPlus size={28} className="text-white/20" />
               </div>
-              <h2 className="text-xl font-bold text-white mb-2">No project selected</h2>
-              <p className="text-sm text-white/40 max-w-sm">
-                Select a project from the sidebar to access this view.
+              <h2 className="text-xl font-bold text-white mb-2">
+                {projects.length > 0 ? "No project selected" : "No projects assigned"}
+              </h2>
+              <p className="text-sm text-white/40 max-w-sm mb-6">
+                {projects.length > 0
+                  ? `Select a project from the sidebar to access ${activeView === "finances" ? "finance and costs" : activeView === "journal" ? "the daily log" : "messages and RFI"}.`
+                  : "You haven't been assigned to any project yet. Ask an owner to assign one, or create one yourself."}
               </p>
+              {projects.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { setSelectedProjectId(projects[0].id); }}
+                  className="px-6 py-3 rounded-xl font-bold text-sm text-white transition-all"
+                  style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: "0 4px 20px rgba(59,130,246,0.3)" }}
+                >
+                  Open "{projects[0].name}"
+                </button>
+              )}
             </div>
           );
         }
         if (activeView === "finances") return <FinancialControl project={currentProject} session={session} tasks={tasks} />;
         if (activeView === "journal") return <DailyJournal project={currentProject} session={session} />;
         if (activeView === "messages") return <MessagingHub project={currentProject} session={session} users={users} tasks={tasks} isMobile={isMobile} />;
+      }
+      if (activeView === "blueprints" && !currentProject) {
+        return (
+          <div className="flex flex-col items-center justify-center py-20 text-center animate-fadeIn">
+            <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-4">
+              <FolderPlus size={28} className="text-white/20" />
+            </div>
+            <h2 className="text-xl font-bold text-white mb-2">
+              {projects.length > 0 ? "No project selected" : "No projects assigned"}
+            </h2>
+            <p className="text-sm text-white/40 max-w-sm mb-6">
+              {projects.length > 0
+                ? "Select a project from the sidebar to view its technical files."
+                : "You haven't been assigned to any project yet."}
+            </p>
+            {projects.length > 0 && (
+              <button
+                type="button"
+                onClick={() => { setSelectedProjectId(projects[0].id); }}
+                className="px-6 py-3 rounded-xl font-bold text-sm text-white transition-all"
+                style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: "0 4px 20px rgba(59,130,246,0.3)" }}
+              >
+                Open "{projects[0].name}"
+              </button>
+            )}
+          </div>
+        );
       }
       if (activeView === "gallery") {
         return (
@@ -1638,6 +1763,19 @@ export function ControlCenter() {
     }
     
     if (role === "helper") {
+      if ((activeView === "capture" || activeView === "history") && !currentTask && tasks.length === 0) {
+        return (
+          <div className="flex flex-col items-center justify-center py-20 text-center animate-fadeIn">
+            <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-4">
+              <ListPlus size={28} className="text-white/20" />
+            </div>
+            <h2 className="text-xl font-bold text-white mb-2">No assigned tasks yet</h2>
+            <p className="text-sm text-white/40 max-w-sm mb-6">
+              Your supervisor hasn&apos;t assigned any tasks to you. Once they do, you&apos;ll be able to capture evidence here.
+            </p>
+          </div>
+        );
+      }
       return (
         <HelperCanvas
           activeView={activeView}
@@ -1647,6 +1785,7 @@ export function ControlCenter() {
           onFileChange={setUploadFile}
           onUpload={handleHelperUpload}
           loading={loading}
+          isMobile={isMobile}
         />
       );
     }
@@ -1685,10 +1824,25 @@ export function ControlCenter() {
     return null;
   };
 
+  const brandStyle = (() => {
+    const p = currentTenant?.primary_color?.trim();
+    const s = currentTenant?.secondary_color?.trim();
+    const style: Record<string, string> = {};
+    if (p) {
+      style["--brand-primary"] = p;
+      style["--accent-primary"] = p;
+    }
+    if (s) {
+      style["--brand-secondary"] = s;
+      style["--accent-secondary"] = s;
+    }
+    return style as React.CSSProperties;
+  })();
+
   return (
     <AuthTokenProvider value={session?.access_token ?? null}>
     <BillingProvider token={session?.access_token ?? null}>
-    <div className="app-shell">
+    <div className="app-shell" style={brandStyle}>
       <ConfirmDialog
         open={confirmTaskDeleteId !== null}
         title="Delete task?"
@@ -1724,8 +1878,29 @@ export function ControlCenter() {
         currentUserId={session.user.id}
         currentUserRole={session.user.role}
         token={session.access_token}
+        projects={projects.map((p) => ({
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          status: p.status,
+          start_date: p.start_date,
+          planned_end_date: p.planned_end_date,
+          supervisor_user_id: p.supervisor_user_id,
+          client_user_id: p.client_user_id,
+          latitude_center: p.latitude_center,
+          longitude_center: p.longitude_center,
+          geofence_radius_m: p.geofence_radius_m,
+        }))}
         onUsersChanged={() => refreshRoleData(session)}
         onTenantUpdated={(t) => setCurrentTenant(t)}
+        onProjectAssignmentChanged={async () => {
+          try {
+            const refreshed = await api<Project[]>("/api/v1/projects", { token: session.access_token });
+            setProjects(refreshed);
+          } catch (err) {
+            console.error("projects refresh after assignment failed", err);
+          }
+        }}
       />
       <SettingsProjectModal
         open={settingsProjectOpen}
@@ -1736,6 +1911,16 @@ export function ControlCenter() {
         token={session.access_token}
         onSaved={(updated) => {
           setProjects((prev) => prev.map((p) => p.id === updated.id ? { ...p, ...updated } : p));
+        }}
+        onDeleted={(deletedId) => {
+          setProjects((prev) => prev.filter((p) => p.id !== deletedId));
+          if (selectedProjectId === deletedId) {
+            setSelectedProjectId("");
+            setTasks([]);
+            setDeliverables([]);
+            setEvidences([]);
+            setSelectedTaskId("");
+          }
         }}
       />
       <TaskApprovalModal
@@ -1768,6 +1953,8 @@ export function ControlCenter() {
         onDelete={handleTaskDelete}
         loading={loading}
         token={session?.access_token}
+        projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+        defaultProjectId={selectedProjectId}
       />
 
       {!isMobile && (
@@ -1833,6 +2020,7 @@ export function ControlCenter() {
         supervisors={supervisors}
         clients={clients}
         loading={loading}
+        onInviteClient={() => setInviteUserModalOpen(true)}
         onSubmit={handleCreateProjectModal}
       />
       <InviteUserModal
@@ -1845,7 +2033,23 @@ export function ControlCenter() {
         <FabActions
           actions={[
             { id: "project", label: "New Project", icon: <FolderPlus size={20} className="text-white" />, color: "#3b82f6", onClick: () => setNewProjectModalOpen(true) },
-            { id: "task", label: "New Task", icon: <ListPlus size={20} className="text-white" />, color: "#10b981", onClick: () => { setSelectedTaskId(""); setTaskEditOpen(true); } },
+            {
+              id: "task",
+              label: "New Task",
+              icon: <ListPlus size={20} className="text-white" />,
+              color: "#10b981",
+              disabled: projects.length === 0,
+              disabledHint: "Create a project first",
+              onClick: () => {
+                if (projects.length === 0) {
+                  toast.error("Create a project first, then add tasks to it.");
+                  setNewProjectModalOpen(true);
+                  return;
+                }
+                setSelectedTaskId("");
+                setTaskEditOpen(true);
+              },
+            },
             { id: "invite", label: "Invite User", icon: <UserPlus size={20} className="text-white" />, color: "#8b5cf6", onClick: () => setInviteUserModalOpen(true) },
           ]}
         />

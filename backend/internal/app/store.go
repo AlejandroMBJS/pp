@@ -584,6 +584,25 @@ func (s *Service) runMigrations(ctx context.Context) error {
 		{32, "alter_projects_logo_url", `
 			ALTER TABLE projects ADD COLUMN IF NOT EXISTS logo_url TEXT NOT NULL DEFAULT ''
 		`},
+		{33, "alter_tenants_suspension", `
+			ALTER TABLE tenants
+				ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMPTZ,
+				ADD COLUMN IF NOT EXISTS suspension_reason TEXT NOT NULL DEFAULT ''
+		`},
+		{34, "uniq_subscriptions_stripe_customer", `
+			CREATE UNIQUE INDEX IF NOT EXISTS uniq_subscriptions_stripe_customer
+			ON subscriptions (stripe_customer_id)
+			WHERE stripe_customer_id <> ''
+		`},
+		{35, "alter_tenants_brand_colors", `
+			ALTER TABLE tenants
+				ADD COLUMN IF NOT EXISTS primary_color   TEXT NOT NULL DEFAULT '',
+				ADD COLUMN IF NOT EXISTS secondary_color TEXT NOT NULL DEFAULT ''
+		`},
+		{36, "alter_subscriptions_currency", `
+			ALTER TABLE subscriptions
+				ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'usd'
+		`},
 	}
 
 	for _, m := range steps {

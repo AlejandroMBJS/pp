@@ -153,10 +153,19 @@ func minFloat(a, b float64) float64 {
 }
 
 func (l *ipRateLimiter) middleware() func(http.Handler) http.Handler {
+	return l.middlewareWithKey(clientIP)
+}
+
+// middlewareWithKey lets a caller decide the bucket key (e.g. tenant ID for
+// authenticated endpoints). Falls back to client IP if the key is empty.
+func (l *ipRateLimiter) middlewareWithKey(keyFn func(*http.Request) string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := clientIP(r)
-			if !l.allow(ip) {
+			key := keyFn(r)
+			if key == "" {
+				key = clientIP(r)
+			}
+			if !l.allow(key) {
 				w.Header().Set("Retry-After", "30")
 				writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "too many requests"})
 				return

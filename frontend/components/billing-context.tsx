@@ -40,6 +40,10 @@ export type BillingState = {
 
 const BillingContext = createContext<BillingState | null>(null);
 
+const HEALTHY_INTERVAL_MS = 60_000;
+const BACKOFF_START_MS = 60_000;
+const BACKOFF_MAX_MS = 300_000;
+
 export function BillingProvider({ token, children }: { token: string | null; children: ReactNode }) {
   const [state, setState] = useState<BillingState | null>(null);
 
@@ -48,24 +52,55 @@ export function BillingProvider({ token, children }: { token: string | null; chi
       setState(null);
       return;
     }
+    // Each token epoch gets its own abort + timer lifecycle. When the token
+    // changes (login, logout, impersonation) we tear everything down cleanly so
+    // no stale in-flight request can resolve into the new session.
     let cancelled = false;
-    async function load() {
+    let controller: AbortController | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let backoffMs = BACKOFF_START_MS;
+
+    const schedule = (delayMs: number) => {
+      if (cancelled) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { void load(); }, delayMs);
+    };
+
+    const load = async () => {
+      if (cancelled) return;
+      if (controller) controller.abort();
+      controller = new AbortController();
       try {
         const res = await fetch("/api/v1/billing/subscription", {
           headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
         });
-        if (!res.ok) return;
+        if (cancelled) return;
+        if (!res.ok) {
+          // 401 means the token is dead — stop polling until the token changes.
+          if (res.status === 401) {
+            setState(null);
+            return;
+          }
+          throw new Error(`HTTP ${res.status}`);
+        }
         const data = await res.json();
-        if (!cancelled) setState(data);
-      } catch {
-        // ignore — banner just won't show
+        if (cancelled) return;
+        setState(data);
+        backoffMs = BACKOFF_START_MS;
+        schedule(HEALTHY_INTERVAL_MS);
+      } catch (err) {
+        if (cancelled || (err instanceof DOMException && err.name === "AbortError")) return;
+        schedule(backoffMs);
+        backoffMs = Math.min(BACKOFF_MAX_MS, backoffMs * 2);
       }
-    }
-    load();
-    const interval = setInterval(load, 60_000);
+    };
+
+    void load();
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (timer) clearTimeout(timer);
+      if (controller) controller.abort();
     };
   }, [token]);
 

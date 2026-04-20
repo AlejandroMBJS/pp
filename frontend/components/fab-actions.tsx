@@ -9,6 +9,8 @@ type FabAction = {
   icon: React.ReactNode;
   color: string;
   onClick: () => void;
+  disabled?: boolean;
+  disabledHint?: string;
 };
 
 type Props = {
@@ -67,12 +69,18 @@ export function FabActions({ actions }: Props) {
             className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider text-white whitespace-nowrap"
             style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(8px)" }}
           >
-            {action.label}
+            {action.disabled && action.disabledHint ? action.disabledHint : action.label}
           </span>
           <button
             onClick={() => { setOpen(false); action.onClick(); }}
-            className="flex h-11 w-11 items-center justify-center rounded-full shadow-lg transition-transform hover:scale-110 active:scale-95"
-            style={{ background: action.color, boxShadow: `0 4px 16px ${action.color}40` }}
+            title={action.disabled ? action.disabledHint : undefined}
+            className="flex h-11 w-11 items-center justify-center rounded-full shadow-lg transition-transform hover:scale-110 active:scale-95 disabled:hover:scale-100"
+            style={{
+              background: action.disabled ? "rgba(255,255,255,0.08)" : action.color,
+              boxShadow: action.disabled ? "none" : `0 4px 16px ${action.color}40`,
+              opacity: action.disabled ? 0.6 : 1,
+              cursor: action.disabled ? "not-allowed" : "pointer",
+            }}
           >
             {action.icon}
           </button>

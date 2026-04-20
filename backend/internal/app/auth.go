@@ -11,10 +11,11 @@ import (
 )
 
 type JWTClaims struct {
-	UserID   string `json:"user_id"`
-	TenantID string `json:"tenant_id"`
-	Role     string `json:"role"`
-	Email    string `json:"email"`
+	UserID         string `json:"user_id"`
+	TenantID       string `json:"tenant_id"`
+	Role           string `json:"role"`
+	Email          string `json:"email"`
+	ImpersonatedBy string `json:"impersonated_by,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -58,6 +59,25 @@ func IssueToken(secret []byte, user User) (string, error) {
 	return token.SignedString(secret)
 }
 
+// IssueImpersonationToken mints a short-lived (1h) JWT as the target user,
+// stamped with the admin's ID in ImpersonatedBy so audit trails can attribute
+// actions back to the real operator.
+func IssueImpersonationToken(secret []byte, target User, adminUserID string) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, JWTClaims{
+		UserID:         target.ID,
+		TenantID:       target.TenantID,
+		Role:           target.Role,
+		Email:          target.Email,
+		ImpersonatedBy: adminUserID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Subject:   target.ID,
+		},
+	})
+	return token.SignedString(secret)
+}
+
 func ParseToken(secret []byte, tokenString string) (Claims, error) {
 	claims := JWTClaims{}
 	token, err := jwt.ParseWithClaims(tokenString, &claims, func(token *jwt.Token) (any, error) {
@@ -70,9 +90,10 @@ func ParseToken(secret []byte, tokenString string) (Claims, error) {
 		return Claims{}, errors.New("invalid token")
 	}
 	return Claims{
-		UserID:   claims.UserID,
-		TenantID: claims.TenantID,
-		Role:     claims.Role,
-		Email:    claims.Email,
+		UserID:         claims.UserID,
+		TenantID:       claims.TenantID,
+		Role:           claims.Role,
+		Email:          claims.Email,
+		ImpersonatedBy: claims.ImpersonatedBy,
 	}, nil
 }

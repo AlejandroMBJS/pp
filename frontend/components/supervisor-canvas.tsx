@@ -1,12 +1,15 @@
 "use client";
 
+import { useState } from "react";
 import type { FormEvent } from "react";
+import { toast } from "sonner";
 import { EmptyState } from "./ui/empty-state";
 import { Input, Select } from "./ui/form-input";
 import { EvidenceGallery } from "./evidence-gallery";
 import { GanttTimeline } from "./gantt-timeline";
 import { BudgetPanel } from "./budget-panel";
-import { Loader2, TrendingUp, AlignLeft, MessageSquare, Plus } from "lucide-react";
+import { Loader2, TrendingUp, AlignLeft, MessageSquare, Plus, Check, X as XIcon, ListChecks } from "lucide-react";
+import { Toolbar, FilterChips, BulkBar, BulkApproveIcon, BulkRejectIcon, runBulk, type FilterChipOption } from "./ui/toolbar";
 
 type Task = {
   id: string;
@@ -94,10 +97,68 @@ export function SupervisorCanvas({
   onNewTask,
   isMobile = false,
 }: SupervisorCanvasProps) {
+  const [reviewStatusFilter, setReviewStatusFilter] = useState<"all" | "pending_approval" | "approved" | "rejected">("all");
+  const [reviewTaskFilter, setReviewTaskFilter] = useState<string>("");
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkSelected, setBulkSelected] = useState<Set<string>>(() => new Set());
+  const [bulkRunning, setBulkRunning] = useState(false);
+
   // ── Review / Approval Queue ──
   if (activeView === "review") {
-    const pending = evidences.filter((e) => e.status === "pending_approval");
-    const rest = evidences.filter((e) => e.status !== "pending_approval");
+    const filteredEvidences = evidences.filter((e) => {
+      if (reviewStatusFilter !== "all" && e.status !== reviewStatusFilter) return false;
+      if (reviewTaskFilter && e.task_id !== reviewTaskFilter) return false;
+      return true;
+    });
+    const pending = filteredEvidences.filter((e) => e.status === "pending_approval");
+    const rest = filteredEvidences.filter((e) => e.status !== "pending_approval");
+
+    const statusCounts = {
+      all: evidences.length,
+      pending_approval: evidences.filter((e) => e.status === "pending_approval").length,
+      approved: evidences.filter((e) => e.status === "approved").length,
+      rejected: evidences.filter((e) => e.status === "rejected").length,
+    };
+    const statusOptions: FilterChipOption<"all" | "pending_approval" | "approved" | "rejected">[] = [
+      { value: "all", label: "All", count: statusCounts.all },
+      { value: "pending_approval", label: "Pending", count: statusCounts.pending_approval, color: "#f59e0b" },
+      { value: "approved", label: "Approved", count: statusCounts.approved, color: "#10b981" },
+      { value: "rejected", label: "Rejected", count: statusCounts.rejected, color: "#ef4444" },
+    ];
+
+    const tasksWithEvidence = tasks.filter((t) => evidences.some((e) => e.task_id === t.id));
+
+    const selectablePending = pending.map((e) => e.id);
+    const allSelected = selectablePending.length > 0 && selectablePending.every((id) => bulkSelected.has(id));
+    function toggleOne(id: string) {
+      setBulkSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    }
+    function toggleAll() {
+      if (allSelected) setBulkSelected(new Set());
+      else setBulkSelected(new Set(selectablePending));
+    }
+    function clearBulk() {
+      setBulkSelected(new Set());
+      setBulkMode(false);
+    }
+    async function runBulkDecision(action: "approve" | "reject") {
+      const ids = Array.from(bulkSelected);
+      if (ids.length === 0) return;
+      setBulkRunning(true);
+      const { succeeded, failed } = await runBulk(ids, (id) => onEvidenceDecision(id, action));
+      setBulkRunning(false);
+      setBulkSelected(new Set());
+      if (failed === 0) {
+        toast.success(`${succeeded} evidence ${action === "approve" ? "approved" : "rejected"}`);
+      } else {
+        toast.error(`${succeeded} ${action === "approve" ? "approved" : "rejected"}, ${failed} failed`);
+      }
+    }
 
     return (
       <div className={`space-y-8 animate-fade-in ${isMobile ? 'pb-20' : ''}`}>
@@ -233,36 +294,174 @@ export function SupervisorCanvas({
           </div>
         )}
 
+        {/* Toolbar: filter + bulk toggle */}
+        {evidences.length > 0 && (
+          <Toolbar className="flex-col sm:flex-row items-start sm:items-center">
+            <FilterChips
+              options={statusOptions}
+              value={reviewStatusFilter}
+              onChange={setReviewStatusFilter}
+            />
+            {tasksWithEvidence.length > 1 && (
+              <select
+                value={reviewTaskFilter}
+                onChange={(e) => setReviewTaskFilter(e.target.value)}
+                className="rounded-xl bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500/50"
+              >
+                <option value="" style={{ background: "#0f172a" }}>All tasks</option>
+                {tasksWithEvidence.map((t) => (
+                  <option key={t.id} value={t.id} style={{ background: "#0f172a" }}>
+                    {t.title}
+                  </option>
+                ))}
+              </select>
+            )}
+            <div className="flex-1" />
+            {statusCounts.pending_approval > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (bulkMode) clearBulk();
+                  else setBulkMode(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-colors"
+                style={{
+                  background: bulkMode ? "rgba(59,130,246,0.15)" : "rgba(255,255,255,0.04)",
+                  color: bulkMode ? "#60a5fa" : "rgba(255,255,255,0.5)",
+                  border: `1px solid ${bulkMode ? "rgba(59,130,246,0.3)" : "rgba(255,255,255,0.08)"}`,
+                }}
+              >
+                <ListChecks size={12} />
+                {bulkMode ? "Exit bulk" : "Bulk select"}
+              </button>
+            )}
+          </Toolbar>
+        )}
+
+        {/* Bulk action bar */}
+        {bulkMode && (
+          <BulkBar
+            count={bulkSelected.size}
+            onClear={() => setBulkSelected(new Set())}
+            actions={[
+              {
+                id: "approve",
+                label: `Approve ${bulkSelected.size || ""}`.trim(),
+                color: "green",
+                icon: <BulkApproveIcon size={12} />,
+                disabled: bulkRunning || bulkSelected.size === 0,
+                onRun: () => runBulkDecision("approve"),
+              },
+              {
+                id: "reject",
+                label: `Reject ${bulkSelected.size || ""}`.trim(),
+                color: "red",
+                icon: <BulkRejectIcon size={12} />,
+                disabled: bulkRunning || bulkSelected.size === 0,
+                onRun: () => runBulkDecision("reject"),
+              },
+            ]}
+          />
+        )}
+
         {/* Pending approvals */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <h2 className="text-sm font-bold uppercase tracking-widest text-white/40">
-                 Pending approval
-              </h2>
-              {pending.length > 0 && (
-                <span className="px-2 py-0.5 bg-amber-500 text-black rounded-lg text-[10px] font-black">{pending.length}</span>
-              )}
+        {reviewStatusFilter !== "approved" && reviewStatusFilter !== "rejected" && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <h2 className="text-sm font-bold uppercase tracking-widest text-white/40">
+                   Pending approval
+                </h2>
+                {pending.length > 0 && (
+                  <span className="px-2 py-0.5 bg-amber-500 text-black rounded-lg text-[10px] font-black">{pending.length}</span>
+                )}
+                {bulkMode && pending.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={toggleAll}
+                    className="text-[10px] font-bold uppercase tracking-wider text-blue-400 hover:text-blue-300"
+                  >
+                    {allSelected ? "Deselect all" : "Select all"}
+                  </button>
+                )}
+              </div>
+              <div className="h-px flex-1 bg-white/5 mx-4" />
             </div>
-            <div className="h-px flex-1 bg-white/5 mx-4" />
+
+            {pending.length > 0 ? (
+              bulkMode ? (
+                <div className="glass-card p-3 border-white/5 space-y-1.5">
+                  {pending.map((ev) => {
+                    const checked = bulkSelected.has(ev.id);
+                    const task = tasks.find((t) => t.id === ev.task_id);
+                    return (
+                      <label
+                        key={ev.id}
+                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 cursor-pointer transition-colors hover:bg-white/5"
+                        style={{ border: "1px solid rgba(255,255,255,0.06)", background: checked ? "rgba(59,130,246,0.05)" : "transparent" }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleOne(ev.id)}
+                          className="h-4 w-4 rounded border-white/20 bg-white/5 accent-blue-500"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold text-white truncate">{ev.file_name}</div>
+                          <div className="text-[10px] text-white/40 mt-0.5 flex items-center gap-2">
+                            <span>AI: {ev.quality_score > 0 ? `${ev.quality_score}/100` : "pending"}</span>
+                            {task && (
+                              <>
+                                <span>·</span>
+                                <span className="truncate">{task.title}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.preventDefault(); void onEvidenceDecision(ev.id, "approve"); }}
+                            className="p-1.5 rounded-lg hover:bg-green-500/20 text-green-400"
+                            title="Approve"
+                          >
+                            <Check size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.preventDefault(); void onEvidenceDecision(ev.id, "reject"); }}
+                            className="p-1.5 rounded-lg hover:bg-red-500/20 text-red-400"
+                            title="Reject"
+                          >
+                            <XIcon size={14} />
+                          </button>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="glass-card p-6 border-white/5">
+                  <EvidenceGallery
+                    evidences={pending}
+                    showActions
+                    onApprove={(id) => onEvidenceDecision(id, "approve")}
+                    onReject={(id) => onEvidenceDecision(id, "reject")}
+                    emptyText=""
+                  />
+                </div>
+              )
+            ) : (
+              <div className="glass-card p-12 text-center border-dashed border-white/10">
+                <p className="text-white/30 font-medium italic">
+                  {evidences.length === 0
+                    ? "There is no pending evidence right now."
+                    : "No pending evidence matches the current filter."}
+                </p>
+              </div>
+            )}
           </div>
-          
-          {pending.length > 0 ? (
-            <div className="glass-card p-6 border-white/5">
-              <EvidenceGallery
-                evidences={pending}
-                showActions
-                onApprove={(id) => onEvidenceDecision(id, "approve")}
-                onReject={(id) => onEvidenceDecision(id, "reject")}
-                emptyText=""
-              />
-            </div>
-          ) : (
-            <div className="glass-card p-12 text-center border-dashed border-white/10">
-              <p className="text-white/30 font-medium italic">There is no pending evidence right now.</p>
-            </div>
-          )}
-        </div>
+        )}
 
         {/* Processed evidence */}
         {rest.length > 0 && (

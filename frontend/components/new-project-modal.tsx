@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { X, Loader2 } from "lucide-react";
+import { X, Loader2, UserPlus, Info } from "lucide-react";
 
 type User = { id: string; full_name: string; email: string; role: string };
 
@@ -11,6 +11,7 @@ type Props = {
   supervisors: User[];
   clients: User[];
   loading: boolean;
+  onInviteClient?: () => void;
   onSubmit: (project: {
     name: string;
     description: string;
@@ -29,7 +30,7 @@ type Props = {
 const today = new Date().toISOString().slice(0, 10);
 const plus90 = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10);
 
-export function NewProjectModal({ open, onClose, supervisors, clients, loading, onSubmit }: Props) {
+export function NewProjectModal({ open, onClose, supervisors, clients, loading, onInviteClient, onSubmit }: Props) {
   const [form, setForm] = useState({
     name: "",
     description: "",
@@ -114,6 +115,25 @@ export function NewProjectModal({ open, onClose, supervisors, clients, loading, 
               </select>
             </div>
           </div>
+          {clients.length === 0 && onInviteClient && (
+            <div className="flex items-start gap-3 p-3 rounded-xl bg-blue-500/5 border border-blue-500/20">
+              <Info size={14} className="text-blue-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-bold text-white">No clients invited yet</div>
+                <div className="text-[11px] text-white/50 mt-0.5">
+                  You can ship this project without a client, but assigning one lets them see progress and approve deliverables.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { onInviteClient(); onClose(); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-black uppercase tracking-widest flex-shrink-0"
+              >
+                <UserPlus size={12} />
+                Invite
+              </button>
+            </div>
+          )}
           <div>
             <label className="block text-[10px] uppercase tracking-widest font-bold text-white/50 mb-1.5">Budget (USD)</label>
             <input

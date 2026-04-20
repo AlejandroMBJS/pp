@@ -83,6 +83,12 @@ func (s *Server) Routes() http.Handler {
 
 		protected.Get("/api/v1/platform/overview", s.handlePlatformOverview)
 		protected.Get("/api/v1/platform/tenants", s.handlePlatformTenants)
+		protected.Post("/api/v1/platform/tenants/{tenantID}/impersonate", s.handlePlatformImpersonate)
+		protected.Post("/api/v1/platform/tenants/{tenantID}/suspend", s.handlePlatformSuspend)
+		protected.Post("/api/v1/platform/tenants/{tenantID}/reactivate", s.handlePlatformReactivate)
+		protected.Post("/api/v1/platform/tenants/{tenantID}/billing/extend-trial", s.handlePlatformExtendTrial)
+		protected.Post("/api/v1/platform/tenants/{tenantID}/billing/comp-plan", s.handlePlatformCompPlan)
+		protected.Post("/api/v1/platform/tenants/{tenantID}/billing/override-status", s.handlePlatformOverrideStatus)
 
 		protected.Get("/api/v1/users", s.handleListUsers)
 		protected.Post("/api/v1/users", s.handleCreateUser)
@@ -94,6 +100,7 @@ func (s *Server) Routes() http.Handler {
 
 		protected.Get("/api/v1/me/notifications", s.handleGetNotificationPrefs)
 		protected.Patch("/api/v1/me/notifications", s.handleUpdateNotificationPrefs)
+		protected.Post("/api/v1/me/password", s.handleChangeOwnPassword)
 
 		protected.Get("/api/v1/tenants/current", s.handleGetCurrentTenant)
 		protected.Patch("/api/v1/tenants/current", s.handlePatchCurrentTenant)
@@ -116,6 +123,10 @@ func (s *Server) Routes() http.Handler {
 		protected.Post("/api/v1/blueprints/register", s.handleBlueprintRegister)
 		protected.Get("/api/v1/dashboard/owner/overview", s.handleOwnerDashboard)
 		protected.Patch("/api/v1/projects/{projectID}", s.handleUpdateProject)
+		protected.Delete("/api/v1/projects/{projectID}", s.handleDeleteProject)
+		protected.Post("/api/v1/projects/{projectID}/logo/upload-url", s.handleProjectLogoUploadURL)
+		protected.Post("/api/v1/projects/{projectID}/logo/confirm", s.handleProjectLogoConfirm)
+		protected.Patch("/api/v1/projects/{projectID}/logo", s.handleProjectLogoUpdate)
 		protected.Get("/api/v1/projects/{projectID}/export.csv", s.handleExportCSV)
 		protected.Get("/api/v1/client/projects/{projectID}/summary", s.handleClientSummary)
 
@@ -156,8 +167,17 @@ func (s *Server) Routes() http.Handler {
 
 		// Billing
 		protected.Get("/api/v1/billing/subscription", s.handleGetSubscription)
-		protected.Post("/api/v1/billing/checkout", s.handleCreateCheckout)
-		protected.Post("/api/v1/billing/portal", s.handleOpenPortal)
+		// Per-tenant rate limit (5/min, burst 5) on checkout/portal so a bug or
+		// misbehaving client cannot burn Stripe API quota or create duplicate
+		// checkout sessions for the same customer.
+		billingLimiter := newIPRateLimiter(5.0/60.0, 5).middlewareWithKey(func(r *http.Request) string {
+			return s.actor(r).TenantID
+		})
+		protected.Group(func(rl chi.Router) {
+			rl.Use(billingLimiter)
+			rl.Post("/api/v1/billing/checkout", s.handleCreateCheckout)
+			rl.Post("/api/v1/billing/portal", s.handleOpenPortal)
+		})
 	})
 	return r
 }
@@ -370,7 +390,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	user, err := s.service.CreateUser(r.Context(), s.actor(r), req.FullName, req.Email, req.Password, req.Role)
 	if err != nil {
-		if writeBillingError(w, err) {
+		if writeBillingErrorRich(s, w, r, err) {
 			return
 		}
 		status := http.StatusBadRequest
@@ -394,7 +414,7 @@ func (s *Server) handleInviteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	invite, err := s.service.InviteUser(r.Context(), s.actor(r), req.FullName, req.Email, req.Role)
 	if err != nil {
-		if writeBillingError(w, err) {
+		if writeBillingErrorRich(s, w, r, err) {
 			return
 		}
 		status := http.StatusBadRequest
@@ -560,6 +580,71 @@ func (s *Server) handleTenantLogoConfirm(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, tenant)
 }
 
+func (s *Server) handleProjectLogoUploadURL(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		FileName      string `json:"file_name"`
+		ContentType   string `json:"content_type"`
+		FileSizeBytes int64  `json:"file_size_bytes"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	session, err := s.service.RequestProjectLogoUpload(r.Context(), s.actor(r), chi.URLParam(r, "projectID"), req.FileName, req.ContentType, req.FileSizeBytes, requestBaseURL(r))
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, app.ErrForbidden) {
+			status = http.StatusForbidden
+		} else if errors.Is(err, sql.ErrNoRows) {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (s *Server) handleProjectLogoConfirm(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		UploadSessionID string `json:"upload_session_id"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	project, err := s.service.ConfirmProjectLogo(r.Context(), s.actor(r), chi.URLParam(r, "projectID"), req.UploadSessionID)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, app.ErrForbidden) {
+			status = http.StatusForbidden
+		} else if errors.Is(err, sql.ErrNoRows) {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, project)
+}
+
+func (s *Server) handleProjectLogoUpdate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		LogoURL string `json:"logo_url"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	project, err := s.service.UpdateProjectLogo(r.Context(), s.actor(r), chi.URLParam(r, "projectID"), req.LogoURL)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, app.ErrForbidden) {
+			status = http.StatusForbidden
+		} else if errors.Is(err, sql.ErrNoRows) {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, project)
+}
+
 func (s *Server) handleGetNotificationPrefs(w http.ResponseWriter, r *http.Request) {
 	actor := s.actor(r)
 	prefs, err := s.service.GetNotificationPrefs(r.Context(), actor.UserID)
@@ -603,6 +688,31 @@ func (s *Server) handleAdminPatchUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, user)
+}
+
+func (s *Server) handleChangeOwnPassword(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if err := s.service.ChangeOwnPassword(r.Context(), s.actor(r), req.CurrentPassword, req.NewPassword); err != nil {
+		status := http.StatusBadRequest
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "forbidden"):
+			status = http.StatusForbidden
+		case strings.Contains(msg, "not found"):
+			status = http.StatusNotFound
+		case strings.Contains(msg, "incorrect"):
+			status = http.StatusUnauthorized
+		}
+		writeJSON(w, status, map[string]any{"error": msg})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) handleAdminSetPassword(w http.ResponseWriter, r *http.Request) {
@@ -721,7 +831,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 	project, err := s.service.CreateProject(r.Context(), s.actor(r), req)
 	if err != nil {
-		if writeBillingError(w, err) {
+		if writeBillingErrorRich(s, w, r, err) {
 			return
 		}
 		status := http.StatusBadRequest
@@ -904,7 +1014,7 @@ func (s *Server) handleConfirmUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	evidence, err := s.service.ConfirmUpload(r.Context(), s.actor(r), req.UploadSessionID, req.MetadataEXIF)
 	if err != nil {
-		if writeBillingError(w, err) {
+		if writeBillingErrorRich(s, w, r, err) {
 			return
 		}
 		status := http.StatusBadRequest
@@ -1166,6 +1276,20 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
+func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
+	if err := s.service.DeleteProject(r.Context(), s.actor(r), chi.URLParam(r, "projectID")); err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, sql.ErrNoRows) {
+			status = http.StatusNotFound
+		} else if strings.Contains(err.Error(), "forbidden") {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
+}
+
 func (s *Server) handleListBudgetAdjustments(w http.ResponseWriter, r *http.Request) {
 	adjustments, err := s.service.ListBudgetAdjustments(r.Context(), s.actor(r), chi.URLParam(r, "projectID"))
 	if err != nil {
@@ -1323,7 +1447,7 @@ func (s *Server) handleBlueprintRegister(w http.ResponseWriter, r *http.Request)
 	}
 	bp, err := s.service.RegisterBlueprint(r.Context(), actor, body.UploadSessionID)
 	if err != nil {
-		if writeBillingError(w, err) {
+		if writeBillingErrorRich(s, w, r, err) {
 			return
 		}
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})

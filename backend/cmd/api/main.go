@@ -27,6 +27,35 @@ func main() {
 		log.Fatalf("JWT_SECRET must be at least %d bytes; got %d. Generate one with: openssl rand -hex 32", minJWTSecretLen, len(jwtSecret))
 	}
 
+	// Fail-fast on half-configured Stripe: any STRIPE_* env being set means billing is
+	// expected to work, so all required keys must also be present. A production deploy
+	// missing the webhook secret silently accepts unverified events → fatal.
+	stripeEnvs := map[string]string{
+		"STRIPE_SECRET_KEY":         os.Getenv("STRIPE_SECRET_KEY"),
+		"STRIPE_WEBHOOK_SECRET":     os.Getenv("STRIPE_WEBHOOK_SECRET"),
+		"STRIPE_PRICE_PROFESSIONAL": os.Getenv("STRIPE_PRICE_PROFESSIONAL"),
+		"STRIPE_PRICE_BUSINESS":     os.Getenv("STRIPE_PRICE_BUSINESS"),
+		"STRIPE_PRICE_ENTERPRISE":   os.Getenv("STRIPE_PRICE_ENTERPRISE"),
+	}
+	anyStripeSet := false
+	for _, v := range stripeEnvs {
+		if v != "" {
+			anyStripeSet = true
+			break
+		}
+	}
+	if anyStripeSet || os.Getenv("STRIPE_PUBLISHABLE_KEY") != "" {
+		var missing []string
+		for k, v := range stripeEnvs {
+			if v == "" {
+				missing = append(missing, k)
+			}
+		}
+		if len(missing) > 0 {
+			log.Fatalf("Stripe billing half-configured: missing %v. Set all STRIPE_* envs or unset them all.", missing)
+		}
+	}
+
 	cfg := app.Config{
 		DatabaseURL:    envOrDefault("DATABASE_URL", "postgres://projectpulse:projectpulse-password@localhost:5432/projectpulse?sslmode=disable"),
 		UploadDir:      envOrDefault("UPLOAD_DIR", "./data/uploads"),

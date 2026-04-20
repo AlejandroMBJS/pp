@@ -3,6 +3,7 @@ package httpapi
 import (
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -94,6 +95,17 @@ func (s *Server) handleContactSales(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleOpenPortal(w http.ResponseWriter, r *http.Request) {
 	url, err := s.service.OpenBillingPortal(r.Context(), s.actor(r))
 	if err != nil {
+		// Classify expected failures as 400 so the UI can show a real message
+		// instead of a generic "internal server error" toast.
+		if errors.Is(err, billing.ErrStripeNotConfigured) {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "Billing portal is not available yet — contact support to subscribe."})
+			return
+		}
+		msg := err.Error()
+		if msg == "no stripe customer for this tenant — start a checkout first" || msg == "demo tenant has no portal" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": msg})
+			return
+		}
 		writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
@@ -103,6 +115,14 @@ func (s *Server) handleOpenPortal(w http.ResponseWriter, r *http.Request) {
 // handleStripeWebhook is UNAUTHENTICATED — Stripe signs the request with a
 // shared secret and we verify it. Body must be read raw before any JSON parse.
 func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
+	// Fail closed: without a webhook secret we cannot verify signatures, so refuse
+	// to accept events. main.go also enforces this at boot, but this guards against
+	// runtime config drift.
+	if !s.service.StripeWebhookConfigured() {
+		slog.Error("stripe.webhook.secret_missing", "path", r.URL.Path)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "webhook secret not configured"})
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -124,27 +144,36 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 // writeBillingError translates billing errors to HTTP 402 with a structured
-// payload the frontend can use to show paywall/upgrade modals.
+// payload the frontend can use to show paywall/upgrade modals. The payload
+// includes plan, limits and upgrade_url so the client can render a rich paywall
+// without an extra round-trip.
 func writeBillingError(w http.ResponseWriter, err error) bool {
+	return writeBillingErrorRich(nil, w, nil, err)
+}
+
+func writeBillingErrorRich(s *Server, w http.ResponseWriter, r *http.Request, err error) bool {
+	var kind string
 	switch {
 	case errors.Is(err, app.ErrFeatureLocked):
-		writeJSON(w, http.StatusPaymentRequired, map[string]any{
-			"error": err.Error(),
-			"type":  "feature_locked",
-		})
-		return true
+		kind = "feature_locked"
 	case errors.Is(err, app.ErrQuotaExceeded):
-		writeJSON(w, http.StatusPaymentRequired, map[string]any{
-			"error": err.Error(),
-			"type":  "quota_exceeded",
-		})
-		return true
+		kind = "quota_exceeded"
 	case errors.Is(err, app.ErrSubscriptionRequired):
-		writeJSON(w, http.StatusPaymentRequired, map[string]any{
-			"error": err.Error(),
-			"type":  "subscription_required",
-		})
-		return true
+		kind = "subscription_required"
+	default:
+		return false
 	}
-	return false
+	payload := map[string]any{
+		"error":       err.Error(),
+		"type":        kind,
+		"upgrade_url": "/billing",
+	}
+	if s != nil && r != nil {
+		if plan, limits, ok := s.service.PlanSnapshot(r.Context(), s.actor(r).TenantID); ok {
+			payload["plan"] = plan
+			payload["limits"] = limits
+		}
+	}
+	writeJSON(w, http.StatusPaymentRequired, payload)
+	return true
 }

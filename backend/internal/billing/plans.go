@@ -30,7 +30,7 @@ type Limits struct {
 const GiB = int64(1) << 30
 
 var PlanLimits = map[Plan]Limits{
-	PlanStarter:      {MaxActiveProjects: 1, MaxInternalUsers: 3, MaxClientGuests: 5, MaxCapturesPerMonth: 50, MaxStorageBytes: 1 * GiB, MaxBlueprintFiles: 3},
+	PlanStarter:      {MaxActiveProjects: 1, MaxInternalUsers: 4, MaxClientGuests: 5, MaxCapturesPerMonth: 50, MaxStorageBytes: 1 * GiB, MaxBlueprintFiles: 3},
 	PlanProfessional: {MaxActiveProjects: 5, MaxInternalUsers: 15, MaxClientGuests: 25, MaxCapturesPerMonth: 500, MaxStorageBytes: 10 * GiB, MaxBlueprintFiles: 25},
 	PlanBusiness:     {MaxActiveProjects: 20, MaxInternalUsers: 50, MaxClientGuests: 100, MaxCapturesPerMonth: 2000, MaxStorageBytes: 50 * GiB, MaxBlueprintFiles: 100},
 	PlanEnterprise:   {MaxActiveProjects: -1, MaxInternalUsers: -1, MaxClientGuests: -1, MaxCapturesPerMonth: -1, MaxStorageBytes: 500 * GiB, MaxBlueprintFiles: -1},

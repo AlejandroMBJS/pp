@@ -3,7 +3,17 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Loader2, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
+import {
+  Ban,
+  CreditCard,
+  Loader2,
+  LogOut,
+  PlayCircle,
+  RefreshCw,
+  ShieldCheck,
+  UserCog,
+  X,
+} from "lucide-react";
 import { useTranslations } from "next-intl";
 
 const STORAGE_KEY = "projectpulse-session";
@@ -34,6 +44,11 @@ type TenantRow = {
   evidence_count: number;
 };
 
+type ModalKind = null | "suspend" | "reactivate" | "billing";
+
+const PLAN_CHOICES = ["starter", "professional", "business", "enterprise"] as const;
+const STATUS_CHOICES = ["trialing", "active", "past_due", "canceled", "read_only"] as const;
+
 function fmtMoney(cents: number) {
   return `$${(cents / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
@@ -46,6 +61,12 @@ export default function PlatformPage() {
   const [tenants, setTenants] = useState<TenantRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const [activeTenant, setActiveTenant] = useState<TenantRow | null>(null);
+  const [modal, setModal] = useState<ModalKind>(null);
+  const [busy, setBusy] = useState(false);
+  const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -101,6 +122,147 @@ export default function PlatformPage() {
     router.replace("/login");
   }
 
+  function openModal(tenant: TenantRow, kind: Exclude<ModalKind, null>) {
+    setActiveTenant(tenant);
+    setModal(kind);
+    setError(null);
+    setNotice(null);
+  }
+
+  function closeModal() {
+    if (busy) return;
+    setModal(null);
+    setActiveTenant(null);
+  }
+
+  async function callAdmin(
+    path: string,
+    body?: unknown,
+  ): Promise<Record<string, unknown>> {
+    if (!session) throw new Error("no session");
+    const res = await fetch(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(
+        typeof data?.error === "string" ? data.error : `HTTP ${res.status}`,
+      );
+    }
+    return data ?? {};
+  }
+
+  async function handleImpersonate(tenant: TenantRow) {
+    if (!session) return;
+    if (!window.confirm(t("actions.impersonateConfirm", { name: tenant.name }))) return;
+    setImpersonatingId(tenant.id);
+    setError(null);
+    try {
+      const data = await callAdmin(`/api/v1/platform/tenants/${tenant.id}/impersonate`);
+      const token = data.access_token as string | undefined;
+      const user = data.user as Session["user"] | undefined;
+      if (!token || !user) throw new Error(t("errors.generic"));
+      const impersonationSession: Session = { access_token: token, user };
+      const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(impersonationSession))));
+      setNotice(t("actions.impersonateOpened", { name: tenant.name }));
+      window.open(`/app#imp=${encoded}`, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("errors.generic"));
+    } finally {
+      setImpersonatingId(null);
+    }
+  }
+
+  async function handleSuspend(reason: string) {
+    if (!activeTenant) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await callAdmin(`/api/v1/platform/tenants/${activeTenant.id}/suspend`, { reason });
+      setNotice(t("actions.suspendDone", { name: activeTenant.name }));
+      setModal(null);
+      setActiveTenant(null);
+      if (session) await refresh(session.access_token);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("errors.generic"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleReactivate() {
+    if (!activeTenant) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await callAdmin(`/api/v1/platform/tenants/${activeTenant.id}/reactivate`);
+      setNotice(t("actions.reactivateDone", { name: activeTenant.name }));
+      setModal(null);
+      setActiveTenant(null);
+      if (session) await refresh(session.access_token);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("errors.generic"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleExtendTrial(days: number) {
+    if (!activeTenant) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await callAdmin(`/api/v1/platform/tenants/${activeTenant.id}/billing/extend-trial`, {
+        days,
+      });
+      setNotice(t("actions.extendTrialDone", { days, name: activeTenant.name }));
+      if (session) await refresh(session.access_token);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("errors.generic"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCompPlan(plan: string) {
+    if (!activeTenant) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await callAdmin(`/api/v1/platform/tenants/${activeTenant.id}/billing/comp-plan`, {
+        plan,
+      });
+      setNotice(t("actions.compPlanDone", { plan, name: activeTenant.name }));
+      if (session) await refresh(session.access_token);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("errors.generic"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleOverrideStatus(status: string) {
+    if (!activeTenant) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await callAdmin(`/api/v1/platform/tenants/${activeTenant.id}/billing/override-status`, {
+        status,
+      });
+      setNotice(t("actions.overrideStatusDone", { status, name: activeTenant.name }));
+      if (session) await refresh(session.access_token);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("errors.generic"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#0a0e1a] text-white">
       <header className="border-b border-white/10">
@@ -139,6 +301,17 @@ export default function PlatformPage() {
         {error && (
           <div className="mb-6 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-semibold">
             {error}
+          </div>
+        )}
+        {notice && (
+          <div className="mb-6 px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm font-semibold flex items-center justify-between gap-3">
+            <span>{notice}</span>
+            <button
+              onClick={() => setNotice(null)}
+              className="text-emerald-400/70 hover:text-emerald-400"
+            >
+              <X size={14} />
+            </button>
           </div>
         )}
 
@@ -188,35 +361,80 @@ export default function PlatformPage() {
                       <th className="text-right px-4 py-3 font-bold">{t("table.users")}</th>
                       <th className="text-right px-4 py-3 font-bold">{t("table.projects")}</th>
                       <th className="text-right px-4 py-3 font-bold">{t("table.evidence")}</th>
+                      <th className="text-right px-4 py-3 font-bold">{t("table.actions")}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    {tenants.map((t) => (
-                      <tr key={t.id} className="hover:bg-white/[0.02]">
-                        <td className="px-4 py-3 font-bold">{t.name}</td>
-                        <td className="px-4 py-3 text-white/40">{t.slug}</td>
-                        <td className="px-4 py-3 capitalize">{t.plan}</td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest ${
-                              t.status === "active"
-                                ? "bg-emerald-500/10 text-emerald-400"
-                                : t.status === "trialing"
-                                  ? "bg-amber-500/10 text-amber-400"
-                                  : "bg-white/5 text-white/40"
-                            }`}
-                          >
-                            {t.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right text-white/70">{t.user_count}</td>
-                        <td className="px-4 py-3 text-right text-white/70">{t.project_count}</td>
-                        <td className="px-4 py-3 text-right text-white/70">{t.evidence_count}</td>
-                      </tr>
-                    ))}
+                    {tenants.map((tenant) => {
+                      const suspended = tenant.status === "suspended";
+                      return (
+                        <tr key={tenant.id} className="hover:bg-white/[0.02]">
+                          <td className="px-4 py-3 font-bold">{tenant.name}</td>
+                          <td className="px-4 py-3 text-white/40">{tenant.slug}</td>
+                          <td className="px-4 py-3 capitalize">{tenant.plan}</td>
+                          <td className="px-4 py-3">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest ${
+                                tenant.status === "active"
+                                  ? "bg-emerald-500/10 text-emerald-400"
+                                  : tenant.status === "trialing"
+                                    ? "bg-amber-500/10 text-amber-400"
+                                    : tenant.status === "suspended"
+                                      ? "bg-red-500/10 text-red-400"
+                                      : "bg-white/5 text-white/40"
+                              }`}
+                            >
+                              {tenant.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right text-white/70">{tenant.user_count}</td>
+                          <td className="px-4 py-3 text-right text-white/70">{tenant.project_count}</td>
+                          <td className="px-4 py-3 text-right text-white/70">{tenant.evidence_count}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <IconButton
+                                title={t("actions.impersonate")}
+                                onClick={() => handleImpersonate(tenant)}
+                                disabled={impersonatingId === tenant.id}
+                              >
+                                {impersonatingId === tenant.id ? (
+                                  <Loader2 size={12} className="animate-spin" />
+                                ) : (
+                                  <UserCog size={12} />
+                                )}
+                              </IconButton>
+                              {suspended ? (
+                                <IconButton
+                                  title={t("actions.reactivate")}
+                                  onClick={() => openModal(tenant, "reactivate")}
+                                  tone="emerald"
+                                >
+                                  <PlayCircle size={12} />
+                                </IconButton>
+                              ) : (
+                                <IconButton
+                                  title={t("actions.suspend")}
+                                  onClick={() => openModal(tenant, "suspend")}
+                                  tone="red"
+                                >
+                                  <Ban size={12} />
+                                </IconButton>
+                              )}
+                              <IconButton
+                                title={t("actions.billing")}
+                                onClick={() => openModal(tenant, "billing")}
+                                tone="cyan"
+                              >
+                                <CreditCard size={12} />
+                              </IconButton>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {tenants.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="px-4 py-10 text-center text-white/40">
+                        <td colSpan={8} className="px-4 py-10 text-center text-white/40">
                           {t("table.empty")}
                         </td>
                       </tr>
@@ -234,7 +452,320 @@ export default function PlatformPage() {
           </>
         ) : null}
       </main>
+
+      {modal === "suspend" && activeTenant && (
+        <SuspendModal
+          tenant={activeTenant}
+          busy={busy}
+          onClose={closeModal}
+          onSubmit={handleSuspend}
+          t={t}
+        />
+      )}
+      {modal === "reactivate" && activeTenant && (
+        <ReactivateModal
+          tenant={activeTenant}
+          busy={busy}
+          onClose={closeModal}
+          onConfirm={handleReactivate}
+          t={t}
+        />
+      )}
+      {modal === "billing" && activeTenant && (
+        <BillingModal
+          tenant={activeTenant}
+          busy={busy}
+          onClose={closeModal}
+          onExtendTrial={handleExtendTrial}
+          onCompPlan={handleCompPlan}
+          onOverrideStatus={handleOverrideStatus}
+          t={t}
+        />
+      )}
     </div>
+  );
+}
+
+function IconButton({
+  children,
+  onClick,
+  title,
+  disabled,
+  tone,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  title: string;
+  disabled?: boolean;
+  tone?: "red" | "emerald" | "cyan";
+}) {
+  const toneClass =
+    tone === "red"
+      ? "hover:bg-red-500/10 hover:text-red-400"
+      : tone === "emerald"
+        ? "hover:bg-emerald-500/10 hover:text-emerald-400"
+        : tone === "cyan"
+          ? "hover:bg-cyan-500/10 hover:text-cyan-400"
+          : "hover:bg-white/10";
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      className={`p-1.5 rounded-lg bg-white/5 text-white/70 transition disabled:opacity-50 disabled:cursor-not-allowed ${toneClass}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ModalShell({
+  title,
+  onClose,
+  children,
+  busy,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  busy?: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+      <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#0f1524] shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
+          <div className="text-sm font-black">{title}</div>
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="p-1.5 rounded-lg text-white/60 hover:bg-white/5 hover:text-white disabled:opacity-50"
+          >
+            <X size={14} />
+          </button>
+        </div>
+        <div className="p-6">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function SuspendModal({
+  tenant,
+  busy,
+  onClose,
+  onSubmit,
+  t,
+}: {
+  tenant: TenantRow;
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (reason: string) => void;
+  t: ReturnType<typeof useTranslations<"platform">>;
+}) {
+  const [reason, setReason] = useState("");
+  return (
+    <ModalShell title={t("suspendModal.title", { name: tenant.name })} onClose={onClose} busy={busy}>
+      <p className="text-xs text-white/60 mb-4">{t("suspendModal.description")}</p>
+      <label className="block text-[10px] uppercase tracking-widest font-bold text-white/50 mb-2">
+        {t("suspendModal.reasonLabel")}
+      </label>
+      <textarea
+        value={reason}
+        onChange={(e) => setReason(e.target.value.slice(0, 500))}
+        placeholder={t("suspendModal.reasonPlaceholder")}
+        rows={3}
+        className="w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-white/30 resize-none"
+      />
+      <div className="mt-6 flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={busy}
+          className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 text-xs font-bold disabled:opacity-50"
+        >
+          {t("common.cancel")}
+        </button>
+        <button
+          type="button"
+          onClick={() => onSubmit(reason.trim())}
+          disabled={busy}
+          className="px-4 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-400 text-xs font-bold disabled:opacity-50 flex items-center gap-2"
+        >
+          {busy && <Loader2 size={12} className="animate-spin" />}
+          {t("suspendModal.confirm")}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function ReactivateModal({
+  tenant,
+  busy,
+  onClose,
+  onConfirm,
+  t,
+}: {
+  tenant: TenantRow;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  t: ReturnType<typeof useTranslations<"platform">>;
+}) {
+  return (
+    <ModalShell
+      title={t("reactivateModal.title", { name: tenant.name })}
+      onClose={onClose}
+      busy={busy}
+    >
+      <p className="text-xs text-white/60 mb-6">{t("reactivateModal.description")}</p>
+      <div className="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={busy}
+          className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 text-xs font-bold disabled:opacity-50"
+        >
+          {t("common.cancel")}
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={busy}
+          className="px-4 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-xs font-bold disabled:opacity-50 flex items-center gap-2"
+        >
+          {busy && <Loader2 size={12} className="animate-spin" />}
+          {t("reactivateModal.confirm")}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function BillingModal({
+  tenant,
+  busy,
+  onClose,
+  onExtendTrial,
+  onCompPlan,
+  onOverrideStatus,
+  t,
+}: {
+  tenant: TenantRow;
+  busy: boolean;
+  onClose: () => void;
+  onExtendTrial: (days: number) => void;
+  onCompPlan: (plan: string) => void;
+  onOverrideStatus: (status: string) => void;
+  t: ReturnType<typeof useTranslations<"platform">>;
+}) {
+  const [days, setDays] = useState(14);
+  const [plan, setPlan] = useState(tenant.plan || "starter");
+  const [status, setStatus] = useState(tenant.status || "active");
+
+  return (
+    <ModalShell title={t("billingModal.title", { name: tenant.name })} onClose={onClose} busy={busy}>
+      <div className="space-y-6">
+        <section>
+          <div className="text-[10px] uppercase tracking-widest font-bold text-white/50 mb-2">
+            {t("billingModal.extendTrial")}
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={days}
+              onChange={(e) =>
+                setDays(Math.max(1, Math.min(365, Number(e.target.value) || 1)))
+              }
+              disabled={busy}
+              className="w-24 rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-xs text-white focus:outline-none focus:border-white/30"
+            />
+            <span className="text-xs text-white/50">{t("billingModal.days")}</span>
+            <button
+              type="button"
+              onClick={() => onExtendTrial(days)}
+              disabled={busy || days < 1 || days > 365}
+              className="ml-auto px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 text-xs font-bold disabled:opacity-50 flex items-center gap-2"
+            >
+              {busy && <Loader2 size={12} className="animate-spin" />}
+              {t("billingModal.apply")}
+            </button>
+          </div>
+        </section>
+
+        <section>
+          <div className="text-[10px] uppercase tracking-widest font-bold text-white/50 mb-2">
+            {t("billingModal.compPlan")}
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={plan}
+              onChange={(e) => setPlan(e.target.value)}
+              disabled={busy}
+              className="rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-xs text-white focus:outline-none focus:border-white/30"
+            >
+              {PLAN_CHOICES.map((p) => (
+                <option key={p} value={p} className="bg-[#0f1524] text-white">
+                  {p}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => onCompPlan(plan)}
+              disabled={busy}
+              className="ml-auto px-3 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 text-xs font-bold disabled:opacity-50 flex items-center gap-2"
+            >
+              {busy && <Loader2 size={12} className="animate-spin" />}
+              {t("billingModal.apply")}
+            </button>
+          </div>
+        </section>
+
+        <section>
+          <div className="text-[10px] uppercase tracking-widest font-bold text-white/50 mb-2">
+            {t("billingModal.overrideStatus")}
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              disabled={busy}
+              className="rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-xs text-white focus:outline-none focus:border-white/30"
+            >
+              {STATUS_CHOICES.map((s) => (
+                <option key={s} value={s} className="bg-[#0f1524] text-white">
+                  {s}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => onOverrideStatus(status)}
+              disabled={busy}
+              className="ml-auto px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold disabled:opacity-50 flex items-center gap-2"
+            >
+              {busy && <Loader2 size={12} className="animate-spin" />}
+              {t("billingModal.apply")}
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div className="mt-6 flex items-center justify-end gap-2 pt-4 border-t border-white/5">
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={busy}
+          className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 text-xs font-bold disabled:opacity-50"
+        >
+          {t("common.close")}
+        </button>
+      </div>
+    </ModalShell>
   );
 }
 

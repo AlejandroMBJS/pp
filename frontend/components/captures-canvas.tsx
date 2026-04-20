@@ -12,6 +12,7 @@ import {
   Plus
 } from "lucide-react";
 import { EvidenceGallery } from "./evidence-gallery";
+import { DateRangeInputs } from "./ui/toolbar";
 
 type Evidence = {
   id: string;
@@ -58,15 +59,20 @@ export function CapturesCanvas({
   const [filterTaskId, setFilterTaskId] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   const filteredEvidences = useMemo(() => {
     return evidences.filter(ev => {
       const matchStatus = filterStatus === "all" || ev.status === filterStatus;
       const matchTask = filterTaskId === "all" || ev.task_id === filterTaskId;
       const matchSearch = searchQuery === "" || ev.file_name.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchStatus && matchTask && matchSearch;
+      const evDate = (ev.created_at || "").slice(0, 10);
+      const matchFrom = !dateFrom || (evDate && evDate >= dateFrom);
+      const matchTo = !dateTo || (evDate && evDate <= dateTo);
+      return matchStatus && matchTask && matchSearch && matchFrom && matchTo;
     });
-  }, [evidences, filterStatus, filterTaskId, searchQuery]);
+  }, [evidences, filterStatus, filterTaskId, searchQuery, dateFrom, dateTo]);
 
   if (!project) return null;
 
@@ -143,7 +149,7 @@ export function CapturesCanvas({
 
               <div className="flex items-center gap-2 px-4 py-2.5 bg-white/5 border border-white/5 rounded-xl">
                  <Calendar size={12} className="text-white/30" />
-                 <select 
+                 <select
                     value={filterTaskId}
                     onChange={(e) => setFilterTaskId(e.target.value)}
                     className="bg-transparent text-[10px] font-black uppercase tracking-widest text-white/80 outline-none cursor-pointer max-w-[150px] truncate"
@@ -154,6 +160,13 @@ export function CapturesCanvas({
                     ))}
                  </select>
               </div>
+
+              <DateRangeInputs
+                from={dateFrom}
+                to={dateTo}
+                onFromChange={setDateFrom}
+                onToChange={setDateTo}
+              />
            </div>
         </div>
       </div>

@@ -428,7 +428,45 @@
       "users": "Users",
       "projects": "Projects",
       "evidence": "Evidence",
+      "actions": "Acciones",
       "empty": "Sin tenants todavía"
+    },
+    "actions": {
+      "impersonate": "Impersonar",
+      "impersonateConfirm": "¿Abrir una sesión de impersonación para {name}? Esta acción queda auditada.",
+      "impersonateOpened": "Pestaña de impersonación abierta para {name}.",
+      "suspend": "Suspender",
+      "reactivate": "Reactivar",
+      "billing": "Facturación",
+      "suspendDone": "{name} ha sido suspendido.",
+      "reactivateDone": "{name} ha sido reactivado.",
+      "extendTrialDone": "Trial extendido {days} días para {name}.",
+      "compPlanDone": "Plan asignado a {plan} para {name}.",
+      "overrideStatusDone": "Status cambiado a {status} para {name}."
+    },
+    "common": {
+      "cancel": "Cancelar",
+      "close": "Cerrar"
+    },
+    "suspendModal": {
+      "title": "Suspender {name}",
+      "description": "La suspensión congela las escrituras del tenant. Los datos se preservan; la reactivación es reversible.",
+      "reasonLabel": "Motivo (interno, opcional)",
+      "reasonPlaceholder": "ej. falla de pago, reporte de abuso, escalamiento de soporte…",
+      "confirm": "Suspender tenant"
+    },
+    "reactivateModal": {
+      "title": "Reactivar {name}",
+      "description": "Las escrituras se restaurarán para este tenant inmediatamente.",
+      "confirm": "Reactivar tenant"
+    },
+    "billingModal": {
+      "title": "Admin facturación — {name}",
+      "extendTrial": "Extender trial",
+      "compPlan": "Plan cortesía",
+      "overrideStatus": "Override status de suscripción",
+      "days": "días",
+      "apply": "Aplicar"
     },
     "backToApp": "← Volver al panel estándar"
   },

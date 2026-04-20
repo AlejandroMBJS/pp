@@ -9,6 +9,7 @@ import {
   FileCode2, FileImage, FileText, LoaderCircle, Trash2, Upload,
 } from "lucide-react";
 import { CadViewer } from "./cad-viewer";
+import { SearchInput, SortMenu } from "./ui/toolbar";
 
 function GlbPreviewSheet({ assetUrl }: { assetUrl: string }) {
   const { scene } = useGLTF(assetUrl);
@@ -636,7 +637,27 @@ export function PlanViewer({ blueprints, token, onUpload, onDelete, isMobile = f
   const [assetLoading, setAssetLoading] = useState(false);
   const [assetErrors, setAssetErrors] = useState<Map<string, string>>(new Map());
   const [dxfLayers, setDxfLayers] = useState<Map<string, DxfLayerState[]>>(new Map());
+  const [blueprintSearch, setBlueprintSearch] = useState("");
+  const [blueprintSort, setBlueprintSort] = useState<"date_desc" | "date_asc" | "name_asc" | "size_desc">("date_desc");
   const isWebGLSupported = useWebGL();
+
+  const filteredBlueprints = useMemo(() => {
+    const q = blueprintSearch.trim().toLowerCase();
+    const filtered = q
+      ? blueprints.filter((b) => b.file_name.toLowerCase().includes(q) || b.file_type.toLowerCase().includes(q))
+      : blueprints;
+    const sorted = [...filtered];
+    sorted.sort((a, b) => {
+      switch (blueprintSort) {
+        case "date_desc": return (b.created_at || "").localeCompare(a.created_at || "");
+        case "date_asc": return (a.created_at || "").localeCompare(b.created_at || "");
+        case "name_asc": return a.file_name.localeCompare(b.file_name);
+        case "size_desc": return b.file_size_bytes - a.file_size_bytes;
+        default: return 0;
+      }
+    });
+    return sorted;
+  }, [blueprints, blueprintSearch, blueprintSort]);
 
   useEffect(() => {
     if (!blueprints.length) { setSelectedPlanIds([]); return; }
@@ -936,8 +957,27 @@ export function PlanViewer({ blueprints, token, onUpload, onDelete, isMobile = f
             <div className="mb-4 text-[10px] font-black uppercase tracking-[0.2em] text-white/40">
               File Versions
             </div>
+            {blueprints.length > 1 && (
+              <div className="mb-4 space-y-2">
+                <SearchInput
+                  value={blueprintSearch}
+                  onChange={setBlueprintSearch}
+                  placeholder="Filter files…"
+                />
+                <SortMenu<"date_desc" | "date_asc" | "name_asc" | "size_desc">
+                  options={[
+                    { value: "date_desc", label: "Newest first" },
+                    { value: "date_asc", label: "Oldest first" },
+                    { value: "name_asc", label: "Name A-Z" },
+                    { value: "size_desc", label: "Size ↓" },
+                  ]}
+                  value={blueprintSort}
+                  onChange={setBlueprintSort}
+                />
+              </div>
+            )}
             <div className="space-y-3">
-              {blueprints.map((blueprint) => (
+              {filteredBlueprints.map((blueprint) => (
                 <button
                   key={blueprint.id}
                   onClick={(e) => {

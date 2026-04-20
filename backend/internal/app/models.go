@@ -88,13 +88,15 @@ type Subscription struct {
 	CurrentPeriodEndsAt  *time.Time `json:"current_period_ends_at,omitempty"`
 	CancelAtPeriodEnd    bool       `json:"cancel_at_period_end"`
 	DaysUntilTrialEnd    int        `json:"days_until_trial_end"`
+	Currency             string     `json:"currency"`
 }
 
 type Claims struct {
-	UserID   string `json:"user_id"`
-	TenantID string `json:"tenant_id"`
-	Role     string `json:"role"`
-	Email    string `json:"email"`
+	UserID         string `json:"user_id"`
+	TenantID       string `json:"tenant_id"`
+	Role           string `json:"role"`
+	Email          string `json:"email"`
+	ImpersonatedBy string `json:"impersonated_by,omitempty"`
 }
 
 type User struct {
@@ -114,16 +116,20 @@ type AdminUserPatch struct {
 }
 
 type Tenant struct {
-	ID                     string `json:"id"`
-	Name                   string `json:"name"`
-	Slug                   string `json:"slug"`
-	Website                string `json:"website"`
-	Country                string `json:"country"`
-	Timezone               string `json:"timezone"`
-	Currency               string `json:"currency"`
-	PublicDashboardEnabled bool   `json:"public_dashboard_enabled"`
-	PublicGalleryEnabled   bool   `json:"public_gallery_enabled"`
-	LogoURL                string `json:"logo_url"`
+	ID                     string     `json:"id"`
+	Name                   string     `json:"name"`
+	Slug                   string     `json:"slug"`
+	Website                string     `json:"website"`
+	Country                string     `json:"country"`
+	Timezone               string     `json:"timezone"`
+	Currency               string     `json:"currency"`
+	PublicDashboardEnabled bool       `json:"public_dashboard_enabled"`
+	PublicGalleryEnabled   bool       `json:"public_gallery_enabled"`
+	LogoURL                string     `json:"logo_url"`
+	PrimaryColor           string     `json:"primary_color"`
+	SecondaryColor         string     `json:"secondary_color"`
+	SuspendedAt            *time.Time `json:"suspended_at,omitempty"`
+	SuspensionReason       string     `json:"suspension_reason,omitempty"`
 }
 
 type TenantPatch struct {
@@ -135,6 +141,8 @@ type TenantPatch struct {
 	PublicDashboardEnabled *bool   `json:"public_dashboard_enabled,omitempty"`
 	PublicGalleryEnabled   *bool   `json:"public_gallery_enabled,omitempty"`
 	LogoURL                *string `json:"logo_url,omitempty"`
+	PrimaryColor           *string `json:"primary_color,omitempty"`
+	SecondaryColor         *string `json:"secondary_color,omitempty"`
 }
 
 type Blueprint struct {

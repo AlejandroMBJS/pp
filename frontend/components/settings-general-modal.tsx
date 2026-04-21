@@ -678,7 +678,7 @@ export function SettingsGeneralModal({
                   onChange={(e) => setDeleteSlugInput(e.target.value)}
                   disabled={!canManageUsers || !tenant}
                   className="form-input"
-                  style={{ background: "#fff", borderColor: "rgba(239,68,68,0.3)" }}
+                  style={{ borderColor: "rgba(239,68,68,0.3)" }}
                 />
                 <button
                   className="text-xs font-semibold px-3 py-1.5 rounded-lg"

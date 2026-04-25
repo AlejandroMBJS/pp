@@ -767,6 +767,10 @@ func (s *Service) RequestBlueprintUpload(ctx context.Context, actor Claims, proj
 	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
 		return UploadSession{}, err
 	}
+	// Per-tenant storage quota gate. See audit-findings.md F4.
+	if err := s.CheckStorageQuota(ctx, actor.TenantID, intendedSize); err != nil {
+		return UploadSession{}, err
+	}
 	sessionID := newID("upl")
 	token, err := GenerateSecureToken(32)
 	if err != nil {
@@ -2045,6 +2049,12 @@ func (s *Service) RequestUpload(ctx context.Context, actor Claims, taskID, fileN
 	}
 	if intendedSize > 500*1024*1024 {
 		return UploadSession{}, errors.New("file exceeds 500 MB limit")
+	}
+	// Per-tenant storage quota check before reserving an upload slot. See
+	// audit-findings.md F4. CheckStorageQuota is a no-op for demo tenants and
+	// for plans with MaxStorageBytes == -1 (Enterprise).
+	if err := s.CheckStorageQuota(ctx, actor.TenantID, intendedSize); err != nil {
+		return UploadSession{}, err
 	}
 
 	var project Project
@@ -4010,6 +4020,10 @@ func (s *Service) RequestDailyLogPhotoUpload(ctx context.Context, actor Claims, 
 		return UploadSession{}, err
 	}
 	if err := s.ensureDailyLogAccess(ctx, actor, project); err != nil {
+		return UploadSession{}, err
+	}
+	// Per-tenant storage quota gate. See audit-findings.md F4.
+	if err := s.CheckStorageQuota(ctx, actor.TenantID, intendedSize); err != nil {
 		return UploadSession{}, err
 	}
 	if !s.canEditDailyLog(actor, log) {

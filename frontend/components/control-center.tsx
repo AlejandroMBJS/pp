@@ -1386,6 +1386,16 @@ export function ControlCenter() {
   }
 
   function handleLogout() {
+    // Best-effort server-side revocation. Even if it fails (offline, token
+    // already expired), we still clear local state so the user sees a clean
+    // logout. Server blacklist is in-memory; subsequent requests with the
+    // same token get 401. See audit-findings.md F2.
+    if (session) {
+      void api("/api/v1/auth/logout", {
+        method: "POST",
+        token: session.access_token,
+      }).catch(() => {});
+    }
     window.sessionStorage.removeItem(storageKey);
     window.localStorage.removeItem(storageKey);
     setSession(null);

@@ -43,5 +43,13 @@ COPY internal/app/flatten_dxf.py /app/flatten_dxf.py
 COPY scripts/convert-dwg.sh /app/scripts/convert-dwg.sh
 RUN chmod +x /app/scripts/convert-dwg.sh
 
+# Drop privileges. The bind-mounted /app/data has to be owned/writable by uid
+# 1000 on the host (the deploy script chowns it on VPS), so the host path
+# /srv/projpul/data/backend must match. See audit-findings.md F3.
+RUN useradd --system --uid 1000 --user-group --home-dir /app --no-create-home app \
+ && mkdir -p /app/data \
+ && chown -R app:app /app
+USER app
+
 EXPOSE 8080
 CMD ["/app/api"]

@@ -17,5 +17,9 @@ ENV PORT=3000
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
+# Drop privileges. node:22-alpine ships with `node` user uid 1000.
+# See audit-findings.md F3.
+RUN chown -R node:node /app
+USER node
 EXPOSE 3000
 CMD ["node", "server.js"]

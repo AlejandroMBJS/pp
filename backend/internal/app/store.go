@@ -31,6 +31,7 @@ type Service struct {
 	loginGuard      *loginGuard
 	reAuditMu       sync.Mutex
 	reAuditLastAt   map[string]time.Time
+	tokenBlacklist  *TokenBlacklist
 }
 
 // loginGuard tracks failed login attempts per (lowercased) email to throttle
@@ -157,16 +158,17 @@ func NewService(cfg Config) (*Service, error) {
 		mailer = NewResendEmailSender(cfg.ResendAPIKey, cfg.ResendFromAddr, cfg.ResendReplyTo, slog.Default())
 	}
 	svc := &Service{
-		db:            db,
-		storage:       storage,
-		mailer:        mailer,
-		logger:        slog.Default(),
-		cfg:           cfg,
-		jwtSecret:     []byte(cfg.JWTSecret),
-		auditJobs:     make(chan string, 128),
-		stripe:        billing.NewClient(cfg.StripeSecretKey, cfg.StripeWebhookSecret),
-		loginGuard:    newLoginGuard(),
-		reAuditLastAt: make(map[string]time.Time),
+		db:             db,
+		storage:        storage,
+		mailer:         mailer,
+		logger:         slog.Default(),
+		cfg:            cfg,
+		jwtSecret:      []byte(cfg.JWTSecret),
+		auditJobs:      make(chan string, 128),
+		stripe:         billing.NewClient(cfg.StripeSecretKey, cfg.StripeWebhookSecret),
+		loginGuard:     newLoginGuard(),
+		reAuditLastAt:  make(map[string]time.Time),
+		tokenBlacklist: NewTokenBlacklist(),
 	}
 	if err := svc.initSchema(context.Background()); err != nil {
 		return nil, err
@@ -198,6 +200,32 @@ func (s *Service) UploadDir() string {
 
 func (s *Service) JWTSecret() []byte {
 	return s.jwtSecret
+}
+
+// TokenBlacklist exposes the in-memory revocation set so the auth middleware
+// can deny revoked JWTs before they reach a handler.
+func (s *Service) TokenBlacklist() *TokenBlacklist {
+	return s.tokenBlacklist
+}
+
+// Logout revokes the bearer token by adding it to the in-memory blacklist
+// until its natural expiry. Idempotent — calling twice with the same token
+// is a no-op the second time.
+func (s *Service) Logout(jwtStr string) error {
+	if jwtStr == "" {
+		return errors.New("missing token")
+	}
+	_, exp, err := ParseTokenWithExpiry(s.jwtSecret, jwtStr)
+	if err != nil {
+		return err
+	}
+	if exp.IsZero() {
+		// Tokens without `exp` are unusual but not impossible — give them a
+		// 12h cutoff so they don't sit in memory forever.
+		exp = time.Now().Add(12 * time.Hour)
+	}
+	s.tokenBlacklist.Revoke(jwtStr, exp)
+	return nil
 }
 
 func (s *Service) AllowedOrigins() []string {
@@ -838,8 +866,13 @@ func (s *Service) ensurePlatformAdmin(ctx context.Context) error {
 		return fmt.Errorf("purge stale platform admins: %w", err)
 	}
 
+	// CRITICAL: scope the lookup to platform-admin rows only (tenant_id = '').
+	// Without this, a user from any tenant who happens to share the configured
+	// PLATFORM_ADMIN_EMAIL would be promoted to admin on the next boot — a
+	// silent privilege escalation that only requires guessing the env email.
+	// See audit-findings.md F1.
 	var existingID string
-	err = s.db.QueryRowContext(ctx, `SELECT id FROM users WHERE email = $1`, email).Scan(&existingID)
+	err = s.db.QueryRowContext(ctx, `SELECT id FROM users WHERE email = $1 AND tenant_id = ''`, email).Scan(&existingID)
 	if err == sql.ErrNoRows {
 		if _, err := s.db.ExecContext(ctx,
 			`INSERT INTO users (id, tenant_id, email, password_hash, full_name, role, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,

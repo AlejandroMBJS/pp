@@ -77,6 +77,7 @@ func (s *Server) Routes() http.Handler {
 		protected.Use(s.authMiddleware)
 		protected.Post("/api/convert-dwg", s.handleConvertDwg)
 		protected.Get("/api/v1/me", s.handleMe)
+		protected.Post("/api/v1/auth/logout", s.handleLogout)
 		protected.Get("/api/v1/admin/tenants", s.handleAdminTenants)
 		protected.Get("/api/v1/admin/rbac", s.handleRBACList)
 		protected.Put("/api/v1/admin/rbac", s.handleRBACUpsert)
@@ -219,6 +220,11 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid token"})
 			return
 		}
+		// Reject explicitly-revoked tokens (logout). See audit-findings.md F2.
+		if s.service.TokenBlacklist().Revoked(tokenStr) {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "token revoked"})
+			return
+		}
 		// Block tokens belonging to users that have been suspended or deleted
 		// since the JWT was issued. Applies to platform admins too.
 		if claims.UserID != "" {
@@ -344,6 +350,27 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, user)
+}
+
+// handleLogout revokes the bearer token by adding it to the in-memory
+// blacklist. Idempotent. The frontend should also drop the token from local
+// storage. After this call, any further request with the same token gets 401.
+// See audit-findings.md F2.
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	auth := r.Header.Get("Authorization")
+	tokenStr := ""
+	if strings.HasPrefix(auth, "Bearer ") {
+		tokenStr = strings.TrimPrefix(auth, "Bearer ")
+	}
+	if tokenStr == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "missing bearer token"})
+		return
+	}
+	if err := s.service.Logout(tokenStr); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
 func (s *Server) handleAdminTenants(w http.ResponseWriter, r *http.Request) {

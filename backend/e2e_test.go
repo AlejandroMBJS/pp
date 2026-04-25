@@ -559,6 +559,156 @@ func bearer(token string) string {
 	return "Bearer " + strings.TrimSpace(token)
 }
 
+func TestDailyLogApprovalFlow(t *testing.T) {
+	const testJWTSecret = "projectpulse-test-secret-min-32-bytes-long-xxxx"
+	os.Setenv("JWT_SECRET", testJWTSecret)
+	tmp := t.TempDir()
+	server, err := httpapi.NewServer(app.Config{
+		DatabaseURL:           "postgres://arquicheck:arquicheck-password@localhost:5432/arquicheck_test?sslmode=disable",
+		UploadDir:             filepath.Join(tmp, "uploads"),
+		JWTSecret:             testJWTSecret,
+		PlatformAdminEmail:    "admin@projectpulse.local",
+		PlatformAdminPassword: "demo123",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	ts := httptest.NewServer(server.Routes())
+	defer ts.Close()
+
+	ownerEmail := fmt.Sprintf("log-owner-%d@test.local", time.Now().UnixNano())
+	owner := registerOwner(t, ts.URL, ownerEmail)
+	ownerAuth := bearer(owner.AccessToken)
+
+	supervisor := createUser(t, ts.URL, ownerAuth, "Log Supervisor", fmt.Sprintf("log-sup-%d@test.local", time.Now().UnixNano()), "demo123", app.RoleSupervisor)
+	helper := createUser(t, ts.URL, ownerAuth, "Log Helper", fmt.Sprintf("log-helper-%d@test.local", time.Now().UnixNano()), "demo123", app.RoleHelper)
+	client := createUser(t, ts.URL, ownerAuth, "Log Client", fmt.Sprintf("log-client-%d@test.local", time.Now().UnixNano()), "demo123", app.RoleClient)
+
+	project := createProject(t, ts.URL, ownerAuth, supervisor.ID, client.ID)
+	projectID := project["id"].(string)
+	// Set the preset to manufacturing so weather is NOT auto-fetched (tests stay offline).
+	patchJSONObj(t, ts.URL+"/api/v1/projects/"+projectID, ownerAuth, map[string]any{"daily_log_preset": "manufacturing"})
+
+	// Helper needs a task on this project to gain daily-log access.
+	_ = createTask(t, ts.URL, ownerAuth, projectID, helper.ID)
+
+	helperLogin := login(t, ts.URL, helper.Email, "demo123")
+	helperAuth := bearer(helperLogin.AccessToken)
+
+	// 1. Client cannot create a daily log.
+	clientLogin := login(t, ts.URL, client.Email, "demo123")
+	clientAuth := bearer(clientLogin.AccessToken)
+	resp := postJSON(t, ts.URL+"/api/v1/projects/"+projectID+"/daily-logs", clientAuth, map[string]any{
+		"log_date":  "2026-04-22",
+		"narrative": "should fail",
+	})
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusCreated {
+		t.Fatalf("client must not create daily logs, got %d", resp.StatusCode)
+	}
+
+	// 2. Helper creates a draft with a mix of allowed + disallowed sections.
+	draft := postJSONObj(t, ts.URL+"/api/v1/projects/"+projectID+"/daily-logs", helperAuth, map[string]any{
+		"log_date":  "2026-04-22",
+		"narrative": "First shift: 8h, no incidents.",
+		"sections": map[string]any{
+			"shift":      map[string]any{"incoming": "Juan", "outgoing": "Maria"},
+			"production": []map[string]any{{"part": "SKU-1", "qty": 120}},
+			"weather":    map[string]any{"summary": "sunny"}, // not in manufacturing whitelist — must be dropped
+		},
+	})
+	logID, ok := draft["id"].(string)
+	if !ok || logID == "" {
+		t.Fatalf("expected log id in create response: %v", draft)
+	}
+	if draft["status"].(string) != "draft" {
+		t.Fatalf("expected draft status, got %v", draft["status"])
+	}
+	if draft["author_user_id"].(string) != helper.ID {
+		t.Fatalf("expected helper as author, got %v", draft["author_user_id"])
+	}
+	secs, _ := draft["sections"].(map[string]any)
+	if _, present := secs["weather"]; present {
+		t.Fatalf("weather must be dropped for manufacturing preset; sections=%v", secs)
+	}
+	if _, present := secs["shift"]; !present {
+		t.Fatalf("shift section missing from sections=%v", secs)
+	}
+
+	// 3. Helper submits the draft.
+	postMustOK(t, ts.URL+"/api/v1/daily-logs/"+logID+"/submit", helperAuth)
+
+	// 4. Client cannot approve.
+	resp = postJSON(t, ts.URL+"/api/v1/daily-logs/"+logID+"/approve", clientAuth, map[string]any{})
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("client must not approve daily logs")
+	}
+
+	// 5. Supervisor approves.
+	supervisorLogin := login(t, ts.URL, supervisor.Email, "demo123")
+	supervisorAuth := bearer(supervisorLogin.AccessToken)
+	postMustOK(t, ts.URL+"/api/v1/daily-logs/"+logID+"/approve", supervisorAuth)
+
+	// 6. Second log: submit → reject → resubmit cycle.
+	second := postJSONObj(t, ts.URL+"/api/v1/projects/"+projectID+"/daily-logs", helperAuth, map[string]any{
+		"log_date":  "2026-04-21",
+		"narrative": "Second shift",
+		"sections":  map[string]any{"downtime": []map[string]any{{"reason": "maintenance", "minutes": 15}}},
+	})
+	secondID := second["id"].(string)
+	postMustOK(t, ts.URL+"/api/v1/daily-logs/"+secondID+"/submit", helperAuth)
+
+	rejected := postJSONObjGeneric(t, ts.URL+"/api/v1/daily-logs/"+secondID+"/reject", supervisorAuth, map[string]any{
+		"comment": "Missing QC photos.",
+	})
+	if rejected["status"].(string) != "rejected" {
+		t.Fatalf("expected rejected status, got %v", rejected["status"])
+	}
+	if rejected["reviewer_comment"].(string) == "" {
+		t.Fatalf("expected reviewer comment to be set")
+	}
+
+	// Helper can edit after rejection, then resubmit.
+	patchJSONObj(t, ts.URL+"/api/v1/daily-logs/"+secondID, helperAuth, map[string]any{
+		"narrative": "Second shift (updated with QC).",
+	})
+	postMustOK(t, ts.URL+"/api/v1/daily-logs/"+secondID+"/submit", helperAuth)
+
+	// 7. List endpoint returns both logs for helper/supervisor.
+	logs := getJSONArray(t, ts.URL+"/api/v1/projects/"+projectID+"/daily-logs", helperAuth)
+	if len(logs) < 2 {
+		t.Fatalf("expected at least 2 daily logs, got %d", len(logs))
+	}
+}
+
+// postMustOK runs POST {url} and fails the test if the response is not 2xx.
+func postMustOK(t *testing.T, url, auth string) {
+	t.Helper()
+	resp := postJSON(t, url, auth, map[string]any{})
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("POST %s: %d %s", url, resp.StatusCode, string(body))
+	}
+}
+
+// postJSONObjGeneric posts and accepts either 200 or 201.
+func postJSONObjGeneric(t *testing.T, url, auth string, payload any) map[string]any {
+	t.Helper()
+	resp := postJSON(t, url, auth, payload)
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("POST %s: %d %s", url, resp.StatusCode, string(body))
+	}
+	var out map[string]any
+	decodeBody(t, resp.Body, &out)
+	return out
+}
+
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }

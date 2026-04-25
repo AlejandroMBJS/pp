@@ -30,23 +30,24 @@ func main() {
 	// Fail-fast on half-configured Stripe: any STRIPE_* env being set means billing is
 	// expected to work, so all required keys must also be present. A production deploy
 	// missing the webhook secret silently accepts unverified events → fatal.
-	stripeEnvs := map[string]string{
+	// Enterprise is custom-contract / sales-led and intentionally has no public price,
+	// so STRIPE_PRICE_ENTERPRISE is optional.
+	stripeRequired := map[string]string{
 		"STRIPE_SECRET_KEY":         os.Getenv("STRIPE_SECRET_KEY"),
 		"STRIPE_WEBHOOK_SECRET":     os.Getenv("STRIPE_WEBHOOK_SECRET"),
 		"STRIPE_PRICE_PROFESSIONAL": os.Getenv("STRIPE_PRICE_PROFESSIONAL"),
 		"STRIPE_PRICE_BUSINESS":     os.Getenv("STRIPE_PRICE_BUSINESS"),
-		"STRIPE_PRICE_ENTERPRISE":   os.Getenv("STRIPE_PRICE_ENTERPRISE"),
 	}
-	anyStripeSet := false
-	for _, v := range stripeEnvs {
+	anyStripeSet := os.Getenv("STRIPE_PUBLISHABLE_KEY") != "" || os.Getenv("STRIPE_PRICE_ENTERPRISE") != ""
+	for _, v := range stripeRequired {
 		if v != "" {
 			anyStripeSet = true
 			break
 		}
 	}
-	if anyStripeSet || os.Getenv("STRIPE_PUBLISHABLE_KEY") != "" {
+	if anyStripeSet {
 		var missing []string
-		for k, v := range stripeEnvs {
+		for k, v := range stripeRequired {
 			if v == "" {
 				missing = append(missing, k)
 			}

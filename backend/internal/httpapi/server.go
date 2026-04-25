@@ -111,6 +111,7 @@ func (s *Server) Routes() http.Handler {
 		protected.Get("/api/v1/projects", s.handleListProjects)
 		protected.Get("/api/v1/projects/{projectID}/tasks", s.handleProjectTasks)
 		protected.Get("/api/v1/projects/{projectID}/evidence", s.handleProjectEvidences)
+		protected.Get("/api/v1/projects/{projectID}/evidences", s.handleProjectEvidences)
 		protected.Get("/api/v1/projects/{projectID}/blueprints", s.handleProjectBlueprints)
 		protected.Post("/api/v1/projects/{projectID}/blueprints/upload-url", s.handleBlueprintUploadURL)
 		protected.Get("/api/v1/projects/{projectID}/deliverables", s.handleProjectDeliverables)
@@ -134,6 +135,7 @@ func (s *Server) Routes() http.Handler {
 		protected.Patch("/api/v1/tasks/{taskID}", s.handleTaskUpdate)
 		protected.Delete("/api/v1/tasks/{taskID}", s.handleTaskDelete)
 		protected.Patch("/api/v1/tasks/{taskID}/timeline", s.handleTaskTimeline)
+		protected.Post("/api/v1/tasks/{taskID}/progress", s.handleHelperProgress)
 		protected.Get("/api/v1/tasks/assigned", s.handleAssignedTasks)
 		protected.Get("/api/v1/tasks/{taskID}/evidences", s.handleTaskEvidences)
 		protected.Post("/api/v1/tasks/{taskID}/evidence/upload-url", s.handleUploadURL)
@@ -141,6 +143,7 @@ func (s *Server) Routes() http.Handler {
 		protected.Post("/api/v1/evidence/confirm-upload", s.handleConfirmUpload)
 		protected.Post("/api/v1/evidences/{evidenceID}/approve", s.handleApproveEvidence)
 		protected.Post("/api/v1/evidences/{evidenceID}/reject", s.handleRejectEvidence)
+		protected.Post("/api/v1/evidences/{evidenceID}/re-audit", s.handleReAuditEvidence)
 		protected.Delete("/api/v1/evidences/{evidenceID}", s.handleDeleteEvidence)
 		protected.Get("/api/v1/files/{evidenceID}", s.handleEvidenceFile)
 
@@ -149,10 +152,17 @@ func (s *Server) Routes() http.Handler {
 		protected.Post("/api/v1/projects/{projectID}/expenses", s.handleCreateExpense)
 		protected.Patch("/api/v1/expenses/{expenseID}", s.handleUpdateExpense)
 		protected.Delete("/api/v1/expenses/{expenseID}", s.handleDeleteExpense)
+		protected.Get("/api/v1/daily-log-presets", s.handleListDailyLogPresets)
 		protected.Get("/api/v1/projects/{projectID}/daily-logs", s.handleListDailyLogs)
 		protected.Post("/api/v1/projects/{projectID}/daily-logs", s.handleCreateDailyLog)
 		protected.Patch("/api/v1/daily-logs/{logID}", s.handleUpdateDailyLog)
 		protected.Delete("/api/v1/daily-logs/{logID}", s.handleDeleteDailyLog)
+		protected.Post("/api/v1/daily-logs/{logID}/submit", s.handleSubmitDailyLog)
+		protected.Post("/api/v1/daily-logs/{logID}/approve", s.handleApproveDailyLog)
+		protected.Post("/api/v1/daily-logs/{logID}/reject", s.handleRejectDailyLog)
+		protected.Post("/api/v1/daily-logs/{logID}/photos/upload-url", s.handleRequestDailyLogPhotoUpload)
+		protected.Post("/api/v1/daily-logs/{logID}/photos/confirm", s.handleConfirmDailyLogPhoto)
+		protected.Delete("/api/v1/daily-logs/photos/{photoID}", s.handleDeleteDailyLogPhoto)
 		protected.Get("/api/v1/projects/{projectID}/messages", s.handleListMessages)
 		protected.Post("/api/v1/projects/{projectID}/messages", s.handleSendMessage)
 		protected.Patch("/api/v1/messages/{messageID}", s.handleUpdateMessage)
@@ -192,11 +202,19 @@ type actorKey struct{}
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
-		if !strings.HasPrefix(auth, "Bearer ") {
+		var tokenStr string
+		if strings.HasPrefix(auth, "Bearer ") {
+			tokenStr = strings.TrimPrefix(auth, "Bearer ")
+		} else if strings.HasPrefix(r.URL.Path, "/api/v1/files/") {
+			// <img> tags cannot send Authorization headers; fall back to access_token
+			// query param only for file reads. Access logs redact this key.
+			tokenStr = r.URL.Query().Get("access_token")
+		}
+		if tokenStr == "" {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "missing bearer token"})
 			return
 		}
-		claims, err := app.ParseToken(s.service.JWTSecret(), strings.TrimPrefix(auth, "Bearer "))
+		claims, err := app.ParseToken(s.service.JWTSecret(), tokenStr)
 		if err != nil {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid token"})
 			return
@@ -238,11 +256,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		OwnerName   string `json:"owner_name"`
 		OwnerEmail  string `json:"owner_email"`
 		Password    string `json:"password"`
+		Industry    string `json:"industry"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	response, err := s.service.RegisterCompanyOwner(r.Context(), req.CompanyName, req.CompanySlug, req.OwnerName, req.OwnerEmail, req.Password)
+	response, err := s.service.RegisterCompanyOwner(r.Context(), req.CompanyName, req.CompanySlug, req.OwnerName, req.OwnerEmail, req.Password, req.Industry)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
@@ -944,6 +963,25 @@ func (s *Server) handleTaskTimeline(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, task)
 }
 
+func (s *Server) handleHelperProgress(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ProgressPercent int `json:"progress_percent"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	task, err := s.service.UpdateMyTaskProgress(r.Context(), s.actor(r), chi.URLParam(r, "taskID"), req.ProgressPercent)
+	if err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "forbidden") {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
 func (s *Server) handleAssignedTasks(w http.ResponseWriter, r *http.Request) {
 	tasks, err := s.service.ListAssignedTasks(r.Context(), s.actor(r))
 	if err != nil {
@@ -1066,6 +1104,24 @@ func (s *Server) handleRejectEvidence(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, evidence)
 }
 
+func (s *Server) handleReAuditEvidence(w http.ResponseWriter, r *http.Request) {
+	evidence, err := s.service.ReAuditEvidence(r.Context(), s.actor(r), chi.URLParam(r, "evidenceID"))
+	if err != nil {
+		msg := err.Error()
+		status := http.StatusBadRequest
+		if strings.Contains(msg, "forbidden") {
+			status = http.StatusForbidden
+		} else if strings.HasPrefix(msg, "rate_limited") {
+			status = http.StatusTooManyRequests
+		} else if strings.HasPrefix(msg, "ai_disabled") {
+			status = http.StatusServiceUnavailable
+		}
+		writeJSON(w, status, map[string]any{"error": msg})
+		return
+	}
+	writeJSON(w, http.StatusOK, evidence)
+}
+
 func (s *Server) handleDeleteEvidence(w http.ResponseWriter, r *http.Request) {
 	if err := s.service.DeleteEvidence(r.Context(), s.actor(r), chi.URLParam(r, "evidenceID")); err != nil {
 		status := http.StatusBadRequest
@@ -1149,6 +1205,10 @@ func (s *Server) handleListDailyLogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, logs)
 }
 
+func (s *Server) handleListDailyLogPresets(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, app.AllPresets())
+}
+
 func (s *Server) handleCreateDailyLog(w http.ResponseWriter, r *http.Request) {
 	var log app.DailyLog
 	if !decodeJSON(w, r, &log) {
@@ -1157,20 +1217,20 @@ func (s *Server) handleCreateDailyLog(w http.ResponseWriter, r *http.Request) {
 	log.ProjectID = chi.URLParam(r, "projectID")
 	created, err := s.service.CreateDailyLog(r.Context(), s.actor(r), log)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
 }
 
 func (s *Server) handleUpdateDailyLog(w http.ResponseWriter, r *http.Request) {
-	var log app.DailyLog
-	if !decodeJSON(w, r, &log) {
+	var patch app.DailyLogPatch
+	if !decodeJSON(w, r, &patch) {
 		return
 	}
-	updated, err := s.service.UpdateDailyLog(r.Context(), s.actor(r), chi.URLParam(r, "logID"), log)
+	updated, err := s.service.UpdateDailyLog(r.Context(), s.actor(r), chi.URLParam(r, "logID"), patch)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		classifyAndWriteError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
@@ -1183,6 +1243,87 @@ func (s *Server) handleDeleteDailyLog(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusForbidden
 		}
 		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
+}
+
+func (s *Server) handleSubmitDailyLog(w http.ResponseWriter, r *http.Request) {
+	updated, err := s.service.SubmitDailyLog(r.Context(), s.actor(r), chi.URLParam(r, "logID"))
+	if err != nil {
+		classifyAndWriteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) handleApproveDailyLog(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Comment string `json:"comment"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	updated, err := s.service.ApproveDailyLog(r.Context(), s.actor(r), chi.URLParam(r, "logID"), req.Comment)
+	if err != nil {
+		classifyAndWriteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) handleRejectDailyLog(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Comment string `json:"comment"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	updated, err := s.service.RejectDailyLog(r.Context(), s.actor(r), chi.URLParam(r, "logID"), req.Comment)
+	if err != nil {
+		classifyAndWriteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) handleRequestDailyLogPhotoUpload(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		FileName     string `json:"file_name"`
+		ContentType  string `json:"content_type"`
+		IntendedSize int64  `json:"intended_size_bytes"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	session, err := s.service.RequestDailyLogPhotoUpload(r.Context(), s.actor(r), chi.URLParam(r, "logID"), req.FileName, req.ContentType, req.IntendedSize, requestBaseURL(r))
+	if err != nil {
+		classifyAndWriteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (s *Server) handleConfirmDailyLogPhoto(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		UploadSessionID string `json:"upload_session_id"`
+		Section         string `json:"section"`
+		Caption         string `json:"caption"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	photo, err := s.service.ConfirmDailyLogPhoto(r.Context(), s.actor(r), chi.URLParam(r, "logID"), req.UploadSessionID, req.Section, req.Caption)
+	if err != nil {
+		classifyAndWriteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, photo)
+}
+
+func (s *Server) handleDeleteDailyLogPhoto(w http.ResponseWriter, r *http.Request) {
+	if err := s.service.RemoveDailyLogPhoto(r.Context(), s.actor(r), chi.URLParam(r, "photoID")); err != nil {
+		classifyAndWriteError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})

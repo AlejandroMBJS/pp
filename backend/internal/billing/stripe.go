@@ -70,6 +70,10 @@ func (c *Client) CreateCheckoutSession(customerID, priceID, successURL, cancelUR
 		},
 		SuccessURL: stripe.String(successURL + "?session_id={CHECKOUT_SESSION_ID}"),
 		CancelURL:  stripe.String(cancelURL),
+		// Force the classic card form instead of the Link-first express flow.
+		// Link auto-opens when the email matches a Link account and most of our
+		// B2B users expect a standard corporate card entry.
+		PaymentMethodTypes: stripe.StringSlice([]string{"card"}),
 	}
 	params.AddMetadata("tenant_id", tenantID)
 	return session.New(params)

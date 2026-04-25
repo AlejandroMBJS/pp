@@ -1,6 +1,9 @@
 package app
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 const (
 	RoleAdmin      = "admin"
@@ -123,6 +126,7 @@ type Tenant struct {
 	Country                string     `json:"country"`
 	Timezone               string     `json:"timezone"`
 	Currency               string     `json:"currency"`
+	Industry               string     `json:"industry"`
 	PublicDashboardEnabled bool       `json:"public_dashboard_enabled"`
 	PublicGalleryEnabled   bool       `json:"public_gallery_enabled"`
 	LogoURL                string     `json:"logo_url"`
@@ -138,6 +142,7 @@ type TenantPatch struct {
 	Country                *string `json:"country,omitempty"`
 	Timezone               *string `json:"timezone,omitempty"`
 	Currency               *string `json:"currency,omitempty"`
+	Industry               *string `json:"industry,omitempty"`
 	PublicDashboardEnabled *bool   `json:"public_dashboard_enabled,omitempty"`
 	PublicGalleryEnabled   *bool   `json:"public_gallery_enabled,omitempty"`
 	LogoURL                *string `json:"logo_url,omitempty"`
@@ -178,6 +183,7 @@ type Project struct {
 	LongitudeCenter  float64 `json:"longitude_center"`
 	GeofenceRadiusM  int     `json:"geofence_radius_m"`
 	LogoURL          string  `json:"logo_url"`
+	DailyLogPreset   string  `json:"daily_log_preset"`
 }
 
 type Task struct {
@@ -212,26 +218,31 @@ type Deliverable struct {
 }
 
 type Evidence struct {
-	ID                 string  `json:"id"`
-	TenantID           string  `json:"tenant_id"`
-	ProjectID          string  `json:"project_id"`
-	TaskID             string  `json:"task_id"`
-	UploadedByUserID   string  `json:"uploaded_by_user_id"`
-	ApprovedByUserID   string  `json:"approved_by_user_id,omitempty"`
-	FileName           string  `json:"file_name"`
-	MimeType           string  `json:"mime_type"`
-	FileSizeBytes      int64   `json:"file_size_bytes"`
-	URLArchivo         string  `json:"url_archivo"`
-	Status             string  `json:"status"`
-	Latitude           float64 `json:"latitude"`
-	Longitude          float64 `json:"longitude"`
-	MetadataEXIF       string  `json:"metadata_exif"`
-	ApprovalComment    string  `json:"approval_comment,omitempty"`
-	RejectionReason    string  `json:"rejection_reason,omitempty"`
-	VisibleToClient    bool    `json:"is_visible_to_client"`
-	AIProcessingStatus string  `json:"ai_processing_status"`
-	QualityScore       int     `json:"quality_score,omitempty"`
-	CreatedAt          string  `json:"created_at"`
+	ID                 string          `json:"id"`
+	TenantID           string          `json:"tenant_id"`
+	ProjectID          string          `json:"project_id"`
+	TaskID             string          `json:"task_id"`
+	UploadedByUserID   string          `json:"uploaded_by_user_id"`
+	ApprovedByUserID   string          `json:"approved_by_user_id,omitempty"`
+	FileName           string          `json:"file_name"`
+	MimeType           string          `json:"mime_type"`
+	FileSizeBytes      int64           `json:"file_size_bytes"`
+	URLArchivo         string          `json:"url_archivo"`
+	Status             string          `json:"status"`
+	Latitude           float64         `json:"latitude"`
+	Longitude          float64         `json:"longitude"`
+	MetadataEXIF       string          `json:"metadata_exif"`
+	ApprovalComment    string          `json:"approval_comment,omitempty"`
+	RejectionReason    string          `json:"rejection_reason,omitempty"`
+	VisibleToClient    bool            `json:"is_visible_to_client"`
+	AIProcessingStatus string          `json:"ai_processing_status"`
+	QualityScore       int             `json:"quality_score,omitempty"`
+	CreatedAt          string          `json:"created_at"`
+	AIFeedback         json.RawMessage `json:"ai_feedback,omitempty"`
+	AIModelVersion     string          `json:"ai_model_version,omitempty"`
+	UploaderName       string          `json:"uploader_name,omitempty"`
+	TaskTitle          string          `json:"task_title,omitempty"`
+	ReferencePhotoURL  string          `json:"reference_photo_url,omitempty"`
 }
 
 type UploadSession struct {
@@ -261,18 +272,48 @@ type Expense struct {
 }
 
 type DailyLog struct {
+	ID               string          `json:"id"`
+	TenantID         string          `json:"tenant_id"`
+	ProjectID        string          `json:"project_id"`
+	Date             string          `json:"date"`                    // legacy, mirrors LogDate
+	LogDate          string          `json:"log_date"`                // canonical date (YYYY-MM-DD)
+	Weather          string          `json:"weather,omitempty"`       // legacy
+	Headcount        int             `json:"headcount,omitempty"`     // legacy
+	ManpowerJSON     string          `json:"manpower_json,omitempty"` // legacy
+	Narrative        string          `json:"narrative"`
+	Accidents        string          `json:"accidents,omitempty"` // legacy
+	Sections         json.RawMessage `json:"sections"`            // preset-specific payload
+	Status           string          `json:"status"`              // draft | submitted | approved | rejected
+	AuthorUserID     string          `json:"author_user_id"`
+	UploadedByUserID string          `json:"uploaded_by_user_id"` // legacy, mirrors AuthorUserID
+	SubmittedAt      *time.Time      `json:"submitted_at,omitempty"`
+	ApprovedByUserID string          `json:"approved_by_user_id,omitempty"`
+	ApprovedAt       *time.Time      `json:"approved_at,omitempty"`
+	ReviewerComment  string          `json:"reviewer_comment,omitempty"`
+	Photos           []DailyLogPhoto `json:"photos"`
+	Preset           string          `json:"preset,omitempty"` // effective preset (project or tenant)
+	CreatedAt        string          `json:"created_at"`
+	UpdatedAt        *time.Time      `json:"updated_at,omitempty"`
+}
+
+type DailyLogPhoto struct {
 	ID               string `json:"id"`
 	TenantID         string `json:"tenant_id"`
-	ProjectID        string `json:"project_id"`
-	Date             string `json:"date"`
-	Weather          string `json:"weather"`
-	Headcount        int    `json:"headcount"`     // Total headcount
-	ManpowerJSON     string `json:"manpower_json"` // Breakdown by trade e.g. {"Concrete": 4, "Electric": 2}
-	Narrative        string `json:"narrative"`
-	Accidents        string `json:"accidents,omitempty"`
-	Status           string `json:"status"` // draft, submitted
+	LogID            string `json:"log_id"`
+	URL              string `json:"url"`
+	Caption          string `json:"caption"`
+	Section          string `json:"section"`
 	UploadedByUserID string `json:"uploaded_by_user_id"`
 	CreatedAt        string `json:"created_at"`
+}
+
+// DailyLogPreset declares the section whitelist and capabilities for an industry.
+type DailyLogPreset struct {
+	Key               string   `json:"key"`
+	Label             string   `json:"label"`
+	Sections          []string `json:"sections"`
+	RequiresSignature bool     `json:"requires_signature"`
+	IncludesWeather   bool     `json:"includes_weather"`
 }
 
 type BudgetAdjustment struct {

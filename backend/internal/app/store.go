@@ -19,16 +19,18 @@ import (
 )
 
 type Service struct {
-	db         *sql.DB
-	storage    FileStorage
-	mailer     EmailSender
-	logger     *slog.Logger
-	cfg        Config
-	jwtSecret  []byte
-	auditJobs  chan string
-	auditWg    sync.WaitGroup
-	stripe     *billing.Client
-	loginGuard *loginGuard
+	db              *sql.DB
+	storage         FileStorage
+	mailer          EmailSender
+	logger          *slog.Logger
+	cfg             Config
+	jwtSecret       []byte
+	auditJobs       chan string
+	auditWg         sync.WaitGroup
+	stripe          *billing.Client
+	loginGuard      *loginGuard
+	reAuditMu       sync.Mutex
+	reAuditLastAt   map[string]time.Time
 }
 
 // loginGuard tracks failed login attempts per (lowercased) email to throttle
@@ -155,15 +157,16 @@ func NewService(cfg Config) (*Service, error) {
 		mailer = NewResendEmailSender(cfg.ResendAPIKey, cfg.ResendFromAddr, cfg.ResendReplyTo, slog.Default())
 	}
 	svc := &Service{
-		db:         db,
-		storage:    storage,
-		mailer:     mailer,
-		logger:     slog.Default(),
-		cfg:        cfg,
-		jwtSecret:  []byte(cfg.JWTSecret),
-		auditJobs:  make(chan string, 128),
-		stripe:     billing.NewClient(cfg.StripeSecretKey, cfg.StripeWebhookSecret),
-		loginGuard: newLoginGuard(),
+		db:            db,
+		storage:       storage,
+		mailer:        mailer,
+		logger:        slog.Default(),
+		cfg:           cfg,
+		jwtSecret:     []byte(cfg.JWTSecret),
+		auditJobs:     make(chan string, 128),
+		stripe:        billing.NewClient(cfg.StripeSecretKey, cfg.StripeWebhookSecret),
+		loginGuard:    newLoginGuard(),
+		reAuditLastAt: make(map[string]time.Time),
 	}
 	if err := svc.initSchema(context.Background()); err != nil {
 		return nil, err
@@ -179,6 +182,7 @@ func NewService(cfg Config) (*Service, error) {
 	}
 	go svc.auditWorker()
 	go svc.demoPurgeWorker(context.Background())
+	go svc.recoverQueuedAudits()
 	return svc, nil
 }
 
@@ -602,6 +606,57 @@ func (s *Service) runMigrations(ctx context.Context) error {
 		{36, "alter_subscriptions_currency", `
 			ALTER TABLE subscriptions
 				ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'usd'
+		`},
+		{37, "alter_tenants_industry", `
+			ALTER TABLE tenants ADD COLUMN IF NOT EXISTS industry TEXT NOT NULL DEFAULT 'generic'
+		`},
+		{38, "alter_projects_daily_log_preset", `
+			ALTER TABLE projects ADD COLUMN IF NOT EXISTS daily_log_preset TEXT NOT NULL DEFAULT ''
+		`},
+		{39, "alter_daily_logs_v2", `
+			ALTER TABLE daily_logs
+				ADD COLUMN IF NOT EXISTS log_date TEXT NOT NULL DEFAULT '',
+				ADD COLUMN IF NOT EXISTS author_user_id TEXT NOT NULL DEFAULT '',
+				ADD COLUMN IF NOT EXISTS sections_json TEXT NOT NULL DEFAULT '{}',
+				ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ,
+				ADD COLUMN IF NOT EXISTS approved_by_user_id TEXT NOT NULL DEFAULT '',
+				ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ,
+				ADD COLUMN IF NOT EXISTS reviewer_comment TEXT NOT NULL DEFAULT '',
+				ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		`},
+		{40, "backfill_daily_logs_v2", `
+			UPDATE daily_logs
+			SET log_date = COALESCE(NULLIF(log_date, ''), date),
+			    author_user_id = COALESCE(NULLIF(author_user_id, ''), uploaded_by_user_id),
+			    sections_json = CASE
+			        WHEN sections_json IS NULL OR sections_json = '' OR sections_json = '{}' THEN
+			            json_build_object(
+			                'weather', weather,
+			                'headcount', headcount,
+			                'manpower', CASE WHEN manpower_json ~ '^\s*\{' THEN manpower_json::jsonb ELSE '{}'::jsonb END,
+			                'accidents', accidents
+			            )::text
+			        ELSE sections_json
+			    END
+			WHERE log_date = '' OR author_user_id = '' OR sections_json = '{}' OR sections_json IS NULL OR sections_json = ''
+		`},
+		{41, "idx_daily_logs_project_date", `
+			CREATE INDEX IF NOT EXISTS idx_daily_logs_project_date ON daily_logs(project_id, log_date DESC)
+		`},
+		{42, "create_daily_log_photos", `
+			CREATE TABLE IF NOT EXISTS daily_log_photos (
+				id TEXT PRIMARY KEY,
+				tenant_id TEXT NOT NULL,
+				log_id TEXT NOT NULL REFERENCES daily_logs(id) ON DELETE CASCADE,
+				url TEXT NOT NULL,
+				caption TEXT NOT NULL DEFAULT '',
+				section TEXT NOT NULL DEFAULT '',
+				uploaded_by_user_id TEXT NOT NULL,
+				created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			)
+		`},
+		{43, "idx_daily_log_photos_log", `
+			CREATE INDEX IF NOT EXISTS idx_daily_log_photos_log ON daily_log_photos(log_id)
 		`},
 	}
 

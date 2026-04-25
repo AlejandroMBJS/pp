@@ -20,6 +20,7 @@ import (
 	"unicode"
 
 	"github.com/google/generative-ai-go/genai"
+	"github.com/lib/pq"
 	"google.golang.org/api/option"
 )
 
@@ -33,11 +34,15 @@ func (s *Service) PublicDemo(ctx context.Context) DemoPayload {
 	}
 }
 
-func (s *Service) RegisterCompanyOwner(ctx context.Context, companyName, companySlug, ownerName, ownerEmail, password string) (LoginResponse, error) {
+func (s *Service) RegisterCompanyOwner(ctx context.Context, companyName, companySlug, ownerName, ownerEmail, password, industry string) (LoginResponse, error) {
 	companyName = strings.TrimSpace(companyName)
 	companySlug = strings.ToLower(strings.TrimSpace(companySlug))
 	ownerName = strings.TrimSpace(ownerName)
 	ownerEmail = strings.TrimSpace(strings.ToLower(ownerEmail))
+	industry = strings.TrimSpace(strings.ToLower(industry))
+	if industry == "" || !ValidIndustryKey(industry) {
+		industry = PresetGeneric
+	}
 	if err := validateRegistration(companyName, companySlug, ownerName, ownerEmail, password); err != nil {
 		return LoginResponse{}, err
 	}
@@ -45,7 +50,7 @@ func (s *Service) RegisterCompanyOwner(ctx context.Context, companyName, company
 	if err != nil {
 		return LoginResponse{}, err
 	}
-	tenant := Tenant{ID: newID("ten"), Name: companyName, Slug: companySlug}
+	tenant := Tenant{ID: newID("ten"), Name: companyName, Slug: companySlug, Industry: industry}
 	user := User{ID: newID("usr"), TenantID: tenant.ID, Email: ownerEmail, FullName: ownerName, Role: RoleOwner}
 	now := nowText()
 
@@ -54,7 +59,7 @@ func (s *Service) RegisterCompanyOwner(ctx context.Context, companyName, company
 		return LoginResponse{}, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO tenants (id, name, slug, created_at) VALUES ($1, $2, $3, $4)`, tenant.ID, tenant.Name, tenant.Slug, now); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO tenants (id, name, slug, industry, created_at) VALUES ($1, $2, $3, $4, $5)`, tenant.ID, tenant.Name, tenant.Slug, tenant.Industry, now); err != nil {
 		return LoginResponse{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, tenant_id, email, password_hash, full_name, role, email_verified, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, user.ID, user.TenantID, user.Email, passwordHash, user.FullName, user.Role, 0, now); err != nil {
@@ -1239,7 +1244,7 @@ func (s *Service) GetCurrentTenant(ctx context.Context, actor Claims) (Tenant, e
 	}
 	var t Tenant
 	var suspendedAt sql.NullTime
-	err := s.db.QueryRowContext(ctx, `SELECT id, name, slug, COALESCE(website,''), COALESCE(country,''), COALESCE(timezone,'UTC'), COALESCE(currency,'USD'), COALESCE(public_dashboard_enabled, TRUE), COALESCE(public_gallery_enabled, FALSE), COALESCE(logo_url,''), COALESCE(primary_color,''), COALESCE(secondary_color,''), suspended_at, COALESCE(suspension_reason,'') FROM tenants WHERE id = $1 AND deleted_at IS NULL`, actor.TenantID).Scan(&t.ID, &t.Name, &t.Slug, &t.Website, &t.Country, &t.Timezone, &t.Currency, &t.PublicDashboardEnabled, &t.PublicGalleryEnabled, &t.LogoURL, &t.PrimaryColor, &t.SecondaryColor, &suspendedAt, &t.SuspensionReason)
+	err := s.db.QueryRowContext(ctx, `SELECT id, name, slug, COALESCE(website,''), COALESCE(country,''), COALESCE(timezone,'UTC'), COALESCE(currency,'USD'), COALESCE(industry,'generic'), COALESCE(public_dashboard_enabled, TRUE), COALESCE(public_gallery_enabled, FALSE), COALESCE(logo_url,''), COALESCE(primary_color,''), COALESCE(secondary_color,''), suspended_at, COALESCE(suspension_reason,'') FROM tenants WHERE id = $1 AND deleted_at IS NULL`, actor.TenantID).Scan(&t.ID, &t.Name, &t.Slug, &t.Website, &t.Country, &t.Timezone, &t.Currency, &t.Industry, &t.PublicDashboardEnabled, &t.PublicGalleryEnabled, &t.LogoURL, &t.PrimaryColor, &t.SecondaryColor, &suspendedAt, &t.SuspensionReason)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Tenant{}, errors.New("tenant not found")
@@ -1285,6 +1290,13 @@ func (s *Service) UpdateCurrentTenant(ctx context.Context, actor Claims, patch T
 	}
 	if patch.Currency != nil {
 		add("currency", strings.TrimSpace(*patch.Currency))
+	}
+	if patch.Industry != nil {
+		ind := strings.TrimSpace(strings.ToLower(*patch.Industry))
+		if !ValidIndustryKey(ind) {
+			return Tenant{}, errors.New("unknown industry; valid: generic, construction, manufacturing, field_service, facilities")
+		}
+		add("industry", ind)
 	}
 	if patch.PublicDashboardEnabled != nil {
 		add("public_dashboard_enabled", *patch.PublicDashboardEnabled)
@@ -1546,7 +1558,7 @@ func (s *Service) ListTenants(ctx context.Context, actor Claims) ([]Tenant, erro
 	if err := s.requirePlatformAdmin(actor); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, slug, COALESCE(website,''), COALESCE(country,''), COALESCE(timezone,'UTC'), COALESCE(currency,'USD'), COALESCE(public_dashboard_enabled, TRUE), COALESCE(public_gallery_enabled, FALSE), COALESCE(logo_url,''), COALESCE(primary_color,''), COALESCE(secondary_color,''), suspended_at, COALESCE(suspension_reason,'') FROM tenants WHERE deleted_at IS NULL ORDER BY created_at`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, slug, COALESCE(website,''), COALESCE(country,''), COALESCE(timezone,'UTC'), COALESCE(currency,'USD'), COALESCE(industry,'generic'), COALESCE(public_dashboard_enabled, TRUE), COALESCE(public_gallery_enabled, FALSE), COALESCE(logo_url,''), COALESCE(primary_color,''), COALESCE(secondary_color,''), suspended_at, COALESCE(suspension_reason,'') FROM tenants WHERE deleted_at IS NULL ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -1555,7 +1567,7 @@ func (s *Service) ListTenants(ctx context.Context, actor Claims) ([]Tenant, erro
 	for rows.Next() {
 		var tenant Tenant
 		var suspendedAt sql.NullTime
-		if err := rows.Scan(&tenant.ID, &tenant.Name, &tenant.Slug, &tenant.Website, &tenant.Country, &tenant.Timezone, &tenant.Currency, &tenant.PublicDashboardEnabled, &tenant.PublicGalleryEnabled, &tenant.LogoURL, &tenant.PrimaryColor, &tenant.SecondaryColor, &suspendedAt, &tenant.SuspensionReason); err != nil {
+		if err := rows.Scan(&tenant.ID, &tenant.Name, &tenant.Slug, &tenant.Website, &tenant.Country, &tenant.Timezone, &tenant.Currency, &tenant.Industry, &tenant.PublicDashboardEnabled, &tenant.PublicGalleryEnabled, &tenant.LogoURL, &tenant.PrimaryColor, &tenant.SecondaryColor, &suspendedAt, &tenant.SuspensionReason); err != nil {
 			return nil, err
 		}
 		if suspendedAt.Valid {
@@ -1727,11 +1739,11 @@ func (s *Service) ListProjects(ctx context.Context, actor Claims) ([]Project, er
 	var err error
 	switch actor.Role {
 	case RoleOwner:
-		rows, err = s.db.QueryContext(ctx, `SELECT id, tenant_id, name, description, status, client_user_id, supervisor_user_id, budget_total_cents, spent_total_cents, start_date, planned_end_date, latitude_center, longitude_center, geofence_radius_m, COALESCE(logo_url,'') FROM projects WHERE tenant_id = $1 ORDER BY created_at DESC`, actor.TenantID)
+		rows, err = s.db.QueryContext(ctx, `SELECT id, tenant_id, name, description, status, client_user_id, supervisor_user_id, budget_total_cents, spent_total_cents, start_date, planned_end_date, latitude_center, longitude_center, geofence_radius_m, COALESCE(logo_url,''), COALESCE(daily_log_preset,'') FROM projects WHERE tenant_id = $1 ORDER BY created_at DESC`, actor.TenantID)
 	case RoleSupervisor:
-		rows, err = s.db.QueryContext(ctx, `SELECT id, tenant_id, name, description, status, client_user_id, supervisor_user_id, budget_total_cents, spent_total_cents, start_date, planned_end_date, latitude_center, longitude_center, geofence_radius_m, COALESCE(logo_url,'') FROM projects WHERE supervisor_user_id = $1 ORDER BY created_at DESC`, actor.UserID)
+		rows, err = s.db.QueryContext(ctx, `SELECT id, tenant_id, name, description, status, client_user_id, supervisor_user_id, budget_total_cents, spent_total_cents, start_date, planned_end_date, latitude_center, longitude_center, geofence_radius_m, COALESCE(logo_url,''), COALESCE(daily_log_preset,'') FROM projects WHERE supervisor_user_id = $1 ORDER BY created_at DESC`, actor.UserID)
 	case RoleClient:
-		rows, err = s.db.QueryContext(ctx, `SELECT id, tenant_id, name, description, status, client_user_id, supervisor_user_id, budget_total_cents, spent_total_cents, start_date, planned_end_date, latitude_center, longitude_center, geofence_radius_m, COALESCE(logo_url,'') FROM projects WHERE client_user_id = $1 ORDER BY created_at DESC`, actor.UserID)
+		rows, err = s.db.QueryContext(ctx, `SELECT id, tenant_id, name, description, status, client_user_id, supervisor_user_id, budget_total_cents, spent_total_cents, start_date, planned_end_date, latitude_center, longitude_center, geofence_radius_m, COALESCE(logo_url,''), COALESCE(daily_log_preset,'') FROM projects WHERE client_user_id = $1 ORDER BY created_at DESC`, actor.UserID)
 	default:
 		return nil, errors.New("forbidden")
 	}
@@ -1742,7 +1754,7 @@ func (s *Service) ListProjects(ctx context.Context, actor Claims) ([]Project, er
 	projects := make([]Project, 0)
 	for rows.Next() {
 		var project Project
-		if err := rows.Scan(&project.ID, &project.TenantID, &project.Name, &project.Description, &project.Status, &project.ClientUserID, &project.SupervisorUserID, &project.BudgetTotalCents, &project.SpentTotalCents, &project.StartDate, &project.PlannedEndDate, &project.LatitudeCenter, &project.LongitudeCenter, &project.GeofenceRadiusM, &project.LogoURL); err != nil {
+		if err := rows.Scan(&project.ID, &project.TenantID, &project.Name, &project.Description, &project.Status, &project.ClientUserID, &project.SupervisorUserID, &project.BudgetTotalCents, &project.SpentTotalCents, &project.StartDate, &project.PlannedEndDate, &project.LatitudeCenter, &project.LongitudeCenter, &project.GeofenceRadiusM, &project.LogoURL, &project.DailyLogPreset); err != nil {
 			return nil, err
 		}
 		projects = append(projects, project)
@@ -1752,8 +1764,8 @@ func (s *Service) ListProjects(ctx context.Context, actor Claims) ([]Project, er
 
 func (s *Service) projectByID(ctx context.Context, projectID string) (Project, error) {
 	var project Project
-	err := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, name, description, status, client_user_id, supervisor_user_id, budget_total_cents, spent_total_cents, start_date, planned_end_date, latitude_center, longitude_center, geofence_radius_m, COALESCE(logo_url,'') FROM projects WHERE id = $1`, projectID).
-		Scan(&project.ID, &project.TenantID, &project.Name, &project.Description, &project.Status, &project.ClientUserID, &project.SupervisorUserID, &project.BudgetTotalCents, &project.SpentTotalCents, &project.StartDate, &project.PlannedEndDate, &project.LatitudeCenter, &project.LongitudeCenter, &project.GeofenceRadiusM, &project.LogoURL)
+	err := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, name, description, status, client_user_id, supervisor_user_id, budget_total_cents, spent_total_cents, start_date, planned_end_date, latitude_center, longitude_center, geofence_radius_m, COALESCE(logo_url,''), COALESCE(daily_log_preset,'') FROM projects WHERE id = $1`, projectID).
+		Scan(&project.ID, &project.TenantID, &project.Name, &project.Description, &project.Status, &project.ClientUserID, &project.SupervisorUserID, &project.BudgetTotalCents, &project.SpentTotalCents, &project.StartDate, &project.PlannedEndDate, &project.LatitudeCenter, &project.LongitudeCenter, &project.GeofenceRadiusM, &project.LogoURL, &project.DailyLogPreset)
 	return project, err
 }
 
@@ -1976,6 +1988,33 @@ func (s *Service) UpdateTaskTimeline(ctx context.Context, actor Claims, taskID s
 	return s.taskByID(ctx, taskID)
 }
 
+// UpdateMyTaskProgress lets a helper bump the progress_percent of a task they
+// are assigned to — used right after uploading evidence from the capture panel.
+// Intentionally narrow: only progress_percent changes, and only on the helper's
+// own task. Owners/supervisors go through UpdateTask or UpdateTaskTimeline.
+func (s *Service) UpdateMyTaskProgress(ctx context.Context, actor Claims, taskID string, progressPercent int) (Task, error) {
+	if actor.Role != RoleHelper {
+		return Task{}, errors.New("forbidden")
+	}
+	if progressPercent < 0 || progressPercent > 100 {
+		return Task{}, errors.New("progress_percent must be between 0 and 100")
+	}
+	if err := s.RequireWriteAccess(ctx, actor.TenantID); err != nil {
+		return Task{}, err
+	}
+	task, err := s.taskByID(ctx, taskID)
+	if err != nil {
+		return Task{}, err
+	}
+	if task.TenantID != actor.TenantID || task.AssignedToUserID != actor.UserID {
+		return Task{}, errors.New("forbidden")
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE tasks SET progress_percent = $1, updated_at = $2 WHERE id = $3`, progressPercent, nowText(), taskID); err != nil {
+		return Task{}, err
+	}
+	return s.taskByID(ctx, taskID)
+}
+
 func (s *Service) ListAssignedTasks(ctx context.Context, actor Claims) ([]Task, error) {
 	// Non-helper roles have no tasks personally assigned to them; return empty instead of 403.
 	if actor.Role != RoleHelper {
@@ -2156,6 +2195,13 @@ func (s *Service) ConfirmUpload(ctx context.Context, actor Claims, sessionID, me
 	if err := s.CheckStorageQuota(ctx, tenantID, intendedSize); err != nil {
 		return Evidence{}, err
 	}
+	isReference := strings.Contains(metadataEXIF, "comparison_reference")
+	initialStatus := "pending_approval"
+	initialAIStatus := "queued"
+	if isReference {
+		initialStatus = "committed"
+		initialAIStatus = "not_requested"
+	}
 	evidence := Evidence{
 		ID:                 newID("evi"),
 		TenantID:           tenantID,
@@ -2166,12 +2212,12 @@ func (s *Service) ConfirmUpload(ctx context.Context, actor Claims, sessionID, me
 		MimeType:           contentType,
 		FileSizeBytes:      intendedSize,
 		URLArchivo:         "/api/v1/files/" + newID("tmp"),
-		Status:             "pending_approval",
+		Status:             initialStatus,
 		Latitude:           lat,
 		Longitude:          lng,
 		MetadataEXIF:       metadataEXIF,
 		VisibleToClient:    false,
-		AIProcessingStatus: "not_requested",
+		AIProcessingStatus: initialAIStatus,
 		CreatedAt:          nowText(),
 	}
 	evidence.URLArchivo = "/api/v1/files/" + evidence.ID
@@ -2184,6 +2230,13 @@ func (s *Service) ConfirmUpload(ctx context.Context, actor Claims, sessionID, me
 		return Evidence{}, err
 	}
 	s.IncrementUsage(ctx, tenantID, "captures_per_month", 1)
+	if !isReference {
+		select {
+		case s.auditJobs <- evidence.ID:
+		default:
+			log.Printf("audit queue full on upload, evidence %s will stay queued until manual trigger", evidence.ID)
+		}
+	}
 	return evidence, nil
 }
 
@@ -2204,17 +2257,29 @@ func (s *Service) ListTaskEvidences(ctx context.Context, actor Claims, taskID st
 			return nil, err
 		}
 	}
+	baseSelect := `SELECT e.id, e.tenant_id, e.project_id, e.task_id, e.uploaded_by_user_id, e.approved_by_user_id, e.file_name, e.mime_type, e.file_size_bytes, e.url_archivo, e.status, e.latitude, e.longitude, e.metadata_exif, e.approval_comment, e.rejection_reason, e.is_visible_to_client, e.ai_processing_status, e.quality_score, e.created_at,
+		COALESCE(u.full_name, '') AS uploader_name,
+		COALESCE(t.title, '') AS task_title,
+		COALESCE(t.comparison_photo_url, '') AS reference_photo_url,
+		COALESCE(ia.json_feedback, '') AS ai_feedback,
+		COALESCE(ia.model_version, '') AS ai_model_version
+		FROM evidences e
+		LEFT JOIN users u ON u.id = e.uploaded_by_user_id
+		LEFT JOIN tasks t ON t.id = e.task_id
+		LEFT JOIN LATERAL (
+			SELECT json_feedback, model_version FROM ia_audits WHERE evidence_id = e.id ORDER BY created_at DESC LIMIT 1
+		) ia ON true`
 	var taskEvidenceQuery string
 	var taskEvidenceArgs []any
 	switch actor.Role {
 	case RoleClient:
-		taskEvidenceQuery = `SELECT id, tenant_id, project_id, task_id, uploaded_by_user_id, approved_by_user_id, file_name, mime_type, file_size_bytes, url_archivo, status, latitude, longitude, metadata_exif, approval_comment, rejection_reason, is_visible_to_client, ai_processing_status, quality_score, created_at FROM evidences WHERE task_id = $1 AND status IN ('committed', 'approved') AND is_visible_to_client = 1 ORDER BY created_at DESC`
+		taskEvidenceQuery = baseSelect + ` WHERE e.task_id = $1 AND e.status IN ('committed', 'approved') AND e.is_visible_to_client = 1 AND COALESCE(e.metadata_exif, '') NOT LIKE '%comparison_reference%' ORDER BY e.created_at DESC`
 		taskEvidenceArgs = []any{taskID}
 	case RoleHelper:
-		taskEvidenceQuery = `SELECT id, tenant_id, project_id, task_id, uploaded_by_user_id, approved_by_user_id, file_name, mime_type, file_size_bytes, url_archivo, status, latitude, longitude, metadata_exif, approval_comment, rejection_reason, is_visible_to_client, ai_processing_status, quality_score, created_at FROM evidences WHERE task_id = $1 AND status IN ('pending', 'approved') ORDER BY created_at DESC`
+		taskEvidenceQuery = baseSelect + ` WHERE e.task_id = $1 AND e.status IN ('pending_approval', 'approved', 'committed', 'rejected') AND COALESCE(e.metadata_exif, '') NOT LIKE '%comparison_reference%' ORDER BY e.created_at DESC`
 		taskEvidenceArgs = []any{taskID}
 	default:
-		taskEvidenceQuery = `SELECT id, tenant_id, project_id, task_id, uploaded_by_user_id, approved_by_user_id, file_name, mime_type, file_size_bytes, url_archivo, status, latitude, longitude, metadata_exif, approval_comment, rejection_reason, is_visible_to_client, ai_processing_status, quality_score, created_at FROM evidences WHERE task_id = $1 ORDER BY created_at DESC`
+		taskEvidenceQuery = baseSelect + ` WHERE e.task_id = $1 AND COALESCE(e.metadata_exif, '') NOT LIKE '%comparison_reference%' ORDER BY e.created_at DESC`
 		taskEvidenceArgs = []any{taskID}
 	}
 	rows, err := s.db.QueryContext(ctx, taskEvidenceQuery, taskEvidenceArgs...)
@@ -2226,10 +2291,14 @@ func (s *Service) ListTaskEvidences(ctx context.Context, actor Claims, taskID st
 	for rows.Next() {
 		var evidence Evidence
 		var visible int
-		if err := rows.Scan(&evidence.ID, &evidence.TenantID, &evidence.ProjectID, &evidence.TaskID, &evidence.UploadedByUserID, &evidence.ApprovedByUserID, &evidence.FileName, &evidence.MimeType, &evidence.FileSizeBytes, &evidence.URLArchivo, &evidence.Status, &evidence.Latitude, &evidence.Longitude, &evidence.MetadataEXIF, &evidence.ApprovalComment, &evidence.RejectionReason, &visible, &evidence.AIProcessingStatus, &evidence.QualityScore, &evidence.CreatedAt); err != nil {
+		var aiFeedback string
+		if err := rows.Scan(&evidence.ID, &evidence.TenantID, &evidence.ProjectID, &evidence.TaskID, &evidence.UploadedByUserID, &evidence.ApprovedByUserID, &evidence.FileName, &evidence.MimeType, &evidence.FileSizeBytes, &evidence.URLArchivo, &evidence.Status, &evidence.Latitude, &evidence.Longitude, &evidence.MetadataEXIF, &evidence.ApprovalComment, &evidence.RejectionReason, &visible, &evidence.AIProcessingStatus, &evidence.QualityScore, &evidence.CreatedAt, &evidence.UploaderName, &evidence.TaskTitle, &evidence.ReferencePhotoURL, &aiFeedback, &evidence.AIModelVersion); err != nil {
 			return nil, err
 		}
 		evidence.VisibleToClient = intToBool(visible)
+		if aiFeedback != "" {
+			evidence.AIFeedback = json.RawMessage(aiFeedback)
+		}
 		evidences = append(evidences, evidence)
 	}
 	return evidences, rows.Err()
@@ -2246,14 +2315,26 @@ func (s *Service) ListProjectEvidences(ctx context.Context, actor Claims, projec
 	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
 		return nil, err
 	}
+	baseSelect := `SELECT e.id, e.tenant_id, e.project_id, e.task_id, e.uploaded_by_user_id, e.approved_by_user_id, e.file_name, e.mime_type, e.file_size_bytes, e.url_archivo, e.status, e.latitude, e.longitude, e.metadata_exif, e.approval_comment, e.rejection_reason, e.is_visible_to_client, e.ai_processing_status, e.quality_score, e.created_at,
+		COALESCE(u.full_name, '') AS uploader_name,
+		COALESCE(t.title, '') AS task_title,
+		COALESCE(t.comparison_photo_url, '') AS reference_photo_url,
+		COALESCE(ia.json_feedback, '') AS ai_feedback,
+		COALESCE(ia.model_version, '') AS ai_model_version
+		FROM evidences e
+		LEFT JOIN users u ON u.id = e.uploaded_by_user_id
+		LEFT JOIN tasks t ON t.id = e.task_id
+		LEFT JOIN LATERAL (
+			SELECT json_feedback, model_version FROM ia_audits WHERE evidence_id = e.id ORDER BY created_at DESC LIMIT 1
+		) ia ON true`
 	var projEvidenceQuery string
 	switch actor.Role {
 	case RoleClient:
-		projEvidenceQuery = `SELECT id, tenant_id, project_id, task_id, uploaded_by_user_id, approved_by_user_id, file_name, mime_type, file_size_bytes, url_archivo, status, latitude, longitude, metadata_exif, approval_comment, rejection_reason, is_visible_to_client, ai_processing_status, quality_score, created_at FROM evidences WHERE project_id = $1 AND status IN ('committed', 'approved') AND is_visible_to_client = 1 ORDER BY created_at DESC`
+		projEvidenceQuery = baseSelect + ` WHERE e.project_id = $1 AND e.status IN ('committed', 'approved') AND e.is_visible_to_client = 1 AND COALESCE(e.metadata_exif, '') NOT LIKE '%comparison_reference%' ORDER BY e.created_at DESC`
 	case RoleHelper:
-		projEvidenceQuery = `SELECT id, tenant_id, project_id, task_id, uploaded_by_user_id, approved_by_user_id, file_name, mime_type, file_size_bytes, url_archivo, status, latitude, longitude, metadata_exif, approval_comment, rejection_reason, is_visible_to_client, ai_processing_status, quality_score, created_at FROM evidences WHERE project_id = $1 AND status IN ('pending', 'approved') ORDER BY created_at DESC`
+		projEvidenceQuery = baseSelect + ` WHERE e.project_id = $1 AND e.status IN ('pending_approval', 'approved', 'committed', 'rejected') AND COALESCE(e.metadata_exif, '') NOT LIKE '%comparison_reference%' ORDER BY e.created_at DESC`
 	default:
-		projEvidenceQuery = `SELECT id, tenant_id, project_id, task_id, uploaded_by_user_id, approved_by_user_id, file_name, mime_type, file_size_bytes, url_archivo, status, latitude, longitude, metadata_exif, approval_comment, rejection_reason, is_visible_to_client, ai_processing_status, quality_score, created_at FROM evidences WHERE project_id = $1 ORDER BY created_at DESC`
+		projEvidenceQuery = baseSelect + ` WHERE e.project_id = $1 AND COALESCE(e.metadata_exif, '') NOT LIKE '%comparison_reference%' ORDER BY e.created_at DESC`
 	}
 	rows, err := s.db.QueryContext(ctx, projEvidenceQuery, projectID)
 	if err != nil {
@@ -2264,10 +2345,14 @@ func (s *Service) ListProjectEvidences(ctx context.Context, actor Claims, projec
 	for rows.Next() {
 		var evidence Evidence
 		var visible int
-		if err := rows.Scan(&evidence.ID, &evidence.TenantID, &evidence.ProjectID, &evidence.TaskID, &evidence.UploadedByUserID, &evidence.ApprovedByUserID, &evidence.FileName, &evidence.MimeType, &evidence.FileSizeBytes, &evidence.URLArchivo, &evidence.Status, &evidence.Latitude, &evidence.Longitude, &evidence.MetadataEXIF, &evidence.ApprovalComment, &evidence.RejectionReason, &visible, &evidence.AIProcessingStatus, &evidence.QualityScore, &evidence.CreatedAt); err != nil {
+		var aiFeedback string
+		if err := rows.Scan(&evidence.ID, &evidence.TenantID, &evidence.ProjectID, &evidence.TaskID, &evidence.UploadedByUserID, &evidence.ApprovedByUserID, &evidence.FileName, &evidence.MimeType, &evidence.FileSizeBytes, &evidence.URLArchivo, &evidence.Status, &evidence.Latitude, &evidence.Longitude, &evidence.MetadataEXIF, &evidence.ApprovalComment, &evidence.RejectionReason, &visible, &evidence.AIProcessingStatus, &evidence.QualityScore, &evidence.CreatedAt, &evidence.UploaderName, &evidence.TaskTitle, &evidence.ReferencePhotoURL, &aiFeedback, &evidence.AIModelVersion); err != nil {
 			return nil, err
 		}
 		evidence.VisibleToClient = intToBool(visible)
+		if aiFeedback != "" {
+			evidence.AIFeedback = json.RawMessage(aiFeedback)
+		}
 		out = append(out, evidence)
 	}
 	return out, rows.Err()
@@ -2342,16 +2427,25 @@ func (s *Service) ApproveEvidence(ctx context.Context, actor Claims, evidenceID,
 		return Evidence{}, err
 	}
 	updatedAt := nowText()
-	_, err = s.db.ExecContext(ctx, `UPDATE evidences SET status = $1, approved_by_user_id = $2, approval_comment = $3, is_visible_to_client = $4, ai_processing_status = $5, updated_at = $6, approved_at = $7 WHERE id = $8`, "committed", actor.UserID, comment, boolToInt(visibleToClient), "queued", updatedAt, updatedAt, evidenceID)
+	// Idempotent approval: if AI audit already completed, preserve the score and DO NOT re-queue.
+	// Re-queuing a completed audit would waste Gemini quota and could overwrite a valid score.
+	alreadyAudited := evidence.AIProcessingStatus == "completed"
+	if alreadyAudited {
+		_, err = s.db.ExecContext(ctx, `UPDATE evidences SET status = $1, approved_by_user_id = $2, approval_comment = $3, is_visible_to_client = $4, updated_at = $5, approved_at = $6 WHERE id = $7`, "committed", actor.UserID, comment, boolToInt(visibleToClient), updatedAt, updatedAt, evidenceID)
+	} else {
+		_, err = s.db.ExecContext(ctx, `UPDATE evidences SET status = $1, approved_by_user_id = $2, approval_comment = $3, is_visible_to_client = $4, ai_processing_status = $5, updated_at = $6, approved_at = $7 WHERE id = $8`, "committed", actor.UserID, comment, boolToInt(visibleToClient), "queued", updatedAt, updatedAt, evidenceID)
+	}
 	if err != nil {
 		return Evidence{}, err
 	}
-	select {
-	case s.auditJobs <- evidenceID:
-	default:
-		log.Printf("audit queue full, evidence %s will remain in queued state for manual review", evidenceID)
+	if !alreadyAudited {
+		select {
+		case s.auditJobs <- evidenceID:
+		default:
+			log.Printf("audit queue full, evidence %s will remain in queued state for manual review", evidenceID)
+		}
 	}
-	s.logger.Info("evidence.approved", "actor_id", actor.UserID, "tenant_id", actor.TenantID, "evidence_id", evidenceID, "project_id", evidence.ProjectID, "visible_to_client", visibleToClient)
+	s.logger.Info("evidence.approved", "actor_id", actor.UserID, "tenant_id", actor.TenantID, "evidence_id", evidenceID, "project_id", evidence.ProjectID, "visible_to_client", visibleToClient, "re_audited", !alreadyAudited)
 	return s.evidenceByID(ctx, evidenceID)
 }
 
@@ -2383,12 +2477,116 @@ func (s *Service) RejectEvidence(ctx context.Context, actor Claims, evidenceID, 
 
 func (s *Service) evidenceByID(ctx context.Context, evidenceID string) (Evidence, error) {
 	var evidence Evidence
-	var objectPath string
 	var visible int
-	err := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, project_id, task_id, uploaded_by_user_id, approved_by_user_id, file_name, mime_type, file_size_bytes, object_path, url_archivo, status, latitude, longitude, metadata_exif, approval_comment, rejection_reason, is_visible_to_client, ai_processing_status, quality_score, created_at FROM evidences WHERE id = $1`, evidenceID).
-		Scan(&evidence.ID, &evidence.TenantID, &evidence.ProjectID, &evidence.TaskID, &evidence.UploadedByUserID, &evidence.ApprovedByUserID, &evidence.FileName, &evidence.MimeType, &evidence.FileSizeBytes, &objectPath, &evidence.URLArchivo, &evidence.Status, &evidence.Latitude, &evidence.Longitude, &evidence.MetadataEXIF, &evidence.ApprovalComment, &evidence.RejectionReason, &visible, &evidence.AIProcessingStatus, &evidence.QualityScore, &evidence.CreatedAt)
+	var aiFeedback string
+	err := s.db.QueryRowContext(ctx, `SELECT e.id, e.tenant_id, e.project_id, e.task_id, e.uploaded_by_user_id, e.approved_by_user_id, e.file_name, e.mime_type, e.file_size_bytes, e.url_archivo, e.status, e.latitude, e.longitude, e.metadata_exif, e.approval_comment, e.rejection_reason, e.is_visible_to_client, e.ai_processing_status, e.quality_score, e.created_at,
+		COALESCE(u.full_name, '') AS uploader_name,
+		COALESCE(t.title, '') AS task_title,
+		COALESCE(t.comparison_photo_url, '') AS reference_photo_url,
+		COALESCE(ia.json_feedback, '') AS ai_feedback,
+		COALESCE(ia.model_version, '') AS ai_model_version
+		FROM evidences e
+		LEFT JOIN users u ON u.id = e.uploaded_by_user_id
+		LEFT JOIN tasks t ON t.id = e.task_id
+		LEFT JOIN LATERAL (
+			SELECT json_feedback, model_version FROM ia_audits WHERE evidence_id = e.id ORDER BY created_at DESC LIMIT 1
+		) ia ON true
+		WHERE e.id = $1`, evidenceID).
+		Scan(&evidence.ID, &evidence.TenantID, &evidence.ProjectID, &evidence.TaskID, &evidence.UploadedByUserID, &evidence.ApprovedByUserID, &evidence.FileName, &evidence.MimeType, &evidence.FileSizeBytes, &evidence.URLArchivo, &evidence.Status, &evidence.Latitude, &evidence.Longitude, &evidence.MetadataEXIF, &evidence.ApprovalComment, &evidence.RejectionReason, &visible, &evidence.AIProcessingStatus, &evidence.QualityScore, &evidence.CreatedAt, &evidence.UploaderName, &evidence.TaskTitle, &evidence.ReferencePhotoURL, &aiFeedback, &evidence.AIModelVersion)
 	evidence.VisibleToClient = intToBool(visible)
+	if aiFeedback != "" {
+		evidence.AIFeedback = json.RawMessage(aiFeedback)
+	}
 	return evidence, err
+}
+
+// ReAuditEvidence lets the supervisor manually re-run the AI audit for an
+// evidence that ended up in a dead-end state (disabled, needs_review,
+// not_requested, queued). Rate-limited to 1 request per evidence per 30s to
+// prevent burning Gemini quota via rapid clicks.
+func (s *Service) ReAuditEvidence(ctx context.Context, actor Claims, evidenceID string) (Evidence, error) {
+	if s.permissionEffect(ctx, actor.Role, "evidence.approve") != "allow" {
+		return Evidence{}, errors.New("forbidden")
+	}
+	evidence, err := s.evidenceByID(ctx, evidenceID)
+	if err != nil {
+		return Evidence{}, err
+	}
+	project, err := s.projectByID(ctx, evidence.ProjectID)
+	if err != nil {
+		return Evidence{}, err
+	}
+	if actor.TenantID != project.TenantID {
+		return Evidence{}, errors.New("forbidden")
+	}
+	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
+		return Evidence{}, err
+	}
+	if s.cfg.GeminiAPIKey == "" {
+		return Evidence{}, errors.New("ai_disabled: GEMINI_API_KEY not configured")
+	}
+	// Rate limit: 1 re-audit per evidence per 30s.
+	s.reAuditMu.Lock()
+	if last, ok := s.reAuditLastAt[evidenceID]; ok {
+		if delta := time.Since(last); delta < 30*time.Second {
+			s.reAuditMu.Unlock()
+			return Evidence{}, fmt.Errorf("rate_limited: wait %ds", int(30-delta.Seconds()))
+		}
+	}
+	s.reAuditLastAt[evidenceID] = time.Now()
+	// Opportunistic GC of the map when it grows past 1k entries.
+	if len(s.reAuditLastAt) > 1024 {
+		cutoff := time.Now().Add(-10 * time.Minute)
+		for k, v := range s.reAuditLastAt {
+			if v.Before(cutoff) {
+				delete(s.reAuditLastAt, k)
+			}
+		}
+	}
+	s.reAuditMu.Unlock()
+
+	if _, err := s.db.ExecContext(ctx, `UPDATE evidences SET ai_processing_status = $1, updated_at = $2 WHERE id = $3`, "queued", nowText(), evidenceID); err != nil {
+		return Evidence{}, err
+	}
+	select {
+	case s.auditJobs <- evidenceID:
+	default:
+		log.Printf("audit queue full on re-audit, evidence %s will stay queued until worker drains", evidenceID)
+	}
+	s.logger.Info("evidence.re_audit", "actor_id", actor.UserID, "tenant_id", actor.TenantID, "evidence_id", evidenceID, "project_id", evidence.ProjectID)
+	return s.evidenceByID(ctx, evidenceID)
+}
+
+// recoverQueuedAudits re-queues evidences stuck in 'queued' or 'processing' at
+// boot — typically orphaned by a previous restart. Best-effort: the channel is
+// 128 slots wide, so we cap at 128 and trust the worker to drain. No-op if
+// there's nothing stuck.
+func (s *Service) recoverQueuedAudits() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM evidences WHERE ai_processing_status IN ('queued','processing') ORDER BY created_at DESC LIMIT 128`)
+	if err != nil {
+		log.Printf("audit recovery: query failed: %v", err)
+		return
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			continue
+		}
+		select {
+		case s.auditJobs <- id:
+			count++
+		default:
+			log.Printf("audit recovery: queue full at %d evidences", count)
+			return
+		}
+	}
+	if count > 0 {
+		log.Printf("audit recovery: requeued %d stuck evidences", count)
+	}
 }
 
 func (s *Service) auditWorker() {
@@ -2405,6 +2603,10 @@ func (s *Service) processAudit(evidenceID string) {
 	evidence, err := s.evidenceByID(ctx, evidenceID)
 	if err != nil {
 		return
+	}
+	// Mark as 'processing' so UI distinguishes queued from running.
+	if _, err := s.db.ExecContext(ctx, `UPDATE evidences SET ai_processing_status = $1, updated_at = $2 WHERE id = $3`, "processing", nowText(), evidenceID); err != nil {
+		log.Printf("audit worker: failed to mark processing for evidence=%s: %v", evidenceID, err)
 	}
 	var objectPath string
 	if err := s.db.QueryRowContext(ctx, `SELECT object_path FROM evidences WHERE id = $1`, evidenceID).Scan(&objectPath); err != nil {
@@ -2685,12 +2887,16 @@ func (s *Service) UpdateProject(ctx context.Context, actor Claims, projectID str
 			return Project{}, errors.New("client must belong to same organization")
 		}
 	}
+	if !ValidPresetKey(patch.DailyLogPreset) {
+		return Project{}, errors.New("unknown daily_log_preset")
+	}
 	now := nowText()
 	_, err = s.db.ExecContext(ctx,
-		`UPDATE projects SET name=$1, description=$2, status=$3, start_date=$4, planned_end_date=$5, supervisor_user_id=$6, client_user_id=$7, latitude_center=$8, longitude_center=$9, geofence_radius_m=$10, updated_at=$11 WHERE id=$12`,
+		`UPDATE projects SET name=$1, description=$2, status=$3, start_date=$4, planned_end_date=$5, supervisor_user_id=$6, client_user_id=$7, latitude_center=$8, longitude_center=$9, geofence_radius_m=$10, daily_log_preset=$11, updated_at=$12 WHERE id=$13`,
 		patch.Name, patch.Description, patch.Status, patch.StartDate, patch.PlannedEndDate,
 		patch.SupervisorUserID, patch.ClientUserID,
 		patch.LatitudeCenter, patch.LongitudeCenter, patch.GeofenceRadiusM,
+		strings.TrimSpace(strings.ToLower(patch.DailyLogPreset)),
 		now, projectID,
 	)
 	if err != nil {
@@ -2820,11 +3026,13 @@ func (s *Service) ClientGallery(ctx context.Context, actor Claims, projectID str
 }
 
 func (s *Service) EvidenceFile(ctx context.Context, actor Claims, evidenceID string) (io.ReadCloser, string, error) {
-	var projectID, objectPath, mimeType string
+	var projectID, objectPath, mimeType, metadata string
 	var visible int
-	if err := s.db.QueryRowContext(ctx, `SELECT project_id, object_path, mime_type, is_visible_to_client FROM evidences WHERE id = $1 AND tenant_id = $2`, evidenceID, actor.TenantID).Scan(&projectID, &objectPath, &mimeType, &visible); err != nil {
+	var uploaderID string
+	if err := s.db.QueryRowContext(ctx, `SELECT project_id, object_path, mime_type, is_visible_to_client, uploaded_by_user_id, COALESCE(metadata_exif, '') FROM evidences WHERE id = $1 AND tenant_id = $2`, evidenceID, actor.TenantID).Scan(&projectID, &objectPath, &mimeType, &visible, &uploaderID, &metadata); err != nil {
 		return nil, "", err
 	}
+	isComparison := strings.Contains(metadata, "comparison_reference")
 	project, err := s.projectByID(ctx, projectID)
 	if err != nil {
 		return nil, "", err
@@ -2835,16 +3043,12 @@ func (s *Service) EvidenceFile(ctx context.Context, actor Claims, evidenceID str
 			return nil, "", err
 		}
 	case RoleHelper:
-		// Helpers can view evidence they uploaded
-		var uploaderID string
-		if err := s.db.QueryRowContext(ctx, `SELECT uploaded_by_user_id FROM evidences WHERE id = $1`, evidenceID).Scan(&uploaderID); err != nil {
-			return nil, "", err
-		}
-		if uploaderID != actor.UserID {
+		// Helpers can view evidence they uploaded, plus comparison references of their tenant.
+		if uploaderID != actor.UserID && !isComparison {
 			return nil, "", errors.New("forbidden")
 		}
 	case RoleClient:
-		if !intToBool(visible) {
+		if !intToBool(visible) && !isComparison {
 			return nil, "", errors.New("forbidden")
 		}
 		if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
@@ -3257,66 +3461,288 @@ func (s *Service) DeleteExpense(ctx context.Context, actor Claims, expenseID str
 	return tx.Commit()
 }
 
+// ensureDailyLogAccess extends project access to include helpers that have at
+// least one task assigned in the project (they live the work, they write the
+// log). Supervisor/client/owner use the normal project-access rules.
+func (s *Service) ensureDailyLogAccess(ctx context.Context, actor Claims, project Project) error {
+	if err := s.ensureProjectAccess(ctx, actor, project); err == nil {
+		return nil
+	}
+	if actor.Role == RoleHelper {
+		if actor.TenantID != project.TenantID {
+			return errors.New("forbidden")
+		}
+		var count int
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM tasks WHERE project_id = $1 AND assigned_to_user_id = $2`,
+			project.ID, actor.UserID,
+		).Scan(&count); err != nil {
+			return err
+		}
+		if count > 0 {
+			return nil
+		}
+	}
+	return errors.New("forbidden")
+}
+
+// effectivePresetForProject resolves the preset key: project override wins;
+// otherwise the tenant's industry; otherwise generic.
+func (s *Service) effectivePresetForProject(ctx context.Context, project Project) string {
+	if project.DailyLogPreset != "" {
+		return project.DailyLogPreset
+	}
+	var industry string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(industry, 'generic') FROM tenants WHERE id = $1`,
+		project.TenantID,
+	).Scan(&industry); err != nil {
+		return PresetGeneric
+	}
+	if industry == "" {
+		return PresetGeneric
+	}
+	return industry
+}
+
+const dailyLogSelect = `SELECT id, tenant_id, project_id,
+	COALESCE(NULLIF(log_date,''), date),
+	date,
+	COALESCE(weather,''), COALESCE(headcount,0), COALESCE(manpower_json,'{}'),
+	narrative, COALESCE(accidents,''),
+	COALESCE(sections_json,'{}'),
+	status,
+	COALESCE(NULLIF(author_user_id,''), uploaded_by_user_id),
+	uploaded_by_user_id,
+	submitted_at, COALESCE(approved_by_user_id,''), approved_at,
+	COALESCE(reviewer_comment,''),
+	created_at, updated_at
+FROM daily_logs`
+
+func scanDailyLog(row interface {
+	Scan(...any) error
+}) (DailyLog, error) {
+	var log DailyLog
+	var sections string
+	var submittedAt, approvedAt, updatedAt sql.NullTime
+	if err := row.Scan(
+		&log.ID, &log.TenantID, &log.ProjectID,
+		&log.LogDate, &log.Date,
+		&log.Weather, &log.Headcount, &log.ManpowerJSON,
+		&log.Narrative, &log.Accidents,
+		&sections,
+		&log.Status,
+		&log.AuthorUserID, &log.UploadedByUserID,
+		&submittedAt, &log.ApprovedByUserID, &approvedAt,
+		&log.ReviewerComment,
+		&log.CreatedAt, &updatedAt,
+	); err != nil {
+		return DailyLog{}, err
+	}
+	log.Sections = json.RawMessage(sections)
+	if submittedAt.Valid {
+		t := submittedAt.Time
+		log.SubmittedAt = &t
+	}
+	if approvedAt.Valid {
+		t := approvedAt.Time
+		log.ApprovedAt = &t
+	}
+	if updatedAt.Valid {
+		t := updatedAt.Time
+		log.UpdatedAt = &t
+	}
+	return log, nil
+}
+
+func (s *Service) hydrateLogPhotos(ctx context.Context, logs []DailyLog) error {
+	if len(logs) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(logs))
+	for _, l := range logs {
+		ids = append(ids, l.ID)
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, tenant_id, log_id, url, COALESCE(caption,''), COALESCE(section,''), uploaded_by_user_id, created_at
+		FROM daily_log_photos WHERE log_id = ANY($1) ORDER BY created_at`, pq.Array(ids))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	byLog := make(map[string][]DailyLogPhoto)
+	for rows.Next() {
+		var p DailyLogPhoto
+		var createdAt time.Time
+		if err := rows.Scan(&p.ID, &p.TenantID, &p.LogID, &p.URL, &p.Caption, &p.Section, &p.UploadedByUserID, &createdAt); err != nil {
+			return err
+		}
+		p.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+		byLog[p.LogID] = append(byLog[p.LogID], p)
+	}
+	for i := range logs {
+		logs[i].Photos = byLog[logs[i].ID]
+		if logs[i].Photos == nil {
+			logs[i].Photos = []DailyLogPhoto{}
+		}
+	}
+	return rows.Err()
+}
+
 func (s *Service) ListDailyLogs(ctx context.Context, actor Claims, projectID string) ([]DailyLog, error) {
 	project, err := s.projectByID(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
+	if err := s.ensureDailyLogAccess(ctx, actor, project); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, project_id, date, weather, headcount, manpower_json, narrative, accidents, status, uploaded_by_user_id, created_at FROM daily_logs WHERE project_id = $1 ORDER BY date DESC`, projectID)
+	preset := s.effectivePresetForProject(ctx, project)
+	rows, err := s.db.QueryContext(ctx, dailyLogSelect+` WHERE project_id = $1 ORDER BY COALESCE(NULLIF(log_date,''), date) DESC, created_at DESC`, projectID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	logs := make([]DailyLog, 0)
 	for rows.Next() {
-		var log DailyLog
-		if err := rows.Scan(&log.ID, &log.TenantID, &log.ProjectID, &log.Date, &log.Weather, &log.Headcount, &log.ManpowerJSON, &log.Narrative, &log.Accidents, &log.Status, &log.UploadedByUserID, &log.CreatedAt); err != nil {
+		log, err := scanDailyLog(rows)
+		if err != nil {
 			return nil, err
 		}
+		log.Preset = preset
 		logs = append(logs, log)
 	}
-	return logs, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.hydrateLogPhotos(ctx, logs); err != nil {
+		return nil, err
+	}
+	return logs, nil
 }
 
 func (s *Service) dailyLogByID(ctx context.Context, logID string) (DailyLog, error) {
-	var log DailyLog
-	err := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, project_id, date, weather, headcount, manpower_json, narrative, accidents, status, uploaded_by_user_id, created_at FROM daily_logs WHERE id = $1`, logID).
-		Scan(&log.ID, &log.TenantID, &log.ProjectID, &log.Date, &log.Weather, &log.Headcount, &log.ManpowerJSON, &log.Narrative, &log.Accidents, &log.Status, &log.UploadedByUserID, &log.CreatedAt)
-	return log, err
+	return scanDailyLog(s.db.QueryRowContext(ctx, dailyLogSelect+` WHERE id = $1`, logID))
+}
+
+// canEditDailyLog: author may edit their own draft or rejected log; owner and
+// supervisor may edit anything on a project they access.
+func (s *Service) canEditDailyLog(actor Claims, log DailyLog) bool {
+	if actor.Role == RoleOwner || actor.Role == RoleSupervisor {
+		return true
+	}
+	if actor.UserID == log.AuthorUserID {
+		return log.Status == "draft" || log.Status == "rejected"
+	}
+	return false
 }
 
 func (s *Service) CreateDailyLog(ctx context.Context, actor Claims, log DailyLog) (DailyLog, error) {
-	if strings.TrimSpace(log.Date) == "" {
-		return DailyLog{}, errors.New("date is required")
-	}
-	project, err := s.projectByID(ctx, log.ProjectID)
-	if err != nil {
-		return DailyLog{}, err
-	}
-	if actor.Role != RoleOwner && actor.Role != RoleSupervisor {
+	if actor.Role != RoleOwner && actor.Role != RoleSupervisor && actor.Role != RoleHelper {
 		return DailyLog{}, errors.New("forbidden")
 	}
 	if err := s.RequireWriteAccess(ctx, actor.TenantID); err != nil {
 		return DailyLog{}, err
 	}
-	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
+	project, err := s.projectByID(ctx, log.ProjectID)
+	if err != nil {
 		return DailyLog{}, err
 	}
-	log.ID = newID("log")
-	log.TenantID = project.TenantID
-	if log.Status == "" {
-		log.Status = "submitted"
+	if err := s.ensureDailyLogAccess(ctx, actor, project); err != nil {
+		return DailyLog{}, err
 	}
-	log.CreatedAt = nowText()
-	_, err = s.db.ExecContext(ctx, `INSERT INTO daily_logs (id, tenant_id, project_id, date, weather, headcount, manpower_json, narrative, accidents, status, uploaded_by_user_id, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`, log.ID, log.TenantID, log.ProjectID, log.Date, log.Weather, log.Headcount, log.ManpowerJSON, log.Narrative, log.Accidents, log.Status, actor.UserID, log.CreatedAt)
-	return log, err
+	logDate := strings.TrimSpace(log.LogDate)
+	if logDate == "" {
+		logDate = strings.TrimSpace(log.Date)
+	}
+	if logDate == "" {
+		logDate = time.Now().UTC().Format("2006-01-02")
+	}
+	preset := s.effectivePresetForProject(ctx, project)
+	sections, err := NormalizeSections(preset, log.Sections)
+	if err != nil {
+		return DailyLog{}, err
+	}
+	// Optional weather auto-fetch for presets that include it.
+	presetCfg := PresetByKey(preset)
+	if presetCfg.IncludesWeather && (project.LatitudeCenter != 0 || project.LongitudeCenter != 0) {
+		var current map[string]json.RawMessage
+		_ = json.Unmarshal(sections, &current)
+		if current == nil {
+			current = map[string]json.RawMessage{}
+		}
+		if _, has := current["weather"]; !has {
+			if snap := FetchWeather(ctx, project.LatitudeCenter, project.LongitudeCenter, logDate); snap != nil {
+				if buf, err := json.Marshal(snap); err == nil {
+					current["weather"] = buf
+					if reencoded, err := json.Marshal(current); err == nil {
+						sections = reencoded
+					}
+				}
+			}
+		}
+	}
+
+	status := strings.TrimSpace(strings.ToLower(log.Status))
+	if status == "" {
+		status = "draft"
+	}
+	if !ValidLogStatus(status) {
+		return DailyLog{}, ErrInvalidLogStatus
+	}
+	// Helpers may not self-approve; force their initial status to draft or
+	// submitted (owner/supervisor may create directly as approved for
+	// back-dating).
+	if actor.Role == RoleHelper && status != "draft" && status != "submitted" {
+		status = "draft"
+	}
+	narrative := strings.TrimSpace(log.Narrative)
+	now := nowText()
+	logID := newID("log")
+	var submittedAt any
+	if status == "submitted" || status == "approved" {
+		submittedAt = time.Now().UTC()
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO daily_logs (
+		id, tenant_id, project_id,
+		date, log_date,
+		weather, headcount, manpower_json,
+		narrative, accidents,
+		sections_json, status,
+		author_user_id, uploaded_by_user_id,
+		submitted_at, approved_by_user_id, approved_at, reviewer_comment,
+		created_at, updated_at
+	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'',NULL,'',$16,NOW())`,
+		logID, project.TenantID, project.ID,
+		logDate, logDate,
+		"", 0, "{}",
+		narrative, "",
+		string(sections), status,
+		actor.UserID, actor.UserID,
+		submittedAt,
+		now,
+	)
+	if err != nil {
+		return DailyLog{}, err
+	}
+	created, err := s.dailyLogByID(ctx, logID)
+	if err != nil {
+		return DailyLog{}, err
+	}
+	created.Preset = preset
+	created.Photos = []DailyLogPhoto{}
+	return created, nil
 }
 
-func (s *Service) UpdateDailyLog(ctx context.Context, actor Claims, logID string, patch DailyLog) (DailyLog, error) {
+type DailyLogPatch struct {
+	LogDate         *string          `json:"log_date,omitempty"`
+	Narrative       *string          `json:"narrative,omitempty"`
+	Sections        *json.RawMessage `json:"sections,omitempty"`
+	Status          *string          `json:"status,omitempty"`
+	ReviewerComment *string          `json:"reviewer_comment,omitempty"`
+}
+
+func (s *Service) UpdateDailyLog(ctx context.Context, actor Claims, logID string, patch DailyLogPatch) (DailyLog, error) {
 	log, err := s.dailyLogByID(ctx, logID)
 	if err != nil {
 		return DailyLog{}, err
@@ -3325,39 +3751,77 @@ func (s *Service) UpdateDailyLog(ctx context.Context, actor Claims, logID string
 	if err != nil {
 		return DailyLog{}, err
 	}
-	if actor.Role != RoleOwner && actor.Role != RoleSupervisor {
-		return DailyLog{}, errors.New("forbidden")
-	}
-	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
+	if err := s.ensureDailyLogAccess(ctx, actor, project); err != nil {
 		return DailyLog{}, err
 	}
-	if patch.Date != "" {
-		log.Date = patch.Date
+	if !s.canEditDailyLog(actor, log) {
+		return DailyLog{}, errors.New("forbidden")
 	}
-	if patch.Weather != "" {
-		log.Weather = patch.Weather
+	if err := s.RequireWriteAccess(ctx, actor.TenantID); err != nil {
+		return DailyLog{}, err
 	}
-	if patch.Headcount != 0 || log.Headcount == 0 {
-		log.Headcount = patch.Headcount
+
+	sets := []string{}
+	args := []any{}
+	add := func(col string, val any) {
+		args = append(args, val)
+		sets = append(sets, fmt.Sprintf("%s = $%d", col, len(args)))
 	}
-	if patch.Narrative != "" {
-		log.Narrative = patch.Narrative
+	if patch.LogDate != nil {
+		d := strings.TrimSpace(*patch.LogDate)
+		if d == "" {
+			return DailyLog{}, errors.New("log_date cannot be empty")
+		}
+		add("log_date", d)
+		add("date", d)
 	}
-	if patch.Accidents != "" || patch.Accidents == "" {
-		log.Accidents = patch.Accidents
+	if patch.Narrative != nil {
+		add("narrative", strings.TrimSpace(*patch.Narrative))
 	}
-	if patch.Status != "" {
-		log.Status = patch.Status
+	if patch.Sections != nil {
+		preset := s.effectivePresetForProject(ctx, project)
+		cleaned, err := NormalizeSections(preset, *patch.Sections)
+		if err != nil {
+			return DailyLog{}, err
+		}
+		add("sections_json", string(cleaned))
 	}
-	if patch.ManpowerJSON != "" {
-		log.ManpowerJSON = patch.ManpowerJSON
+	if patch.Status != nil {
+		// Generic status set is for owner/supervisor only (e.g. reverting to
+		// draft). Normal transitions go through Submit/Approve/Reject.
+		if actor.Role != RoleOwner && actor.Role != RoleSupervisor {
+			return DailyLog{}, errors.New("forbidden")
+		}
+		s := strings.TrimSpace(strings.ToLower(*patch.Status))
+		if !ValidLogStatus(s) {
+			return DailyLog{}, ErrInvalidLogStatus
+		}
+		add("status", s)
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE daily_logs SET date = $1, weather = $2, headcount = $3, narrative = $4, accidents = $5, status = $6, manpower_json = $7 WHERE id = $8`,
-		log.Date, log.Weather, log.Headcount, log.Narrative, log.Accidents, log.Status, log.ManpowerJSON, logID)
+	if patch.ReviewerComment != nil {
+		if actor.Role != RoleOwner && actor.Role != RoleSupervisor {
+			return DailyLog{}, errors.New("forbidden")
+		}
+		add("reviewer_comment", strings.TrimSpace(*patch.ReviewerComment))
+	}
+	if len(sets) == 0 {
+		return log, nil
+	}
+	sets = append(sets, "updated_at = NOW()")
+	args = append(args, logID)
+	query := fmt.Sprintf("UPDATE daily_logs SET %s WHERE id = $%d", strings.Join(sets, ", "), len(args))
+	if _, err := s.db.ExecContext(ctx, query, args...); err != nil {
+		return DailyLog{}, err
+	}
+	updated, err := s.dailyLogByID(ctx, logID)
 	if err != nil {
 		return DailyLog{}, err
 	}
-	return s.dailyLogByID(ctx, logID)
+	updated.Preset = s.effectivePresetForProject(ctx, project)
+	if err := s.hydrateLogPhotos(ctx, []DailyLog{updated}); err != nil {
+		return DailyLog{}, err
+	}
+	return updated, nil
 }
 
 func (s *Service) DeleteDailyLog(ctx context.Context, actor Claims, logID string) error {
@@ -3376,6 +3840,235 @@ func (s *Service) DeleteDailyLog(ctx context.Context, actor Claims, logID string
 		return err
 	}
 	_, err = s.db.ExecContext(ctx, `DELETE FROM daily_logs WHERE id = $1`, logID)
+	return err
+}
+
+// SubmitDailyLog: author moves a draft (or rejected) log to 'submitted'.
+func (s *Service) SubmitDailyLog(ctx context.Context, actor Claims, logID string) (DailyLog, error) {
+	log, err := s.dailyLogByID(ctx, logID)
+	if err != nil {
+		return DailyLog{}, err
+	}
+	project, err := s.projectByID(ctx, log.ProjectID)
+	if err != nil {
+		return DailyLog{}, err
+	}
+	if err := s.ensureDailyLogAccess(ctx, actor, project); err != nil {
+		return DailyLog{}, err
+	}
+	if actor.UserID != log.AuthorUserID && actor.Role != RoleOwner && actor.Role != RoleSupervisor {
+		return DailyLog{}, errors.New("forbidden")
+	}
+	if log.Status != "draft" && log.Status != "rejected" {
+		return DailyLog{}, errors.New("only draft or rejected logs can be submitted")
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE daily_logs SET status='submitted', submitted_at=NOW(), updated_at=NOW() WHERE id=$1`, logID,
+	); err != nil {
+		return DailyLog{}, err
+	}
+	return s.dailyLogByID(ctx, logID)
+}
+
+// ApproveDailyLog: owner/supervisor finalises a submitted log. Optional comment.
+func (s *Service) ApproveDailyLog(ctx context.Context, actor Claims, logID, comment string) (DailyLog, error) {
+	log, err := s.dailyLogByID(ctx, logID)
+	if err != nil {
+		return DailyLog{}, err
+	}
+	project, err := s.projectByID(ctx, log.ProjectID)
+	if err != nil {
+		return DailyLog{}, err
+	}
+	if actor.Role != RoleOwner && actor.Role != RoleSupervisor {
+		return DailyLog{}, errors.New("forbidden")
+	}
+	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
+		return DailyLog{}, err
+	}
+	if log.Status != "submitted" {
+		return DailyLog{}, errors.New("only submitted logs can be approved")
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE daily_logs SET status='approved', approved_by_user_id=$1, approved_at=NOW(), reviewer_comment=$2, updated_at=NOW() WHERE id=$3`,
+		actor.UserID, strings.TrimSpace(comment), logID,
+	); err != nil {
+		return DailyLog{}, err
+	}
+	return s.dailyLogByID(ctx, logID)
+}
+
+// RejectDailyLog: owner/supervisor sends log back with a reason.
+func (s *Service) RejectDailyLog(ctx context.Context, actor Claims, logID, comment string) (DailyLog, error) {
+	log, err := s.dailyLogByID(ctx, logID)
+	if err != nil {
+		return DailyLog{}, err
+	}
+	project, err := s.projectByID(ctx, log.ProjectID)
+	if err != nil {
+		return DailyLog{}, err
+	}
+	if actor.Role != RoleOwner && actor.Role != RoleSupervisor {
+		return DailyLog{}, errors.New("forbidden")
+	}
+	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
+		return DailyLog{}, err
+	}
+	if log.Status != "submitted" {
+		return DailyLog{}, errors.New("only submitted logs can be rejected")
+	}
+	comment = strings.TrimSpace(comment)
+	if comment == "" {
+		return DailyLog{}, errors.New("rejection comment is required")
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE daily_logs SET status='rejected', approved_by_user_id=$1, approved_at=NOW(), reviewer_comment=$2, updated_at=NOW() WHERE id=$3`,
+		actor.UserID, comment, logID,
+	); err != nil {
+		return DailyLog{}, err
+	}
+	return s.dailyLogByID(ctx, logID)
+}
+
+// RequestDailyLogPhotoUpload creates an upload session scoped to a log.
+func (s *Service) RequestDailyLogPhotoUpload(ctx context.Context, actor Claims, logID, fileName, contentType string, intendedSize int64, baseURL string) (UploadSession, error) {
+	if actor.TenantID == "" {
+		return UploadSession{}, ErrForbidden
+	}
+	log, err := s.dailyLogByID(ctx, logID)
+	if err != nil {
+		return UploadSession{}, err
+	}
+	project, err := s.projectByID(ctx, log.ProjectID)
+	if err != nil {
+		return UploadSession{}, err
+	}
+	if err := s.ensureDailyLogAccess(ctx, actor, project); err != nil {
+		return UploadSession{}, err
+	}
+	if !s.canEditDailyLog(actor, log) {
+		return UploadSession{}, ErrForbidden
+	}
+	allowed := map[string]bool{"image/png": true, "image/jpeg": true, "image/webp": true, "image/heic": true}
+	if !allowed[contentType] {
+		return UploadSession{}, errors.New("unsupported image type; allowed: png, jpeg, webp, heic")
+	}
+	if intendedSize > 10*1024*1024 {
+		return UploadSession{}, errors.New("photo must be under 10 MB")
+	}
+	sessionID := newID("upl")
+	token, err := GenerateSecureToken(32)
+	if err != nil {
+		return UploadSession{}, err
+	}
+	expiresAt := time.Now().Add(15 * time.Minute).UTC().Format(time.RFC3339)
+	if baseURL == "" {
+		baseURL = strings.TrimSuffix(s.cfg.PublicBase, "/")
+	}
+	uploadPath := fmt.Sprintf("/uploads/%s?token=%s", sessionID, token)
+	uploadURL := uploadPath
+	if baseURL != "" {
+		uploadURL = strings.TrimSuffix(baseURL, "/") + uploadPath
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO upload_sessions (id, tenant_id, project_id, task_id, requested_by_user_id, file_name, content_type, intended_size_bytes, latitude, longitude, upload_token, status, expires_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, $9, 'issued', $10, $11)`,
+		sessionID, actor.TenantID, project.ID, logID, actor.UserID, fileNameSafe(fileName), contentType, intendedSize, token, expiresAt, nowText())
+	if err != nil {
+		return UploadSession{}, err
+	}
+	return UploadSession{
+		ID: sessionID, UploadURL: uploadURL, Method: "PUT", ExpiresAt: expiresAt,
+		FileName: fileName, ContentType: contentType, IntendedSize: intendedSize,
+	}, nil
+}
+
+// ConfirmDailyLogPhoto attaches a finished upload to a log.
+func (s *Service) ConfirmDailyLogPhoto(ctx context.Context, actor Claims, logID, sessionID, section, caption string) (DailyLogPhoto, error) {
+	if actor.TenantID == "" {
+		return DailyLogPhoto{}, ErrForbidden
+	}
+	var us struct {
+		TenantID string
+		LogID    string
+		FileName string
+		Status   string
+	}
+	err := s.db.QueryRowContext(ctx, `SELECT tenant_id, task_id, file_name, status FROM upload_sessions WHERE id = $1`, sessionID).
+		Scan(&us.TenantID, &us.LogID, &us.FileName, &us.Status)
+	if err != nil {
+		return DailyLogPhoto{}, errors.New("upload session not found")
+	}
+	if us.TenantID != actor.TenantID || us.LogID != logID {
+		return DailyLogPhoto{}, ErrForbidden
+	}
+	if us.Status != "uploaded" {
+		return DailyLogPhoto{}, errors.New("file has not been uploaded yet")
+	}
+	log, err := s.dailyLogByID(ctx, logID)
+	if err != nil {
+		return DailyLogPhoto{}, err
+	}
+	project, err := s.projectByID(ctx, log.ProjectID)
+	if err != nil {
+		return DailyLogPhoto{}, err
+	}
+	if err := s.ensureDailyLogAccess(ctx, actor, project); err != nil {
+		return DailyLogPhoto{}, err
+	}
+	photo := DailyLogPhoto{
+		ID:               newID("dlp"),
+		TenantID:         actor.TenantID,
+		LogID:            logID,
+		URL:              "/uploads/" + us.FileName,
+		Caption:          strings.TrimSpace(caption),
+		Section:          strings.TrimSpace(section),
+		UploadedByUserID: actor.UserID,
+		CreatedAt:        nowText(),
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO daily_log_photos (id, tenant_id, log_id, url, caption, section, uploaded_by_user_id, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())`,
+		photo.ID, photo.TenantID, photo.LogID, photo.URL, photo.Caption, photo.Section, photo.UploadedByUserID,
+	); err != nil {
+		return DailyLogPhoto{}, err
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE upload_sessions SET status = 'confirmed' WHERE id = $1`, sessionID); err != nil {
+		s.logger.Warn("failed to confirm upload session", "session_id", sessionID, "err", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE daily_logs SET updated_at = NOW() WHERE id = $1`, logID); err != nil {
+		s.logger.Warn("failed to bump daily_log updated_at", "log_id", logID, "err", err)
+	}
+	return photo, nil
+}
+
+// RemoveDailyLogPhoto deletes a photo row (the underlying file is left in
+// storage; a later janitor can GC orphaned uploads).
+func (s *Service) RemoveDailyLogPhoto(ctx context.Context, actor Claims, photoID string) error {
+	var p DailyLogPhoto
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, tenant_id, log_id, url, COALESCE(caption,''), COALESCE(section,''), uploaded_by_user_id, created_at FROM daily_log_photos WHERE id = $1`, photoID,
+	).Scan(&p.ID, &p.TenantID, &p.LogID, &p.URL, &p.Caption, &p.Section, &p.UploadedByUserID, &p.CreatedAt)
+	if err != nil {
+		return err
+	}
+	if p.TenantID != actor.TenantID {
+		return ErrForbidden
+	}
+	log, err := s.dailyLogByID(ctx, p.LogID)
+	if err != nil {
+		return err
+	}
+	project, err := s.projectByID(ctx, log.ProjectID)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureDailyLogAccess(ctx, actor, project); err != nil {
+		return err
+	}
+	if !s.canEditDailyLog(actor, log) {
+		return ErrForbidden
+	}
+	_, err = s.db.ExecContext(ctx, `DELETE FROM daily_log_photos WHERE id = $1`, photoID)
+	if err == nil {
+		_, _ = s.db.ExecContext(ctx, `UPDATE daily_logs SET updated_at = NOW() WHERE id = $1`, p.LogID)
+	}
 	return err
 }
 

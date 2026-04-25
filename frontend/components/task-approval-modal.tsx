@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { X, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Star, Clock, Cpu, Eye } from "lucide-react";
+import { aiStatusLabel } from "../lib/ai-status";
 
 type Evidence = {
   id: string;
@@ -29,16 +30,6 @@ function qualityColor(score: number) {
   if (score >= 80) return "#10b981";
   if (score >= 55) return "#f59e0b";
   return "#ef4444";
-}
-
-function aiLabel(status: string) {
-  const map: Record<string, string> = {
-    processing: "Processing...",
-    completed:  "Analyzed",
-    failed:     "AI error",
-    pending:    "Pending",
-  };
-  return map[status] ?? status;
 }
 
 function formatDate(iso?: string) {
@@ -208,7 +199,7 @@ export function TaskApprovalModal({
             <MetaChip
               icon={<Cpu size={12} />}
               label="AI status"
-              value={aiLabel(evidence.ai_processing_status)}
+              value={aiStatusLabel(evidence.ai_processing_status)}
             />
             <MetaChip
               icon={<Eye size={12} />}

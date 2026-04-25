@@ -1,14 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { toast } from "sonner";
 import { EmptyState } from "./ui/empty-state";
-import { Input, Select } from "./ui/form-input";
-import { EvidenceGallery } from "./evidence-gallery";
+import { EvidenceGallery, type AIFeedback } from "./evidence-gallery";
 import { GanttTimeline } from "./gantt-timeline";
 import { BudgetPanel } from "./budget-panel";
-import { Loader2, TrendingUp, AlignLeft, MessageSquare, Plus, Check, X as XIcon, ListChecks } from "lucide-react";
+import { Loader2, TrendingUp, AlignLeft, Plus, ListChecks } from "lucide-react";
 import { Toolbar, FilterChips, BulkBar, BulkApproveIcon, BulkRejectIcon, runBulk, type FilterChipOption } from "./ui/toolbar";
 
 type Task = {
@@ -44,6 +43,11 @@ type Evidence = {
   ai_processing_status: string;
   is_visible_to_client: boolean;
   created_at?: string;
+  task_title?: string;
+  uploader_name?: string;
+  ai_feedback?: AIFeedback;
+  ai_model_version?: string;
+  reference_photo_url?: string;
 };
 
 type Project = {
@@ -67,7 +71,9 @@ type SupervisorCanvasProps = {
   timelineForm: TimelineForm;
   setTimelineForm: (f: TimelineForm) => void;
   onTimelineUpdate: (e: FormEvent<HTMLFormElement>) => Promise<void>;
-  onEvidenceDecision: (id: string, action: "approve" | "reject") => Promise<void>;
+  onEvidenceDecision: (id: string, action: "approve" | "reject", opts?: { reason?: string; visibleToClient?: boolean }) => Promise<void>;
+  onReAudit?: (id: string) => void;
+  onPollAudit?: () => Promise<void> | void;
   highlightedDeliverableId: string | null;
   onDeliverableNavigate: (deliverableId: string, taskId: string) => void;
   onTaskClick?: (taskId: string) => void;
@@ -89,6 +95,8 @@ export function SupervisorCanvas({
   setTimelineForm,
   onTimelineUpdate,
   onEvidenceDecision,
+  onReAudit,
+  onPollAudit,
   highlightedDeliverableId,
   onDeliverableNavigate,
   onTaskClick,
@@ -102,22 +110,42 @@ export function SupervisorCanvas({
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkSelected, setBulkSelected] = useState<Set<string>>(() => new Set());
   const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkRejectOpen, setBulkRejectOpen] = useState(false);
+  const [bulkRejectReason, setBulkRejectReason] = useState("");
+  const [bulkApproveOpen, setBulkApproveOpen] = useState(false);
+  const [bulkApproveVisible, setBulkApproveVisible] = useState(true);
+
+  // Auto-poll while any evidence is queued/processing so the score/status
+  // updates without the supervisor having to manually refresh.
+  const hasInFlightAI = evidences.some(
+    (e) => e.ai_processing_status === "queued" || e.ai_processing_status === "processing"
+  );
+  useEffect(() => {
+    if (activeView !== "review" || !hasInFlightAI || !onPollAudit) return;
+    const id = setInterval(() => { void onPollAudit(); }, 5000);
+    return () => clearInterval(id);
+  }, [activeView, hasInFlightAI, onPollAudit]);
 
   // ── Review / Approval Queue ──
   if (activeView === "review") {
-    const filteredEvidences = evidences.filter((e) => {
-      if (reviewStatusFilter !== "all" && e.status !== reviewStatusFilter) return false;
-      if (reviewTaskFilter && e.task_id !== reviewTaskFilter) return false;
-      return true;
+    // Counts scoped to the task filter so badges match what's visible.
+    const taskScoped = reviewTaskFilter
+      ? evidences.filter((e) => e.task_id === reviewTaskFilter)
+      : evidences;
+    const filteredEvidences = taskScoped.filter((e) => {
+      if (reviewStatusFilter === "all") return true;
+      // Backend writes 'committed' on approval; UI label says "approved".
+      if (reviewStatusFilter === "approved") return e.status === "approved" || e.status === "committed";
+      return e.status === reviewStatusFilter;
     });
     const pending = filteredEvidences.filter((e) => e.status === "pending_approval");
     const rest = filteredEvidences.filter((e) => e.status !== "pending_approval");
 
     const statusCounts = {
-      all: evidences.length,
-      pending_approval: evidences.filter((e) => e.status === "pending_approval").length,
-      approved: evidences.filter((e) => e.status === "approved").length,
-      rejected: evidences.filter((e) => e.status === "rejected").length,
+      all: taskScoped.length,
+      pending_approval: taskScoped.filter((e) => e.status === "pending_approval").length,
+      approved: taskScoped.filter((e) => ["approved", "committed"].includes(e.status)).length,
+      rejected: taskScoped.filter((e) => e.status === "rejected").length,
     };
     const statusOptions: FilterChipOption<"all" | "pending_approval" | "approved" | "rejected">[] = [
       { value: "all", label: "All", count: statusCounts.all },
@@ -146,17 +174,20 @@ export function SupervisorCanvas({
       setBulkSelected(new Set());
       setBulkMode(false);
     }
-    async function runBulkDecision(action: "approve" | "reject") {
+    async function runBulkDecision(action: "approve" | "reject", opts?: { reason?: string; visibleToClient?: boolean }) {
       const ids = Array.from(bulkSelected);
       if (ids.length === 0) return;
       setBulkRunning(true);
-      const { succeeded, failed } = await runBulk(ids, (id) => onEvidenceDecision(id, action));
+      const { succeeded, failed } = await runBulk(ids, (id) => onEvidenceDecision(id, action, opts));
       setBulkRunning(false);
       setBulkSelected(new Set());
+      setBulkRejectOpen(false);
+      setBulkApproveOpen(false);
+      setBulkRejectReason("");
       if (failed === 0) {
-        toast.success(`${succeeded} evidence ${action === "approve" ? "approved" : "rejected"}`);
+        toast.success(`${succeeded} evidencia${succeeded === 1 ? "" : "s"} ${action === "approve" ? "aprobada" : "rechazada"}${succeeded === 1 ? "" : "s"}`);
       } else {
-        toast.error(`${succeeded} ${action === "approve" ? "approved" : "rejected"}, ${failed} failed`);
+        toast.error(`${succeeded} OK, ${failed} fallaron`);
       }
     }
 
@@ -350,7 +381,7 @@ export function SupervisorCanvas({
                 color: "green",
                 icon: <BulkApproveIcon size={12} />,
                 disabled: bulkRunning || bulkSelected.size === 0,
-                onRun: () => runBulkDecision("approve"),
+                onRun: () => setBulkApproveOpen(true),
               },
               {
                 id: "reject",
@@ -358,10 +389,73 @@ export function SupervisorCanvas({
                 color: "red",
                 icon: <BulkRejectIcon size={12} />,
                 disabled: bulkRunning || bulkSelected.size === 0,
-                onRun: () => runBulkDecision("reject"),
+                onRun: () => setBulkRejectOpen(true),
               },
             ]}
           />
+        )}
+
+        {/* Bulk approve modal */}
+        {bulkApproveOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setBulkApproveOpen(false)}>
+            <div className="glass-card w-full max-w-md mx-4 p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-lg font-black text-white">Aprobar {bulkSelected.size} evidencias</h3>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={bulkApproveVisible}
+                  onChange={(e) => setBulkApproveVisible(e.target.checked)}
+                  className="accent-blue-500"
+                />
+                <span className="text-sm text-white/80">Visibles para el cliente</span>
+              </label>
+              <p className="text-xs text-white/40">Las evidencias con IA ya completada conservarán su score. Las demás serán auditadas.</p>
+              <div className="flex gap-2 justify-end pt-2">
+                <button className="px-4 py-2 rounded-xl border border-white/10 text-white/60 hover:bg-white/5 text-sm font-bold" onClick={() => setBulkApproveOpen(false)}>
+                  Cancelar
+                </button>
+                <button
+                  className="px-4 py-2 rounded-xl bg-green-600 hover:bg-green-500 text-white text-sm font-bold disabled:opacity-50"
+                  onClick={() => runBulkDecision("approve", { visibleToClient: bulkApproveVisible })}
+                  disabled={bulkRunning}
+                >
+                  Aprobar {bulkSelected.size}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Bulk reject modal */}
+        {bulkRejectOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setBulkRejectOpen(false)}>
+            <div className="glass-card w-full max-w-md mx-4 p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-lg font-black text-white">Rechazar {bulkSelected.size} evidencias</h3>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/50">Motivo del rechazo</label>
+                <textarea
+                  className="w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-red-500/50"
+                  rows={3}
+                  placeholder="Ej. Foto desenfocada, no coincide con el render, etc."
+                  value={bulkRejectReason}
+                  onChange={(e) => setBulkRejectReason(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-2 justify-end pt-2">
+                <button className="px-4 py-2 rounded-xl border border-white/10 text-white/60 hover:bg-white/5 text-sm font-bold" onClick={() => setBulkRejectOpen(false)}>
+                  Cancelar
+                </button>
+                <button
+                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold disabled:opacity-50"
+                  onClick={() => runBulkDecision("reject", { reason: bulkRejectReason.trim() || "Rechazo en lote" })}
+                  disabled={bulkRunning}
+                >
+                  Rechazar {bulkSelected.size}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Pending approvals */}
@@ -389,68 +483,19 @@ export function SupervisorCanvas({
             </div>
 
             {pending.length > 0 ? (
-              bulkMode ? (
-                <div className="glass-card p-3 border-white/5 space-y-1.5">
-                  {pending.map((ev) => {
-                    const checked = bulkSelected.has(ev.id);
-                    const task = tasks.find((t) => t.id === ev.task_id);
-                    return (
-                      <label
-                        key={ev.id}
-                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 cursor-pointer transition-colors hover:bg-white/5"
-                        style={{ border: "1px solid rgba(255,255,255,0.06)", background: checked ? "rgba(59,130,246,0.05)" : "transparent" }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleOne(ev.id)}
-                          className="h-4 w-4 rounded border-white/20 bg-white/5 accent-blue-500"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold text-white truncate">{ev.file_name}</div>
-                          <div className="text-[10px] text-white/40 mt-0.5 flex items-center gap-2">
-                            <span>AI: {ev.quality_score > 0 ? `${ev.quality_score}/100` : "pending"}</span>
-                            {task && (
-                              <>
-                                <span>·</span>
-                                <span className="truncate">{task.title}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={(e) => { e.preventDefault(); void onEvidenceDecision(ev.id, "approve"); }}
-                            className="p-1.5 rounded-lg hover:bg-green-500/20 text-green-400"
-                            title="Approve"
-                          >
-                            <Check size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.preventDefault(); void onEvidenceDecision(ev.id, "reject"); }}
-                            className="p-1.5 rounded-lg hover:bg-red-500/20 text-red-400"
-                            title="Reject"
-                          >
-                            <XIcon size={14} />
-                          </button>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="glass-card p-6 border-white/5">
-                  <EvidenceGallery
-                    evidences={pending}
-                    showActions
-                    onApprove={(id) => onEvidenceDecision(id, "approve")}
-                    onReject={(id) => onEvidenceDecision(id, "reject")}
-                    emptyText=""
-                  />
-                </div>
-              )
+              <div className="glass-card p-6 border-white/5">
+                <EvidenceGallery
+                  evidences={pending}
+                  showActions
+                  onApprove={(id) => onEvidenceDecision(id, "approve")}
+                  onReject={(id) => onEvidenceDecision(id, "reject")}
+                  onReAudit={onReAudit}
+                  bulkSelected={bulkMode ? bulkSelected : undefined}
+                  onToggleBulk={bulkMode ? toggleOne : undefined}
+                  isMobile={isMobile}
+                  emptyText=""
+                />
+              </div>
             ) : (
               <div className="glass-card p-12 text-center border-dashed border-white/10">
                 <p className="text-white/30 font-medium italic">
@@ -473,7 +518,7 @@ export function SupervisorCanvas({
               <div className="h-px flex-1 bg-white/5 mx-4" />
             </div>
             <div className="glass-card p-6 border-white/5 bg-white/[0.02]">
-              <EvidenceGallery evidences={rest} emptyText="" />
+              <EvidenceGallery evidences={rest} onReAudit={onReAudit} isMobile={isMobile} emptyText="" />
             </div>
           </div>
         )}

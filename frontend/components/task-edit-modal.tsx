@@ -344,7 +344,7 @@ export function TaskEditModal({
                 {formData.comparison_photo_url && !comparisonPreview && (
                   <div className="relative group">
                     <img
-                      src={formData.comparison_photo_url}
+                      src={token ? `${formData.comparison_photo_url}${formData.comparison_photo_url.includes("?") ? "&" : "?"}access_token=${encodeURIComponent(token)}` : formData.comparison_photo_url}
                       alt="Foto de comparación"
                       className="w-full h-40 object-cover rounded-xl border border-white/10"
                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}

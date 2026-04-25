@@ -64,7 +64,12 @@ export function CapturesCanvas({
 
   const filteredEvidences = useMemo(() => {
     return evidences.filter(ev => {
-      const matchStatus = filterStatus === "all" || ev.status === filterStatus;
+      // Backend writes status='committed' on approval; treat it as "approved"
+      // for the user-facing filter.
+      const matchStatus =
+        filterStatus === "all" ||
+        ev.status === filterStatus ||
+        (filterStatus === "approved" && ev.status === "committed");
       const matchTask = filterTaskId === "all" || ev.task_id === filterTaskId;
       const matchSearch = searchQuery === "" || ev.file_name.toLowerCase().includes(searchQuery.toLowerCase());
       const evDate = (ev.created_at || "").slice(0, 10);

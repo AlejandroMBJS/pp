@@ -14,6 +14,7 @@ type TenantSettings = {
   country: string;
   timezone: string;
   currency: string;
+  industry: string;
   public_dashboard_enabled: boolean;
   public_gallery_enabled: boolean;
   logo_url: string;
@@ -23,6 +24,14 @@ type TenantSettings = {
 
 const DEFAULT_PRIMARY = "#3b82f6";
 const DEFAULT_SECONDARY = "#8b5cf6";
+
+const INDUSTRY_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "generic",       label: "Generic / other" },
+  { value: "construction",  label: "Construction" },
+  { value: "manufacturing", label: "Manufacturing / CNC" },
+  { value: "field_service", label: "Field service" },
+  { value: "facilities",    label: "Facilities / maintenance" },
+];
 
 type SettingsGeneralModalProps = {
   open: boolean;
@@ -156,6 +165,7 @@ export function SettingsGeneralModal({
           logo_url: tenantDraft.logo_url,
           primary_color: tenantDraft.primary_color,
           secondary_color: tenantDraft.secondary_color,
+          industry: tenantDraft.industry,
         }),
       });
       if (!res.ok) throw new Error((await res.json())?.error ?? `HTTP ${res.status}`);
@@ -451,6 +461,25 @@ export function SettingsGeneralModal({
                     onChange={(v) => setTenantDraft({ ...tenantDraft, country: v })}
                     disabled={!canManageUsers}
                   />
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
+                      Industry
+                    </label>
+                    <select
+                      className="form-select"
+                      disabled={!canManageUsers}
+                      value={tenantDraft.industry || "generic"}
+                      onChange={(e) => setTenantDraft({ ...tenantDraft, industry: e.target.value })}
+                    >
+                      {INDUSTRY_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                    <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                      Tailors the daily-log sections (weather, crew, shifts, QC…) to your operation.
+                    </p>
+                  </div>
 
                   <SectionLabel>Brand colors</SectionLabel>
                   <div className="text-xs -mt-2" style={{ color: "var(--text-tertiary)" }}>

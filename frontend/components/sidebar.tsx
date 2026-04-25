@@ -72,6 +72,7 @@ function menuForRole(role: string) {
       return [
         { id: "capture",  label: "Capture progress", tag: "field", group: "helper" },
         { id: "history",  label: "History",          tag: "proof", group: "helper" },
+        { id: "journal",  label: "Daily log",        tag: "site",  group: "helper" },
       ];
     case "client":
       return [

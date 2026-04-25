@@ -20,7 +20,17 @@ type Project = {
   supervisor_user_id?: string;
   client_user_id?: string;
   logo_url?: string;
+  daily_log_preset?: string;
 };
+
+const PROJECT_PRESET_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "",              label: "Inherit from company" },
+  { value: "generic",       label: "Generic / other" },
+  { value: "construction",  label: "Construction" },
+  { value: "manufacturing", label: "Manufacturing / CNC" },
+  { value: "field_service", label: "Field service" },
+  { value: "facilities",    label: "Facilities / maintenance" },
+];
 
 type User = { id: string; full_name: string; email: string; role: string };
 
@@ -106,6 +116,7 @@ export function SettingsProjectModal({
           latitude_center: Number(form.latitude_center),
           longitude_center: Number(form.longitude_center),
           geofence_radius_m: Number(form.geofence_radius_m),
+          daily_log_preset: form.daily_log_preset ?? "",
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -428,6 +439,23 @@ export function SettingsProjectModal({
                   <option value="completed">Completed</option>
                   <option value="archived">Archived</option>
                 </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold mb-1.5 block" style={{ color: "var(--text-secondary)" }}>
+                  Daily log preset
+                </label>
+                <select
+                  className="form-select"
+                  value={form.daily_log_preset ?? ""}
+                  onChange={(e) => set("daily_log_preset", e.target.value)}
+                >
+                  {PROJECT_PRESET_OPTIONS.map((o) => (
+                    <option key={o.value || "inherit"} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+                <p className="text-[11px] mt-1" style={{ color: "var(--text-tertiary)" }}>
+                  Overrides the company-level industry for this project only.
+                </p>
               </div>
             </div>
           )}

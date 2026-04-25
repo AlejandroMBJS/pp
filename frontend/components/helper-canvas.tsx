@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Upload, ImageIcon, X } from "lucide-react";
 import { EmptyState } from "./ui/empty-state";
 import { ListRow } from "./ui/list-row";
@@ -15,10 +15,17 @@ type HelperCanvasProps = {
   evidences: Evidence[];
   uploadMessage: string;
   onFileChange: (file: File | null) => void;
-  onUpload: (e: FormEvent<HTMLFormElement>) => Promise<void>;
+  onUpload: (e: FormEvent<HTMLFormElement>, progressPercent: number) => Promise<void>;
   loading: boolean;
   isMobile?: boolean;
+  token: string;
 };
+
+function withAccessToken(url: string | undefined, token: string): string {
+  if (!url) return "";
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}access_token=${encodeURIComponent(token)}`;
+}
 
 function statusBadgeColor(status: string): "green" | "amber" | "red" | "gray" {
   switch (status) {
@@ -48,9 +55,15 @@ export function HelperCanvas({
   onUpload,
   loading,
   isMobile = false,
+  token,
 }: HelperCanvasProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [progressDraft, setProgressDraft] = useState<number>(currentTask?.progress_percent ?? 0);
+
+  useEffect(() => {
+    setProgressDraft(currentTask?.progress_percent ?? 0);
+  }, [currentTask?.id, currentTask?.progress_percent]);
 
   const handleFileChange = useCallback(
     (file: File | null) => {
@@ -119,7 +132,7 @@ export function HelperCanvas({
             )}
 
 
-            <form onSubmit={onUpload} className="space-y-6">
+            <form onSubmit={(e) => onUpload(e, progressDraft)} className="space-y-6">
               {(() => {
                 const hasReference = !!currentTask?.comparison_photo_url;
                 const captureBlock = previewUrl ? (
@@ -165,7 +178,7 @@ export function HelperCanvas({
                       <div className="text-[10px] text-blue-400/80 font-black uppercase tracking-widest">Reference</div>
                       <div className="aspect-video rounded-2xl overflow-hidden border-2 border-white/10 bg-white/5">
                         <img
-                          src={currentTask!.comparison_photo_url}
+                          src={withAccessToken(currentTask!.comparison_photo_url, token)}
                           alt="Reference render"
                           className="w-full h-full object-cover"
                         />
@@ -181,6 +194,31 @@ export function HelperCanvas({
                   </div>
                 );
               })()}
+
+              {currentTask && (
+                <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black text-white/50 uppercase tracking-widest">
+                      Update progress
+                    </label>
+                    <span className="text-2xl font-black text-blue-400 leading-none tabular-nums">
+                      {progressDraft}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={progressDraft}
+                    onChange={(e) => setProgressDraft(Number(e.target.value))}
+                    className="w-full accent-blue-500"
+                  />
+                  <p className="text-[11px] text-white/40 leading-snug">
+                    Drag to reflect the completion after this capture. Current value on record: {currentTask.progress_percent}%.
+                  </p>
+                </div>
+              )}
 
               <button
                 className="btn-glass w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-black text-lg shadow-xl shadow-blue-500/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-[0.98] flex items-center justify-center gap-3"
@@ -249,7 +287,7 @@ export function HelperCanvas({
                 </div>
                 <div className="flex items-center gap-3">
                   <span className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border ${
-                    e.status === "approved" ? "bg-green-500/10 text-green-400 border-green-500/20" :
+                    (e.status === "approved" || e.status === "committed") ? "bg-green-500/10 text-green-400 border-green-500/20" :
                     e.status === "rejected" ? "bg-red-500/10 text-red-400 border-red-500/20" :
                     "bg-amber-500/10 text-amber-400 border-amber-500/20"
                   }`}>

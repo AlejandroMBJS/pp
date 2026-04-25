@@ -27,6 +27,7 @@ export default function SignupPage() {
     owner_name: "",
     owner_email: "",
     password: "",
+    industry: "generic",
   });
   const [slugTouched, setSlugTouched] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -52,6 +53,7 @@ export default function SignupPage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     for (const [k, v] of Object.entries(form)) {
+      if (k === "industry") continue;
       if (!v.trim()) {
         setError(t("errors.missing", { field: k.replace("_", " ") }));
         return;
@@ -117,6 +119,25 @@ export default function SignupPage() {
             onChange={(v) => update("password", v)}
             placeholder={t("passwordPlaceholder")}
           />
+          <div>
+            <label className="block text-[10px] uppercase tracking-widest font-bold text-white/50 mb-1.5">
+              Industry
+            </label>
+            <select
+              value={form.industry}
+              onChange={(e) => update("industry", e.target.value)}
+              className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-blue-500/50"
+            >
+              <option value="generic">Generic / other</option>
+              <option value="construction">Construction</option>
+              <option value="manufacturing">Manufacturing / CNC</option>
+              <option value="field_service">Field service</option>
+              <option value="facilities">Facilities / maintenance</option>
+            </select>
+            <p className="text-[10px] text-white/40 mt-1.5">
+              Tailors your daily log sections. You can change it later.
+            </p>
+          </div>
           {error && (
             <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-semibold">
               {error}

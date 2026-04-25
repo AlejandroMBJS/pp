@@ -222,7 +222,10 @@ const BLUEPRINT_MIME_WHITELIST = new Set([
   "application/pdf", "image/png", "image/jpeg", "image/tiff",
   "image/vnd.dxf", "image/vnd.dwg",
   "application/acad", "application/x-dwg", "application/dxf",
-  "application/octet-stream", "application/vnd.ms-pki.stl",
+  "application/octet-stream",
+  "application/vnd.ms-pki.stl", "model/stl",
+  "application/vnd.ms-3mf", "model/3mf",
+  "model/gltf-binary", "model/gltf+json",
 ]);
 
 function validateEvidenceFile(file: File): string | null {
@@ -235,10 +238,19 @@ function validateEvidenceFile(file: File): string | null {
   return null;
 }
 
+const BLUEPRINT_EXT_WHITELIST = new Set([
+  "pdf", "png", "jpg", "jpeg", "tif", "tiff",
+  "dxf", "dwg", "stl", "3mf", "obj", "glb", "gltf",
+]);
+
 function validateBlueprintFile(file: File): string | null {
   const ct = (file.type || "application/octet-stream").toLowerCase();
-  if (!BLUEPRINT_MIME_WHITELIST.has(ct)) return `Unsupported blueprint type: ${ct}`;
-  return null;
+  if (BLUEPRINT_MIME_WHITELIST.has(ct)) return null;
+  // Browsers disagree on MIME for CAD/3D formats — fall back to the file
+  // extension so legit .stl/.3mf/.dwg uploads aren't blocked client-side.
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  if (BLUEPRINT_EXT_WHITELIST.has(ext)) return null;
+  return `Unsupported blueprint type: ${ct}`;
 }
 
 async function api<T = unknown>(
@@ -560,38 +572,68 @@ export function ControlCenter() {
     }
   }, [activeView]);
 
+  // Single source of truth for "should the evidence list be project-scoped or
+  // task-scoped right now". Used by the load effect, the poll loop and the
+  // post-decision refresh so they never disagree.
+  function evidenceScope(): "project" | "task" | null {
+    if (!session) return null;
+    const role = session.user.role;
+    if (["owner", "supervisor"].includes(role) &&
+        ["review", "timeline", "ownergallery", "gallery"].includes(activeView)) {
+      return selectedProjectId ? "project" : null;
+    }
+    if (["owner", "supervisor", "helper"].includes(role) && selectedTaskId) {
+      return "task";
+    }
+    return null;
+  }
+
+  function applyProjectEvidences(data: Evidence[]) {
+    setEvidences(data);
+    setAllEvidences(() => {
+      const next = new Map<string, Evidence[]>();
+      for (const e of data) {
+        const list = next.get(e.task_id) ?? [];
+        list.push(e);
+        next.set(e.task_id, list);
+      }
+      return next;
+    });
+  }
+
+  function applyTaskEvidences(taskID: string, data: Evidence[]) {
+    setEvidences(data);
+    setAllEvidences((prev) => {
+      const next = new Map(prev);
+      next.set(taskID, data);
+      return next;
+    });
+  }
+
   useEffect(() => {
-    if (!session || !selectedTaskId) return;
+    if (!session) return;
     const controller = new AbortController();
     const { signal } = controller;
+    const scope = evidenceScope();
+    if (scope === null) return;
 
-    if (["owner", "supervisor", "helper"].includes(session.user.role)) {
-      api<Evidence[]>(`/api/v1/tasks/${selectedTaskId}/evidences`, {
+    if (scope === "project") {
+      api<Evidence[]>(`/api/v1/projects/${selectedProjectId}/evidences`, {
         token: session.access_token,
         signal,
       })
-        .then((data) => {
-          if (signal.aborted) return;
-          setEvidences(data);
-          // Accumulate in allEvidences map for Gantt
-          setAllEvidences((prev) => {
-            const next = new Map(prev);
-            next.set(selectedTaskId, data);
-            return next;
-          });
-        })
-        .catch((err) => { if (!signal.aborted) toast.error("No se pudieron cargar las evidencias de la tarea."); });
+        .then((data) => { if (!signal.aborted) applyProjectEvidences(data); })
+        .catch(() => { if (!signal.aborted) toast.error("No se pudieron cargar las evidencias del proyecto."); });
+      return () => controller.abort();
     }
 
-    // Also fetch all project evidence if in gallery view or for owner/supervisor overview
-    if (["owner", "supervisor"].includes(session.user.role)) {
-       api<Evidence[]>(`/api/v1/projects/${selectedProjectId}/evidence`, {
-          token: session.access_token,
-          signal,
-       }).then(data => {
-          if (!signal.aborted) setEvidences(data);
-       }).catch((err) => { if (!signal.aborted) toast.error("No se pudieron cargar las evidencias del proyecto."); });
-    }
+    // scope === "task"
+    api<Evidence[]>(`/api/v1/tasks/${selectedTaskId}/evidences`, {
+      token: session.access_token,
+      signal,
+    })
+      .then((data) => { if (!signal.aborted) applyTaskEvidences(selectedTaskId, data); })
+      .catch(() => { if (!signal.aborted) toast.error("No se pudieron cargar las evidencias de la tarea."); });
 
     return () => controller.abort();
   }, [session, selectedTaskId, selectedProjectId, activeView]);
@@ -963,7 +1005,7 @@ export function ControlCenter() {
     }
   }
 
-  async function handleHelperUpload(event: FormEvent<HTMLFormElement>) {
+  async function handleHelperUpload(event: FormEvent<HTMLFormElement>, progressPercent?: number) {
     event.preventDefault();
     if (!session || !selectedTaskId || !uploadFile) return;
     const mimeError = validateEvidenceFile(uploadFile);
@@ -1005,6 +1047,26 @@ export function ControlCenter() {
           metadata_exif: JSON.stringify({ device: "browser-demo" }),
         },
       });
+
+      // Helper-driven progress bump: only fires when the helper moved the slider
+      // to a value different from the task's current progress. Best-effort; a
+      // failure here shouldn't invalidate the already-stored evidence.
+      if (
+        typeof progressPercent === "number" &&
+        session.user.role === "helper" &&
+        currentTask &&
+        progressPercent !== currentTask.progress_percent
+      ) {
+        try {
+          await api(`/api/v1/tasks/${selectedTaskId}/progress`, {
+            method: "POST",
+            token: session.access_token,
+            body: { progress_percent: progressPercent },
+          });
+        } catch (err) {
+          toast.error(`Progress not saved: ${messageOf(err)}`);
+        }
+      }
 
       toast.dismiss(toastId);
       toast.success("Evidence uploaded and sent for approval.");
@@ -1198,7 +1260,11 @@ export function ControlCenter() {
     }
   }
 
-  async function handleEvidenceDecision(evidenceID: string, action: "approve" | "reject") {
+  async function handleEvidenceDecision(
+    evidenceID: string,
+    action: "approve" | "reject",
+    opts?: { reason?: string; visibleToClient?: boolean }
+  ) {
     if (!session) return;
     setLoading(true);
     try {
@@ -1207,33 +1273,115 @@ export function ControlCenter() {
         token: session.access_token,
         body:
           action === "approve"
-            ? { comment: "Validada desde UI", visible_to_client: true }
-            : { reason: "Manual review note" },
+            ? { comment: "Validada desde UI", visible_to_client: opts?.visibleToClient ?? true }
+            : { reason: opts?.reason?.trim() || "Rechazada en revisión" },
       });
-      if (selectedTaskId) {
-        const evidenceData = await api<Evidence[]>(
+      await refreshEvidencesAfterDecision();
+      toast.success(action === "approve" ? "Evidencia aprobada." : "Evidencia rechazada.");
+    } catch (err) {
+      toast.error(messageOf(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleReAuditEvidence(evidenceID: string) {
+    if (!session) return;
+    try {
+      await api(`/api/v1/evidences/${evidenceID}/re-audit`, {
+        method: "POST",
+        token: session.access_token,
+      });
+      // Optimistic: mark as queued locally so the badge flips immediately
+      // without blowing away other evidences from the current list.
+      setEvidences((prev) =>
+        prev.map((e) =>
+          e.id === evidenceID ? { ...e, ai_processing_status: "queued" } : e
+        )
+      );
+      setAllEvidences((prev) => {
+        const next = new Map(prev);
+        for (const [taskID, list] of prev.entries()) {
+          next.set(
+            taskID,
+            list.map((e) =>
+              e.id === evidenceID ? { ...e, ai_processing_status: "queued" } : e
+            )
+          );
+        }
+        return next;
+      });
+      toast.success("Re-auditoría encolada. El score aparecerá en unos segundos.");
+    } catch (err) {
+      const msg = messageOf(err);
+      if (msg.includes("rate_limited")) {
+        toast.error("Espera 30 segundos antes de re-auditar esta evidencia.");
+      } else if (msg.includes("ai_disabled")) {
+        toast.error("IA deshabilitada: GEMINI_API_KEY no configurada.");
+      } else if (/429|quota|rate.?limit/i.test(msg)) {
+        toast.error("Cuota de Gemini agotada. Intenta de nuevo en 1 minuto o revisa tu plan.");
+      } else {
+        toast.error(msg);
+      }
+    }
+  }
+
+  async function pollAuditProgress() {
+    if (!session) return;
+    const scope = evidenceScope();
+    try {
+      if (scope === "project") {
+        const data = await api<Evidence[]>(
+          `/api/v1/projects/${selectedProjectId}/evidences`,
+          { token: session.access_token }
+        );
+        applyProjectEvidences(data);
+      } else if (scope === "task") {
+        const data = await api<Evidence[]>(
           `/api/v1/tasks/${selectedTaskId}/evidences`,
           { token: session.access_token }
         );
-        setEvidences(evidenceData);
-        setAllEvidences((prev) => {
-          const next = new Map(prev);
-          next.set(selectedTaskId, evidenceData);
-          return next;
-        });
+        applyTaskEvidences(selectedTaskId, data);
       }
-      if (["client", "owner", "supervisor"].includes(session.user.role) && selectedProjectId) {
+    } catch {
+      // silent — poll is best effort
+    }
+  }
+
+  async function refreshEvidencesAfterDecision() {
+    if (!session) return;
+    const scope = evidenceScope();
+    if (scope === "project") {
+      try {
+        const data = await api<Evidence[]>(
+          `/api/v1/projects/${selectedProjectId}/evidences`,
+          { token: session.access_token }
+        );
+        applyProjectEvidences(data);
+      } catch {
+        /* ignore */
+      }
+    } else if (scope === "task") {
+      try {
+        const data = await api<Evidence[]>(
+          `/api/v1/tasks/${selectedTaskId}/evidences`,
+          { token: session.access_token }
+        );
+        applyTaskEvidences(selectedTaskId, data);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (["client", "owner", "supervisor"].includes(session.user.role) && selectedProjectId) {
+      try {
         const summary = await api<ClientSummary>(
           `/api/v1/client/projects/${selectedProjectId}/summary`,
           { token: session.access_token }
         );
         setClientSummary(summary);
+      } catch {
+        /* ignore — client summary may not be authorized */
       }
-      toast.success(action === "approve" ? "Evidence approved." : "Evidence rejected.");
-    } catch (err) {
-      toast.error(messageOf(err));
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -1488,6 +1636,8 @@ export function ControlCenter() {
             setTimelineForm={setTimelineForm}
             onTimelineUpdate={handleTimelineUpdate}
             onEvidenceDecision={handleEvidenceDecision}
+            onReAudit={handleReAuditEvidence}
+            onPollAudit={pollAuditProgress}
             highlightedDeliverableId={highlightedDeliverableId}
             onDeliverableNavigate={handleDeliverableNavigate}
             onTaskClick={handleOpenTaskEdit}
@@ -1553,6 +1703,7 @@ export function ControlCenter() {
             onUpload={handleHelperUpload}
             loading={loading}
             isMobile={isMobile}
+            token={session.access_token}
           />
         );
       }
@@ -1748,6 +1899,8 @@ export function ControlCenter() {
           setTimelineForm={setTimelineForm}
           onTimelineUpdate={handleTimelineUpdate}
           onEvidenceDecision={handleEvidenceDecision}
+          onReAudit={handleReAuditEvidence}
+          onPollAudit={pollAuditProgress}
           highlightedDeliverableId={highlightedDeliverableId}
           onDeliverableNavigate={handleDeliverableNavigate}
           onTaskClick={handleOpenTaskEdit}
@@ -1763,6 +1916,36 @@ export function ControlCenter() {
     }
     
     if (role === "helper") {
+      if (activeView === "journal") {
+        if (!currentProject) {
+          return (
+            <div className="flex flex-col items-center justify-center py-20 text-center animate-fadeIn">
+              <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-4">
+                <FolderPlus size={28} className="text-white/20" />
+              </div>
+              <h2 className="text-xl font-bold text-white mb-2">
+                {projects.length > 0 ? "No project selected" : "No projects assigned"}
+              </h2>
+              <p className="text-sm text-white/40 max-w-sm mb-6">
+                {projects.length > 0
+                  ? "Select a project from the sidebar to access the daily log."
+                  : "You haven't been assigned to any project yet."}
+              </p>
+              {projects.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { setSelectedProjectId(projects[0].id); }}
+                  className="px-6 py-3 rounded-xl font-bold text-sm text-white transition-all"
+                  style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: "0 4px 20px rgba(59,130,246,0.3)" }}
+                >
+                  Open &quot;{projects[0].name}&quot;
+                </button>
+              )}
+            </div>
+          );
+        }
+        return <DailyJournal project={currentProject} session={session} />;
+      }
       if ((activeView === "capture" || activeView === "history") && !currentTask && tasks.length === 0) {
         return (
           <div className="flex flex-col items-center justify-center py-20 text-center animate-fadeIn">
@@ -1786,6 +1969,7 @@ export function ControlCenter() {
           onUpload={handleHelperUpload}
           loading={loading}
           isMobile={isMobile}
+          token={session.access_token}
         />
       );
     }

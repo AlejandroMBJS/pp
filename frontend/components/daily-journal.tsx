@@ -218,11 +218,17 @@ export function DailyJournal({ project, session }: { project: Project; session: 
     return presets.find((p) => p.key === key) || { key: "generic", label: "Generic", sections: [], requires_signature: false, includes_weather: false };
   }, [presets, project.daily_log_preset, logs, selectedLogId]);
 
+  // All fetches below use authHeaders / token from closure. Both authHeaders
+  // (useMemo) and fetchLogs (useCallback) include `token` in their deps, so a
+  // session refresh flushes the cached references and the next call uses the
+  // new token. In-flight requests that started with a stale token will hit
+  // 401 and surface as "Could not load…" — acceptable until F2 (refresh flow)
+  // lands. See audit-findings.md F5.
   const fetchLogs = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/v1/projects/${project.id}/daily-logs`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: authHeaders,
       });
       const data = await res.json().catch(() => []);
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
@@ -236,14 +242,14 @@ export function DailyJournal({ project, session }: { project: Project; session: 
     } finally {
       setLoading(false);
     }
-  }, [project.id, token]);
+  }, [project.id, authHeaders]);
 
   useEffect(() => {
-    fetch("/api/v1/daily-log-presets", { headers: { Authorization: `Bearer ${token}` } })
+    fetch("/api/v1/daily-log-presets", { headers: authHeaders })
       .then((r) => r.json())
       .then((p) => Array.isArray(p) && setPresets(p))
       .catch(() => {});
-  }, [token]);
+  }, [authHeaders]);
 
   useEffect(() => {
     void fetchLogs();
@@ -341,7 +347,7 @@ export function DailyJournal({ project, session }: { project: Project; session: 
     try {
       const res = await fetch(`/api/v1/daily-logs/${logId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: authHeaders,
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload?.error ?? `HTTP ${res.status}`);
@@ -423,7 +429,7 @@ export function DailyJournal({ project, session }: { project: Project; session: 
     try {
       const res = await fetch(`/api/v1/daily-logs/photos/${photoID}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: authHeaders,
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));

@@ -34,6 +34,12 @@ if ! ./scripts/backup-db.sh >/dev/null 2>&1; then
   echo "[deploy][warn] DB backup failed — continuing anyway"
 fi
 
+# Containers run as uid 1000 (audit F3). The bind-mounted data dir must match
+# or the backend can't write uploads. Idempotent — chown is cheap.
+if [[ -d ./data/backend ]]; then
+  chown -R 1000:1000 ./data/backend
+fi
+
 echo "[deploy] fetching origin"
 git fetch --tags origin
 

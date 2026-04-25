@@ -965,9 +965,53 @@ func (s *Service) distanceMeters(lat1, lon1, lat2, lon2 float64) float64 {
 	return earthRadius * c
 }
 
+// fileNameSafe sanitises an uploaded filename so it can't break out of the
+// upload directory or trick a downstream interpreter. Strips path separators
+// and null bytes, replaces anything outside [A-Za-z0-9._-] with '-', collapses
+// repeated dots so `evil.jpg.php` becomes `evil.jpg-php`, and caps length at
+// 100 chars (preserving the trailing extension when possible). See
+// audit-findings.md F11.
 func fileNameSafe(name string) string {
-	replacer := strings.NewReplacer("/", "-", "..", "-", "\\", "-", "\x00", "")
-	return replacer.Replace(name)
+	// Drop directory components first.
+	if idx := strings.LastIndexAny(name, "/\\"); idx >= 0 {
+		name = name[idx+1:]
+	}
+	// Strip null bytes outright (CWE-158).
+	name = strings.ReplaceAll(name, "\x00", "")
+	// Whitelist allowed runes; replace the rest with '-'.
+	var b strings.Builder
+	b.Grow(len(name))
+	for _, r := range name {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+		case r == '.' || r == '-' || r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	out := b.String()
+	// Collapse multi-dot so .jpg.php / .htaccess can't survive: keep ONLY the
+	// final extension; replace any earlier '.' with '-'.
+	if i := strings.LastIndexByte(out, '.'); i > 0 {
+		head := strings.ReplaceAll(out[:i], ".", "-")
+		out = head + out[i:]
+	}
+	// Cap length while preserving the trailing extension.
+	const maxLen = 100
+	if len(out) > maxLen {
+		ext := ""
+		if i := strings.LastIndexByte(out, '.'); i > 0 && len(out)-i <= 16 {
+			ext = out[i:]
+		}
+		head := out[:maxLen-len(ext)]
+		out = head + ext
+	}
+	if out == "" || out == "." || out == ".." {
+		out = "file"
+	}
+	return out
 }
 
 func constantTimeEqual(a, b string) bool {

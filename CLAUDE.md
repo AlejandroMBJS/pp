@@ -43,23 +43,64 @@ go test -run TestName ./.. # run a single test
 The backend e2e tests are in `backend/e2e_test.go`.
 
 ### Deploy to Production (VPS)
+
+**New flow (git-pull, reproducible by commit SHA or tag)** — the default:
+
 ```bash
-# Get VPS password
+# 1. Commit + push to main.
+git push origin main
+# 2. GitHub Actions runs tests. If green, it SSHes into the VPS and triggers
+#    /srv/projpul/scripts/vps-deploy.sh main (backup DB, docker rebuild,
+#    healthcheck gate, auto-rollback if /healthz fails within 60 s).
+# 3. Verify: curl -sI https://projpul.com/app
+```
+
+Manual deploy / rollback (same script, bypasses CI):
+
+```bash
 VPS_PASS=$(sed -n '3p' ~/maqzone/vps | tr -d '\n\r ')
-
-# Sync specific files to VPS
-sshpass -p "$VPS_PASS" rsync -avz /home/amb/pp/frontend/components/ root@72.62.201.134:/root/pp/frontend/components/
-
-# Rebuild frontend only
-sshpass -p "$VPS_PASS" ssh root@72.62.201.134 "cd /root/pp && docker compose -f docker-compose.prod.yml --env-file .env up -d --build frontend"
-
-# Rebuild backend only
-sshpass -p "$VPS_PASS" ssh root@72.62.201.134 "cd /root/pp && docker compose -f docker-compose.prod.yml --env-file .env up -d --build backend"
-
-# Check logs
+# Deploy a specific ref
+sshpass -p "$VPS_PASS" ssh root@72.62.201.134 "/srv/projpul/scripts/vps-deploy.sh v2026.04.25-1"
+# Panic rollback to the pre-restructure tag
+sshpass -p "$VPS_PASS" ssh root@72.62.201.134 "/srv/projpul/scripts/vps-deploy.sh prod-pre-restructure"
+# Logs
 sshpass -p "$VPS_PASS" ssh root@72.62.201.134 "docker logs pp-frontend-1 --tail 20"
 sshpass -p "$VPS_PASS" ssh root@72.62.201.134 "docker logs pp-backend-1 --tail 20"
 ```
+
+**Do not use rsync to deploy.** The `/root/pp` path is deprecated and slated
+for removal — the live stack runs from `/srv/projpul` with bind mounts at
+`/srv/projpul/data/backend`. The named Postgres volume `pp_postgres_data`
+is shared across paths via `COMPOSE_PROJECT_NAME=pp` in `.env`.
+
+### Staging (local only)
+
+Staging runs on the developer's machine, bound to `127.0.0.1:1213` so it is
+not reachable from anywhere but the host.
+
+```bash
+# First time
+cp .env.staging.example .env.staging   # edit: test-mode Stripe, new JWT, etc.
+docker compose --env-file .env.staging -p pp-staging up -d --build
+# http://localhost:1213
+# Stop
+docker compose -p pp-staging down
+```
+
+Volumes/containers are prefixed `pp-staging_*` so they never clash with the
+prod or prod-ish dev stack. A second remote VPS for staging is in the
+roadmap but not active yet.
+
+### Release tags
+
+Tag every merge to `main`:
+
+```bash
+git tag v$(date +%Y.%m.%d)-1    # bump the trailing number for same-day cuts
+git push --tags
+```
+
+Roll back to any prior tag with `vps-deploy.sh <tag>`.
 
 ### Database Operations (CAREFUL — production data)
 ```bash

@@ -47,7 +47,9 @@ services:
       - backend
       - frontend
     ports:
-      - "1212:1212"
+      # Host binding is parameterised so staging can bind 127.0.0.1 only while
+      # dev still exposes on LAN. Defaults preserve the dev UX (LAN + port 1212).
+      - "${GATEWAY_BIND_HOST:-0.0.0.0}:${GATEWAY_HTTP_PORT:-1212}:1212"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
 

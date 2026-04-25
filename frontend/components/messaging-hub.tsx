@@ -165,6 +165,10 @@ export function MessagingHub({
     let timer: ReturnType<typeof setTimeout>;
     let cancelled = false;
     async function poll() {
+      // Bail out if the effect was cleaned up before the first fetch resolves
+      // (audit-findings.md F15). Without this, fetchMessages can complete and
+      // setState on a stale-effect's state.
+      if (cancelled) return;
       await fetchMessages();
       if (!cancelled) timer = setTimeout(poll, 5000);
     }

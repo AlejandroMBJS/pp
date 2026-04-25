@@ -281,7 +281,7 @@ export function SupervisorCanvas({
               <div className="md:col-span-1 space-y-1.5">
                 <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Status</label>
                 <select
-                  className="w-full bg-[#0f172a] border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all appearance-none"
+                  className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all appearance-none"
                   value={timelineForm.status}
                   onChange={(e) => setTimelineForm({ ...timelineForm, status: e.target.value })}
                 >
@@ -305,7 +305,7 @@ export function SupervisorCanvas({
               <div className="md:col-span-1 space-y-1.5">
                 <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Predecessor</label>
                 <select
-                  className="w-full bg-[#0f172a] border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all appearance-none"
+                  className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all appearance-none"
                   value={timelineForm.predecessor_task_id}
                   onChange={(e) => setTimelineForm({ ...timelineForm, predecessor_task_id: e.target.value })}
                 >
@@ -339,9 +339,9 @@ export function SupervisorCanvas({
                 onChange={(e) => setReviewTaskFilter(e.target.value)}
                 className="rounded-xl bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500/50"
               >
-                <option value="" style={{ background: "#0f172a" }}>All tasks</option>
+                <option value="" style={{ background: "rgb(15 23 42)" }}>All tasks</option>
                 {tasksWithEvidence.map((t) => (
-                  <option key={t.id} value={t.id} style={{ background: "#0f172a" }}>
+                  <option key={t.id} value={t.id} style={{ background: "rgb(15 23 42)" }}>
                     {t.title}
                   </option>
                 ))}
@@ -497,12 +497,31 @@ export function SupervisorCanvas({
                 />
               </div>
             ) : (
-              <div className="glass-card p-12 text-center border-dashed border-white/10">
+              <div className="glass-card p-12 text-center border-dashed border-white/10 space-y-4">
                 <p className="text-white/30 font-medium italic">
                   {evidences.length === 0
                     ? "There is no pending evidence right now."
                     : "No pending evidence matches the current filter."}
                 </p>
+                {/* F19: nudge supervisor toward the next action when the
+                    queue is empty. Both branches lead somewhere useful. */}
+                {evidences.length === 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => onViewChange?.("timeline")}
+                    className="text-[10px] font-bold uppercase tracking-widest text-blue-400 hover:text-blue-300"
+                  >
+                    Go to timeline → assign tasks
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => { setReviewStatusFilter("all"); setReviewTaskFilter(""); }}
+                    className="text-[10px] font-bold uppercase tracking-widest text-blue-400 hover:text-blue-300"
+                  >
+                    Clear filters
+                  </button>
+                )}
               </div>
             )}
           </div>

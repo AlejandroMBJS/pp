@@ -127,6 +127,9 @@ export function SettingsGeneralModal({
       setTenant(null);
       setTenantDraft(null);
       setDeleteSlugInput("");
+      // F16: also clear loading flag when the modal closes mid-fetch so the
+      // spinner doesn't stick on next open.
+      setTenantLoading(false);
       return;
     }
     if (!token || tenant) return;

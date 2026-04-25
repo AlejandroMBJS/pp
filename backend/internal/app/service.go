@@ -925,10 +925,20 @@ func (s *Service) UserByID(ctx context.Context, userID string) (User, error) {
 }
 
 func (s *Service) ListUsers(ctx context.Context, actor Claims) ([]User, error) {
-	if actor.Role != RoleOwner && actor.Role != RoleSupervisor {
+	// Platform admin (tenant_id="") gets the unfiltered list for support work;
+	// owner/supervisor only see their own tenant. Audit-findings.md F13.
+	if actor.Role != RoleOwner && actor.Role != RoleSupervisor && actor.Role != RoleAdmin {
 		return nil, errors.New("forbidden")
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, email, full_name, role, COALESCE(is_active, TRUE) FROM users WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY role, full_name`, actor.TenantID)
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if actor.Role == RoleAdmin {
+		rows, err = s.db.QueryContext(ctx, `SELECT id, tenant_id, email, full_name, role, COALESCE(is_active, TRUE) FROM users WHERE deleted_at IS NULL ORDER BY tenant_id, role, full_name`)
+	} else {
+		rows, err = s.db.QueryContext(ctx, `SELECT id, tenant_id, email, full_name, role, COALESCE(is_active, TRUE) FROM users WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY role, full_name`, actor.TenantID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -2149,10 +2159,50 @@ func (s *Service) SaveUploadedFile(ctx context.Context, sessionID, token, conten
 	if counting.n > intendedSize {
 		return fmt.Errorf("upload exceeds declared size: %d > %d", counting.n, intendedSize)
 	}
+	// Post-write magic-byte verification (audit-findings.md F10). When the
+	// declared MIME is in a category we can sniff (image/video/pdf), the file's
+	// actual bytes must agree with that category. CAD/STL/DWG remain octet-
+	// stream both at declaration and detection — those bypass the check.
+	if !verifyMagicBytes(s.storage, filePath, effectiveCT) {
+		_ = s.storage.Delete(ctx, filePath)
+		return fmt.Errorf("file content does not match declared type %s", effectiveCT)
+	}
 	if _, err := s.db.ExecContext(ctx, `UPDATE upload_sessions SET status = $1, local_path = $2, content_type = $3 WHERE id = $4`, "uploaded", filePath, effectiveCT, sessionID); err != nil {
 		return err
 	}
 	return nil
+}
+
+// verifyMagicBytes spot-checks a freshly-saved upload against its declared
+// MIME type using net/http.DetectContentType. Only enforces categories where
+// detection is reliable (image/*, video/*, application/pdf). Returns true to
+// allow when:
+//   - declared type is in a "skip-detection" set (CAD/STL etc — octet-stream),
+//   - or detected category matches declared category,
+//   - or the file is too small to detect (<8 bytes).
+func verifyMagicBytes(storage FileStorage, path, declaredMIME string) bool {
+	declared := strings.ToLower(strings.TrimSpace(strings.SplitN(declaredMIME, ";", 2)[0]))
+	switch declared {
+	case "application/octet-stream",
+		"application/vnd.dwg", "application/acad", "image/vnd.dwg", "application/dxf", "image/vnd.dxf",
+		"model/gltf-binary", "model/gltf+json", "application/vnd.ms-pki.stl", "model/stl",
+		"image/vnd.dwf", "application/vnd.dwf":
+		return true
+	}
+	rc, err := storage.Open(context.Background(), path)
+	if err != nil {
+		return false
+	}
+	defer rc.Close()
+	buf := make([]byte, 512)
+	n, _ := io.ReadFull(rc, buf)
+	if n < 8 {
+		return true // too small to detect; trust declared type
+	}
+	detected := strings.SplitN(http.DetectContentType(buf[:n]), ";", 2)[0]
+	declaredCategory := strings.SplitN(declared, "/", 2)[0]
+	detectedCategory := strings.SplitN(detected, "/", 2)[0]
+	return declaredCategory == detectedCategory
 }
 
 type countingReader struct {

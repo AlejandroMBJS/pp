@@ -233,6 +233,15 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "account is suspended or deleted"})
 				return
 			}
+			// Defensive: the JWT-asserted tenant must still match the DB.
+			// Currently user IDs are tenant-scoped UUIDs so collisions are
+			// impossible, but this catches an attacker who somehow forges a
+			// JWT with a UserID + a different TenantID (e.g. via a future
+			// signing-key compromise). Audit-findings.md F14.
+			if u.TenantID != claims.TenantID {
+				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "tenant mismatch"})
+				return
+			}
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), actorKey{}, claims)))
 	})

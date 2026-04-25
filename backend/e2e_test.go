@@ -395,7 +395,9 @@ func requestUploadURL(t *testing.T, baseURL, auth, taskID string) (string, strin
 
 func putImage(t *testing.T, uploadURL string) {
 	t.Helper()
-	img := bytes.Repeat([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A}, 40)
+	// Real PNG signature so post-write magic-byte verification (F10) passes.
+	header := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
+	img := append(header, bytes.Repeat([]byte{0x00}, 232)...) // total 240 bytes
 	req, err := http.NewRequest(http.MethodPut, uploadURL, bytes.NewReader(img))
 	if err != nil {
 		t.Fatal(err)

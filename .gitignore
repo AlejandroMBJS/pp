@@ -1,24 +1,57 @@
-# Dependencies
 node_modules/
-frontend/node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
 
-# Next.js build output and cache
-frontend/.next/
+# Next.js
+.next/
 
-# Uploaded files / user data
+# Build artifacts
+*.tsbuildinfo
+
+# Runtime data
 data/
 
-# Go build artifacts
+# Mac zip leftovers + test assets
+__MACOSX/
+Giraffe360*/
+test_assets/
+Unconfirmed*
+Canteen*
+
+# Stray binaries / large files
+*.dwg
+*.stl
+*.3mf
+*.glb
+*.gltf
+*.obj
+*.zip
+*.crdownload
+*.pdf
+*.dxf
+
+# Secrets (moved to ~/.secrets-pp/)
+cred
+stripe
+*.pem
+
+# Editor / local scratchpads
+.vscode/
+.idea/
+*.swp
+
+# Claude Code runtime
+.claude/scheduled_tasks.lock
+
+# Go build artifacts (local)
 backend/api
-*.exe
 
-# Environment files
-.env
-.env.local
-.env.*.local
-
-# Playwright / user-guide generation
-frontend/e2e/.artifacts/
-frontend/e2e/user-guide/.artifacts/
+# Playwright / test artifacts
+frontend/e2e/**/.artifacts/
 frontend/playwright-report/
 frontend/test-results/

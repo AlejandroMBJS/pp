@@ -26,7 +26,7 @@ func TestRoleWorkflowsEndToEnd(t *testing.T) {
 		UploadDir:             filepath.Join(tmp, "uploads"),
 		JWTSecret:             testJWTSecret,
 		PlatformAdminEmail:    "admin@projectpulse.local",
-		PlatformAdminPassword: "demo123",
+		PlatformAdminPassword: "demo1234",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -40,19 +40,19 @@ func TestRoleWorkflowsEndToEnd(t *testing.T) {
 	owner := registerOwner(t, ts.URL, ownerEmail)
 
 	ownerAuth := bearer(owner.AccessToken)
-	supervisor := createUser(t, ts.URL, ownerAuth, "Sofia Supervisor", fmt.Sprintf("supervisor-%d@test.local", time.Now().UnixNano()), "demo123", app.RoleSupervisor)
-	helper := createUser(t, ts.URL, ownerAuth, "Hugo Helper", fmt.Sprintf("helper-%d@test.local", time.Now().UnixNano()), "demo123", app.RoleHelper)
-	client := createUser(t, ts.URL, ownerAuth, "Carla Client", fmt.Sprintf("client-%d@test.local", time.Now().UnixNano()), "demo123", app.RoleClient)
+	supervisor := createUser(t, ts.URL, ownerAuth, "Sofia Supervisor", fmt.Sprintf("supervisor-%d@test.local", time.Now().UnixNano()), "demo1234", app.RoleSupervisor)
+	helper := createUser(t, ts.URL, ownerAuth, "Hugo Helper", fmt.Sprintf("helper-%d@test.local", time.Now().UnixNano()), "demo1234", app.RoleHelper)
+	client := createUser(t, ts.URL, ownerAuth, "Carla Client", fmt.Sprintf("client-%d@test.local", time.Now().UnixNano()), "demo1234", app.RoleClient)
 
 	project := createProject(t, ts.URL, ownerAuth, supervisor.ID, client.ID)
 	projectID := project["id"].(string)
 	taskID := createTask(t, ts.URL, ownerAuth, projectID, helper.ID)
 
-	supervisorLogin := login(t, ts.URL, supervisor.Email, "demo123")
+	supervisorLogin := login(t, ts.URL, supervisor.Email, "demo1234")
 	supervisorAuth := bearer(supervisorLogin.AccessToken)
 	patchTimeline(t, ts.URL, supervisorAuth, taskID)
 
-	helperLogin := login(t, ts.URL, helper.Email, "demo123")
+	helperLogin := login(t, ts.URL, helper.Email, "demo1234")
 	helperAuth := bearer(helperLogin.AccessToken)
 	assigned := getJSONArray(t, ts.URL+"/api/v1/tasks/assigned", helperAuth)
 	if len(assigned) == 0 {
@@ -70,7 +70,7 @@ func TestRoleWorkflowsEndToEnd(t *testing.T) {
 
 	approveEvidence(t, ts.URL, supervisorAuth, evidenceID)
 
-	clientLogin := login(t, ts.URL, client.Email, "demo123")
+	clientLogin := login(t, ts.URL, client.Email, "demo1234")
 	clientAuth := bearer(clientLogin.AccessToken)
 	summaryBefore := getJSON(t, ts.URL+"/api/v1/client/projects/"+projectID+"/summary", clientAuth)
 	galleryBeforeAudit, _ := summaryBefore["gallery"].([]any)
@@ -105,7 +105,7 @@ func TestRoleWorkflowsEndToEnd(t *testing.T) {
 		t.Fatal("expected csv export to contain deliverable title")
 	}
 
-	admin := login(t, ts.URL, "admin@projectpulse.local", "demo123")
+	admin := login(t, ts.URL, "admin@projectpulse.local", "demo1234")
 	adminAuth := bearer(admin.AccessToken)
 	tenants := getJSONArray(t, ts.URL+"/api/v1/admin/tenants", adminAuth)
 	if len(tenants) < 2 {
@@ -259,7 +259,7 @@ func registerOwner(t *testing.T, baseURL, ownerEmail string) loginResponse {
 		"company_slug": fmt.Sprintf("projectpulse-qa-%d", time.Now().UnixNano()),
 		"owner_name":   "Olivia QA",
 		"owner_email":  ownerEmail,
-		"password":     "demo123",
+		"password":     "demo1234",
 	}
 	resp := postJSON(t, baseURL+"/api/v1/auth/register", "", payload)
 	defer resp.Body.Close()
@@ -568,7 +568,7 @@ func TestDailyLogApprovalFlow(t *testing.T) {
 		UploadDir:             filepath.Join(tmp, "uploads"),
 		JWTSecret:             testJWTSecret,
 		PlatformAdminEmail:    "admin@projectpulse.local",
-		PlatformAdminPassword: "demo123",
+		PlatformAdminPassword: "demo1234",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -582,9 +582,9 @@ func TestDailyLogApprovalFlow(t *testing.T) {
 	owner := registerOwner(t, ts.URL, ownerEmail)
 	ownerAuth := bearer(owner.AccessToken)
 
-	supervisor := createUser(t, ts.URL, ownerAuth, "Log Supervisor", fmt.Sprintf("log-sup-%d@test.local", time.Now().UnixNano()), "demo123", app.RoleSupervisor)
-	helper := createUser(t, ts.URL, ownerAuth, "Log Helper", fmt.Sprintf("log-helper-%d@test.local", time.Now().UnixNano()), "demo123", app.RoleHelper)
-	client := createUser(t, ts.URL, ownerAuth, "Log Client", fmt.Sprintf("log-client-%d@test.local", time.Now().UnixNano()), "demo123", app.RoleClient)
+	supervisor := createUser(t, ts.URL, ownerAuth, "Log Supervisor", fmt.Sprintf("log-sup-%d@test.local", time.Now().UnixNano()), "demo1234", app.RoleSupervisor)
+	helper := createUser(t, ts.URL, ownerAuth, "Log Helper", fmt.Sprintf("log-helper-%d@test.local", time.Now().UnixNano()), "demo1234", app.RoleHelper)
+	client := createUser(t, ts.URL, ownerAuth, "Log Client", fmt.Sprintf("log-client-%d@test.local", time.Now().UnixNano()), "demo1234", app.RoleClient)
 
 	project := createProject(t, ts.URL, ownerAuth, supervisor.ID, client.ID)
 	projectID := project["id"].(string)
@@ -594,11 +594,11 @@ func TestDailyLogApprovalFlow(t *testing.T) {
 	// Helper needs a task on this project to gain daily-log access.
 	_ = createTask(t, ts.URL, ownerAuth, projectID, helper.ID)
 
-	helperLogin := login(t, ts.URL, helper.Email, "demo123")
+	helperLogin := login(t, ts.URL, helper.Email, "demo1234")
 	helperAuth := bearer(helperLogin.AccessToken)
 
 	// 1. Client cannot create a daily log.
-	clientLogin := login(t, ts.URL, client.Email, "demo123")
+	clientLogin := login(t, ts.URL, client.Email, "demo1234")
 	clientAuth := bearer(clientLogin.AccessToken)
 	resp := postJSON(t, ts.URL+"/api/v1/projects/"+projectID+"/daily-logs", clientAuth, map[string]any{
 		"log_date":  "2026-04-22",
@@ -648,7 +648,7 @@ func TestDailyLogApprovalFlow(t *testing.T) {
 	}
 
 	// 5. Supervisor approves.
-	supervisorLogin := login(t, ts.URL, supervisor.Email, "demo123")
+	supervisorLogin := login(t, ts.URL, supervisor.Email, "demo1234")
 	supervisorAuth := bearer(supervisorLogin.AccessToken)
 	postMustOK(t, ts.URL+"/api/v1/daily-logs/"+logID+"/approve", supervisorAuth)
 

@@ -27,7 +27,7 @@ func TestQuotaProjectEnforcement(t *testing.T) {
 		UploadDir:             filepath.Join(tmp, "uploads"),
 		JWTSecret:             testJWTSecret,
 		PlatformAdminEmail:    "admin@projectpulse.local",
-		PlatformAdminPassword: "demo123",
+		PlatformAdminPassword: "demo1234",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -42,8 +42,8 @@ func TestQuotaProjectEnforcement(t *testing.T) {
 	owner := registerOwner(t, ts.URL, ownerEmail)
 	auth := bearer(owner.AccessToken)
 
-	supervisor := createUser(t, ts.URL, auth, "Sofia", fmt.Sprintf("quota-sup-%d@test.local", time.Now().UnixNano()), "demo123", app.RoleSupervisor)
-	client := createUser(t, ts.URL, auth, "Carla", fmt.Sprintf("quota-cli-%d@test.local", time.Now().UnixNano()), "demo123", app.RoleClient)
+	supervisor := createUser(t, ts.URL, auth, "Sofia", fmt.Sprintf("quota-sup-%d@test.local", time.Now().UnixNano()), "demo1234", app.RoleSupervisor)
+	client := createUser(t, ts.URL, auth, "Carla", fmt.Sprintf("quota-cli-%d@test.local", time.Now().UnixNano()), "demo1234", app.RoleClient)
 
 	// First project succeeds — at the plan limit (1/1).
 	createProject(t, ts.URL, auth, supervisor.ID, client.ID)

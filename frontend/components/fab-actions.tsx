@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Plus, FolderPlus, ListPlus, UserPlus } from "lucide-react";
+import { Plus, FolderPlus, ListPlus, UserPlus, Lock } from "lucide-react";
 
 type FabAction = {
   id: string;
@@ -90,4 +90,4 @@ export function FabActions({ actions }: Props) {
   );
 }
 
-export { FolderPlus, ListPlus, UserPlus };
+export { FolderPlus, ListPlus, UserPlus, Lock };

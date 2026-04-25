@@ -47,7 +47,14 @@ export function InviteUserModal({ isOpen, onClose, token, onInvited }: InviteUse
         body: JSON.stringify({ full_name: fullName.trim(), email: email.trim(), role }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (!res.ok) {
+        // F17: surface 409 (email already invited / already exists) as a
+        // specific message instead of the raw backend string.
+        if (res.status === 409) {
+          throw new Error("That email already has an invite or account.");
+        }
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
       setResult(data);
       toast.success("Invitation created successfully.");
       await onInvited?.();

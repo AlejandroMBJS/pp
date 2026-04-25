@@ -28,7 +28,7 @@ import { BillingProvider } from "./billing-context";
 import { TrialBanner } from "./trial-banner";
 import { UpgradeModal } from "./upgrade-modal";
 
-import { FabActions, FolderPlus, ListPlus, UserPlus } from "./fab-actions";
+import { FabActions, FolderPlus, ListPlus, UserPlus, Lock } from "./fab-actions";
 import { NewProjectModal } from "./new-project-modal";
 import { InviteUserModal } from "./invite-user-modal";
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -2014,8 +2014,28 @@ export function ControlCenter() {
         />
       );
     }
-    
-    return null;
+
+    // F20: a role hits a view it's not allowed to render. Replace the silent
+    // empty with a friendly placeholder + CTA to the role's default view.
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center animate-fadeIn">
+        <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-4">
+          <Lock size={28} className="text-white/30" />
+        </div>
+        <h2 className="text-xl font-bold text-white mb-2">No access to this view</h2>
+        <p className="text-sm text-white/40 max-w-sm mb-6">
+          Your role doesn&apos;t include this section. Use the sidebar to navigate.
+        </p>
+        <button
+          type="button"
+          onClick={() => setActiveView(defaultViewForRole(session.user.role))}
+          className="px-6 py-3 rounded-xl font-bold text-sm text-white transition-all"
+          style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: "0 4px 20px rgba(59,130,246,0.3)" }}
+        >
+          Back to home
+        </button>
+      </div>
+    );
   };
 
   const brandStyle = (() => {

@@ -2631,6 +2631,35 @@ func (s *Service) processAudit(evidenceID string) {
 	var feedback AuditFeedback
 	modelVersion := "gemini-2.0-flash"
 
+	// Deterministic mock for local/CI testing: when GEMINI_API_KEY is the
+	// literal "mock", produce a stable score derived from the evidence ID
+	// so tests can assert quality_score>0 + status=approved without hitting
+	// a real Gemini quota.
+	if s.cfg.GeminiAPIKey == "mock" {
+		seed := 0
+		for _, c := range evidenceID {
+			seed = (seed*31 + int(c)) & 0x7fffffff
+		}
+		feedback = AuditFeedback{
+			IsValidEvidence: true,
+			QualityScore:    85 + (seed % 13), // 85..97
+			AnalysisSummary: "mock audit (GEMINI_API_KEY=mock)",
+			DetectedIssues:  []string{},
+			Recommendations: "",
+			StatusLogic:     "approved_quality",
+		}
+		modelVersion = "mock"
+		payload, _ := json.Marshal(feedback)
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO ia_audits (id, tenant_id, evidence_id, score, json_feedback, critical_alert, model_version, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, newID("audit"), evidence.TenantID, evidence.ID, feedback.QualityScore, string(payload), 0, modelVersion, nowText()); err != nil {
+			log.Printf("audit worker: failed to insert mock audit for evidence=%s: %v", evidenceID, err)
+		}
+		if _, err := s.db.ExecContext(ctx, `UPDATE evidences SET status = $1, ai_processing_status = $2, quality_score = $3, updated_at = $4 WHERE id = $5`,
+			"approved", "completed", feedback.QualityScore, nowText(), evidence.ID); err != nil {
+			log.Printf("audit worker: failed to mock-approve evidence=%s: %v", evidenceID, err)
+		}
+		return
+	}
+
 	if s.cfg.GeminiAPIKey == "" {
 		// Fail-loud: no fake scores in production. Persist a disabled audit row
 		// and leave the evidence as pending_approval for manual review.
@@ -2874,14 +2903,50 @@ func (s *Service) UpdateProject(ctx context.Context, actor Claims, projectID str
 	if actor.TenantID != project.TenantID {
 		return Project{}, sql.ErrNoRows
 	}
-	// Validate assigned users belong to same tenant
-	if patch.SupervisorUserID != "" {
+	// PATCH merge: empty/zero in `patch` means "leave unchanged". Without this,
+	// a partial PATCH (e.g. {"daily_log_preset":"manufacturing"}) would zero
+	// out name, supervisor, client, dates — breaking the project entirely.
+	if patch.Name == "" {
+		patch.Name = project.Name
+	}
+	if patch.Description == "" {
+		patch.Description = project.Description
+	}
+	if patch.Status == "" {
+		patch.Status = project.Status
+	}
+	if patch.StartDate == "" {
+		patch.StartDate = project.StartDate
+	}
+	if patch.PlannedEndDate == "" {
+		patch.PlannedEndDate = project.PlannedEndDate
+	}
+	if patch.SupervisorUserID == "" {
+		patch.SupervisorUserID = project.SupervisorUserID
+	}
+	if patch.ClientUserID == "" {
+		patch.ClientUserID = project.ClientUserID
+	}
+	if patch.LatitudeCenter == 0 {
+		patch.LatitudeCenter = project.LatitudeCenter
+	}
+	if patch.LongitudeCenter == 0 {
+		patch.LongitudeCenter = project.LongitudeCenter
+	}
+	if patch.GeofenceRadiusM == 0 {
+		patch.GeofenceRadiusM = project.GeofenceRadiusM
+	}
+	if patch.DailyLogPreset == "" {
+		patch.DailyLogPreset = project.DailyLogPreset
+	}
+	// Validate assigned users belong to same tenant (only if changing).
+	if patch.SupervisorUserID != "" && patch.SupervisorUserID != project.SupervisorUserID {
 		var supTenant string
 		if err := s.db.QueryRowContext(ctx, `SELECT tenant_id FROM users WHERE id = $1`, patch.SupervisorUserID).Scan(&supTenant); err != nil || supTenant != actor.TenantID {
 			return Project{}, errors.New("supervisor must belong to same organization")
 		}
 	}
-	if patch.ClientUserID != "" {
+	if patch.ClientUserID != "" && patch.ClientUserID != project.ClientUserID {
 		var cliTenant string
 		if err := s.db.QueryRowContext(ctx, `SELECT tenant_id FROM users WHERE id = $1`, patch.ClientUserID).Scan(&cliTenant); err != nil || cliTenant != actor.TenantID {
 			return Project{}, errors.New("client must belong to same organization")
@@ -3258,6 +3323,7 @@ func (s *Service) ApproveDeliverable(ctx context.Context, actor Claims, delivera
 		"Entregable aprobado: "+d.Title,
 		fmt.Sprintf("El entregable \"%s\" fue aprobado en el proyecto %s.\n\n— ProjectPulse", d.Title, project.Name))
 	d.Status = "approved"
+	d.ApprovedByUserID = actor.UserID
 	return d, nil
 }
 

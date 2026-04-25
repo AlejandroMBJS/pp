@@ -28,6 +28,7 @@ func TestQuotaProjectEnforcement(t *testing.T) {
 		JWTSecret:             testJWTSecret,
 		PlatformAdminEmail:    "admin@projectpulse.local",
 		PlatformAdminPassword: "demo1234",
+		GeminiAPIKey:          "mock",
 	})
 	if err != nil {
 		t.Fatal(err)

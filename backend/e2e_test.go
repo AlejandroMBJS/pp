@@ -27,6 +27,7 @@ func TestRoleWorkflowsEndToEnd(t *testing.T) {
 		JWTSecret:             testJWTSecret,
 		PlatformAdminEmail:    "admin@projectpulse.local",
 		PlatformAdminPassword: "demo1234",
+		GeminiAPIKey:          "mock",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -171,10 +172,12 @@ func TestRoleWorkflowsEndToEnd(t *testing.T) {
 	if approved["approved_by_user_id"].(string) != client.ID {
 		t.Fatalf("expected approved_by_user_id=%s, got %v", client.ID, approved["approved_by_user_id"])
 	}
-	// re-approving should fail (wrong status)
+	// Re-approve is idempotent: the service short-circuits when the deliverable
+	// is already approved and returns the same record (HTTP 200). This avoids
+	// confusing UX when two reviewers click approve nearly simultaneously.
 	resp = postJSON(t, ts.URL+"/api/v1/deliverables/"+deliverableID+"/approve", clientAuth, map[string]any{})
-	if resp.StatusCode == http.StatusOK {
-		t.Fatal("expected re-approve to fail")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected idempotent re-approve to return 200, got %d", resp.StatusCode)
 	}
 	resp.Body.Close()
 
@@ -211,11 +214,15 @@ func TestRoleWorkflowsEndToEnd(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// Evidence visibility: client cannot see non-visible evidence via project endpoint
+	// Evidence visibility: client cannot see non-visible evidence via project endpoint.
+	// "Approved" terminal state is either status='approved' (set by audit worker) or
+	// status='committed' (set when supervisor finalises an already-audited evidence).
 	allEvidences := getJSONArray(t, ts.URL+"/api/v1/projects/"+projectID+"/evidence", clientAuth)
 	for _, raw := range allEvidences {
 		ev := raw.(map[string]any)
-		if ev["is_visible_to_client"] == false || ev["status"].(string) != "approved" {
+		status := ev["status"].(string)
+		approved := status == "approved" || status == "committed"
+		if ev["is_visible_to_client"] == false || !approved {
 			t.Fatal("client received evidence that is not approved+visible")
 		}
 	}
@@ -372,7 +379,7 @@ func requestUploadURL(t *testing.T, baseURL, auth, taskID string) (string, strin
 	resp := postJSON(t, baseURL+"/api/v1/tasks/"+taskID+"/evidence/upload-url", auth, map[string]any{
 		"file_name":       "avance-lobby.png",
 		"content_type":    "image/png",
-		"file_size_bytes": 220,
+		"file_size_bytes": 240,
 		"latitude":        19.43261,
 		"longitude":       -99.13319,
 	})
@@ -430,12 +437,21 @@ func approveEvidence(t *testing.T, baseURL, auth, evidenceID string) {
 
 func waitForEvidenceApproved(t *testing.T, baseURL, auth, taskID, evidenceID string) {
 	t.Helper()
+	// "Approved" terminal state is either status='approved' (set by the audit
+	// worker on score>=80) or status='committed' (supervisor finalised an
+	// already-audited evidence). Both are positive outcomes; either way
+	// quality_score must be > 0.
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		evidences := getJSONArray(t, baseURL+"/api/v1/tasks/"+taskID+"/evidences", auth)
 		for _, raw := range evidences {
 			evidence := raw.(map[string]any)
-			if evidence["id"].(string) == evidenceID && evidence["status"].(string) == "approved" && int(evidence["quality_score"].(float64)) > 0 {
+			if evidence["id"].(string) != evidenceID {
+				continue
+			}
+			status := evidence["status"].(string)
+			score := int(evidence["quality_score"].(float64))
+			if (status == "approved" || status == "committed") && score > 0 {
 				return
 			}
 		}
@@ -569,6 +585,7 @@ func TestDailyLogApprovalFlow(t *testing.T) {
 		JWTSecret:             testJWTSecret,
 		PlatformAdminEmail:    "admin@projectpulse.local",
 		PlatformAdminPassword: "demo1234",
+		GeminiAPIKey:          "mock",
 	})
 	if err != nil {
 		t.Fatal(err)

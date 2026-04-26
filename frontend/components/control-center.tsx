@@ -1008,6 +1008,30 @@ export function ControlCenter() {
     }
   }
 
+  // PR-B: optimistic timeline patch from Gantt drag. Snapshot → mutate → API
+  // → revert + toast on failure. Same pattern as evidence status changes.
+  async function handleTaskTimelinePatch(
+    taskId: string,
+    patch: { start_date?: string; end_date?: string; status?: string; progress_percent?: number; predecessor_task_id?: string | null }
+  ) {
+    if (!session) return;
+    const snapshot = tasks;
+    setTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? ({ ...t, ...patch } as Task) : t))
+    );
+    try {
+      await api(`/api/v1/tasks/${taskId}/timeline`, {
+        method: "PATCH",
+        token: session.access_token,
+        body: patch,
+      });
+      toast.success("Timeline updated");
+    } catch (err) {
+      setTasks(snapshot);
+      toast.error(messageOf(err));
+    }
+  }
+
   async function handleHelperUpload(event: FormEvent<HTMLFormElement>, progressPercent?: number) {
     event.preventDefault();
     if (!session || !selectedTaskId || !uploadFile) return;
@@ -1663,6 +1687,7 @@ export function ControlCenter() {
             isMobile={isMobile}
             ganttZoom={ganttZoom}
             onGanttZoomChange={setGanttZoom}
+            onTaskTimelinePatch={handleTaskTimelinePatch}
           />
         );
       }
@@ -1822,6 +1847,7 @@ export function ControlCenter() {
           onTeamChanged={() => refreshRoleData(session)}
           ganttZoom={ganttZoom}
           onGanttZoomChange={setGanttZoom}
+          onTaskTimelinePatch={handleTaskTimelinePatch}
         />
       );
     }
@@ -1930,6 +1956,7 @@ export function ControlCenter() {
           isMobile={isMobile}
           ganttZoom={ganttZoom}
           onGanttZoomChange={setGanttZoom}
+          onTaskTimelinePatch={handleTaskTimelinePatch}
         />
       );
     }

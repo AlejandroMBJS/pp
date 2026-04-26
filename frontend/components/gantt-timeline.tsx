@@ -47,6 +47,14 @@ type Evidence = {
   created_at?: string;
 };
 
+type TaskTimelinePatch = {
+  start_date?: string;
+  end_date?: string;
+  status?: string;
+  progress_percent?: number;
+  predecessor_task_id?: string | null;
+};
+
 type GanttTimelineProps = {
   tasks: Task[];
   deliverables: Deliverable[];
@@ -56,6 +64,26 @@ type GanttTimelineProps = {
   onEvidenceClick?: (evidence: Evidence) => void;
   onTaskClick?: (taskId: string) => void;
   zoomLevel?: GanttZoomLevel;
+  // PR-B: when supplied, bars become draggable (move + resize). When omitted,
+  // the Gantt is read-only — used for helper/client roles.
+  onTaskTimelinePatch?: (taskId: string, patch: TaskTimelinePatch) => void;
+};
+
+type DragMode = "move" | "resize-l" | "resize-r";
+
+type DragState = {
+  taskId: string;
+  mode: DragMode;
+  originX: number;
+  originStart: Date;
+  originEnd: Date;
+  dxDays: number;
+};
+
+type DragGhost = {
+  taskId: string;
+  left: number;
+  width: number;
 };
 
 // Pixels-per-day per zoom level. Day:big-and-spacious, Month:dense overview.
@@ -150,10 +178,102 @@ export function GanttTimeline({
   onEvidenceClick,
   onTaskClick,
   zoomLevel = "month",
+  onTaskTimelinePatch,
 }: GanttTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [highlightedLocal, setHighlightedLocal] = useState<string | null>(null);
   const dayWidth = DAY_WIDTH[zoomLevel];
+
+  // ── PR-B: Drag state ──────────────────────────────────────────────────
+  const dragState = useRef<DragState | null>(null);
+  const [dragGhost, setDragGhost] = useState<DragGhost | null>(null);
+  const canEdit = !!onTaskTimelinePatch;
+  // Suppress the bar's onClick if the pointer moved during a drag — the user
+  // intended to drag, not navigate. Reset on next pointerdown.
+  const suppressNextClick = useRef(false);
+
+  function startDrag(
+    e: React.PointerEvent<HTMLDivElement>,
+    task: Task,
+    mode: DragMode
+  ) {
+    if (!canEdit) return;
+    const start = parseSafe(task.start_date);
+    const end = parseSafe(task.end_date);
+    if (!start || !end) return;
+    e.stopPropagation();
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    dragState.current = {
+      taskId: task.id,
+      mode,
+      originX: e.clientX,
+      originStart: start,
+      originEnd: end,
+      dxDays: 0,
+    };
+    setDragGhost({
+      taskId: task.id,
+      left: toPx(start),
+      width: Math.max(6, toPx(end) - toPx(start) + dayWidth),
+    });
+  }
+
+  function onDragMove(e: React.PointerEvent<HTMLDivElement>) {
+    const drag = dragState.current;
+    if (!drag) return;
+    const dx = e.clientX - drag.originX;
+    const dxDays = Math.round(dx / dayWidth);
+    if (dxDays === drag.dxDays) return;
+    drag.dxDays = dxDays;
+    if (Math.abs(dxDays) > 0) suppressNextClick.current = true;
+    let newStart = drag.originStart;
+    let newEnd = drag.originEnd;
+    if (drag.mode === "move") {
+      newStart = addDays(drag.originStart, dxDays);
+      newEnd = addDays(drag.originEnd, dxDays);
+    } else if (drag.mode === "resize-l") {
+      newStart = addDays(drag.originStart, dxDays);
+      if (newStart > drag.originEnd) newStart = drag.originEnd;
+    } else {
+      newEnd = addDays(drag.originEnd, dxDays);
+      if (newEnd < drag.originStart) newEnd = drag.originStart;
+    }
+    setDragGhost({
+      taskId: drag.taskId,
+      left: toPx(newStart),
+      width: Math.max(6, toPx(newEnd) - toPx(newStart) + dayWidth),
+    });
+  }
+
+  function endDrag(e: React.PointerEvent<HTMLDivElement>) {
+    const drag = dragState.current;
+    if (!drag) return;
+    dragState.current = null;
+    setDragGhost(null);
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // pointer was already released
+    }
+    if (drag.dxDays === 0 || !onTaskTimelinePatch) return;
+    let newStart = drag.originStart;
+    let newEnd = drag.originEnd;
+    if (drag.mode === "move") {
+      newStart = addDays(drag.originStart, drag.dxDays);
+      newEnd = addDays(drag.originEnd, drag.dxDays);
+    } else if (drag.mode === "resize-l") {
+      newStart = addDays(drag.originStart, drag.dxDays);
+      if (newStart > drag.originEnd) newStart = drag.originEnd;
+    } else {
+      newEnd = addDays(drag.originEnd, drag.dxDays);
+      if (newEnd < drag.originStart) newEnd = drag.originStart;
+    }
+    onTaskTimelinePatch(drag.taskId, {
+      start_date: format(newStart, "yyyy-MM-dd"),
+      end_date: format(newEnd, "yyyy-MM-dd"),
+    });
+  }
 
   // ── Memoized time axis ─────────────────────────────────────────────────
   const { axisStart, axisEnd, primaryAxis, secondaryAxis, totalWidth } = useMemo(() => {
@@ -542,40 +662,95 @@ export function GanttTimeline({
                   />
 
                   {/* Task bar */}
-                  {start && end && (
-                    <button
-                      type="button"
-                      data-testid={`gantt-bar-${task.id}`}
-                      className={`gantt-bar group ${
-                        isTaskCritical
-                          ? "ring-2 ring-red-500 ring-offset-2 ring-offset-black/20"
-                          : ""
-                      }`}
-                      style={{
-                        left: barLeft,
-                        width: barWidth,
-                        background: barColor(task.status),
-                        top: BAR_TOP,
-                        height: BAR_HEIGHT,
-                        border: isTaskCritical ? "1px solid #ef4444" : "none",
-                        padding: 0,
-                      }}
-                      onClick={() => onTaskClick?.(task.id)}
-                      title={`${isTaskCritical ? "[CRITICAL PATH] " : ""}Click to edit: ${task.title} · ${task.progress_percent}%`}
-                    >
+                  {start && end && (() => {
+                    const today = startOfDay(new Date());
+                    const isOverdue =
+                      end < today && task.status !== "completed";
+                    const isDraggingThis = dragGhost?.taskId === task.id;
+                    const renderLeft = isDraggingThis ? dragGhost!.left : barLeft;
+                    const renderWidth = isDraggingThis ? dragGhost!.width : barWidth;
+                    return (
                       <div
-                        className="gantt-bar-progress"
-                        style={{ width: `${task.progress_percent}%` }}
-                      />
-                      <span
-                        className="gantt-bar-label"
-                        style={{ maxWidth: barWidth - 16 }}
+                        className={`gantt-bar-shell ${isOverdue ? "gantt-overdue" : ""}`}
+                        style={{
+                          position: "absolute",
+                          left: renderLeft,
+                          width: renderWidth,
+                          top: BAR_TOP,
+                          height: BAR_HEIGHT,
+                        }}
                       >
-                        {task.progress_percent}%
-                      </span>
-                      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-white/10 transition-opacity" />
-                    </button>
-                  )}
+                        <button
+                          type="button"
+                          data-testid={`gantt-bar-${task.id}`}
+                          data-overdue={isOverdue ? "true" : "false"}
+                          className={`gantt-bar group ${
+                            isTaskCritical
+                              ? "ring-2 ring-red-500 ring-offset-2 ring-offset-black/20"
+                              : ""
+                          }`}
+                          style={{
+                            position: "absolute",
+                            inset: 0,
+                            background: barColor(task.status),
+                            border: isTaskCritical ? "1px solid #ef4444" : "none",
+                            padding: 0,
+                          }}
+                          onClick={() => {
+                            if (suppressNextClick.current) {
+                              suppressNextClick.current = false;
+                              return;
+                            }
+                            onTaskClick?.(task.id);
+                          }}
+                          title={`${isTaskCritical ? "[CRITICAL PATH] " : ""}${isOverdue ? "[OVERDUE] " : ""}Click to edit: ${task.title} · ${task.progress_percent}%`}
+                        >
+                          <div
+                            className="gantt-bar-progress"
+                            style={{ width: `${task.progress_percent}%` }}
+                          />
+                          <span
+                            className="gantt-bar-label"
+                            style={{ maxWidth: renderWidth - 16 }}
+                          >
+                            {task.progress_percent}%
+                          </span>
+                          <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-white/10 transition-opacity" />
+                        </button>
+                        {canEdit && (
+                          <>
+                            <div
+                              data-testid={`gantt-handle-l-${task.id}`}
+                              className="gantt-bar-handle gantt-bar-handle-l"
+                              onPointerDown={(ev) => startDrag(ev, task, "resize-l")}
+                              onPointerMove={onDragMove}
+                              onPointerUp={endDrag}
+                              onPointerCancel={endDrag}
+                              title="Drag to change start date"
+                            />
+                            <div
+                              data-testid={`gantt-handle-r-${task.id}`}
+                              className="gantt-bar-handle gantt-bar-handle-r"
+                              onPointerDown={(ev) => startDrag(ev, task, "resize-r")}
+                              onPointerMove={onDragMove}
+                              onPointerUp={endDrag}
+                              onPointerCancel={endDrag}
+                              title="Drag to change end date"
+                            />
+                            <div
+                              data-testid={`gantt-handle-mid-${task.id}`}
+                              className="gantt-bar-handle gantt-bar-handle-mid"
+                              onPointerDown={(ev) => startDrag(ev, task, "move")}
+                              onPointerMove={onDragMove}
+                              onPointerUp={endDrag}
+                              onPointerCancel={endDrag}
+                              title="Drag to move task"
+                            />
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Budget strip */}
                   {budgetWidth > 0 && (

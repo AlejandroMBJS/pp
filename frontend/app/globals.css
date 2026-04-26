@@ -551,6 +551,57 @@ body::before {
   z-index: 0;
 }
 
+/*
+ * PR-B: bar shell wraps the bar + drag handles. The shell controls
+ * positioning (left/width); the bar inside fills it via inset:0.
+ */
+.gantt-bar-shell {
+  border-radius: 6px;
+}
+
+.gantt-bar-shell.gantt-overdue {
+  box-shadow:
+    0 0 0 2px rgba(239, 68, 68, 0.55),
+    0 0 12px rgba(239, 68, 68, 0.45);
+}
+
+.gantt-bar-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  background: transparent;
+  touch-action: none;
+}
+
+.gantt-bar-handle-l {
+  left: -2px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.gantt-bar-handle-r {
+  right: -2px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.gantt-bar-handle-mid {
+  left: 6px;
+  right: 6px;
+  cursor: grab;
+}
+
+.gantt-bar-handle-mid:active {
+  cursor: grabbing;
+}
+
+/* Visual affordance for handle hover — only on the shell itself. */
+.gantt-bar-shell:hover .gantt-bar-handle-l,
+.gantt-bar-shell:hover .gantt-bar-handle-r {
+  background: rgba(255, 255, 255, 0.35);
+}
+
 .gantt-empty {
   padding: 40px;
   text-align: center;

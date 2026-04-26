@@ -84,6 +84,10 @@ type SupervisorCanvasProps = {
   isMobile?: boolean;
   ganttZoom?: GanttZoomLevel;
   onGanttZoomChange?: (zoom: GanttZoomLevel) => void;
+  onTaskTimelinePatch?: (
+    taskId: string,
+    patch: { start_date?: string; end_date?: string; status?: string; progress_percent?: number; predecessor_task_id?: string | null }
+  ) => void;
 };
 
 export function SupervisorCanvas({
@@ -109,6 +113,7 @@ export function SupervisorCanvas({
   isMobile = false,
   ganttZoom = "month",
   onGanttZoomChange,
+  onTaskTimelinePatch,
 }: SupervisorCanvasProps) {
   const [reviewStatusFilter, setReviewStatusFilter] = useState<"all" | "pending_approval" | "approved" | "rejected">("all");
   const [reviewTaskFilter, setReviewTaskFilter] = useState<string>("");
@@ -580,6 +585,7 @@ export function SupervisorCanvas({
               onDeliverableClick={onDeliverableNavigate}
               onTaskClick={onTaskClick}
               zoomLevel={ganttZoom}
+              onTaskTimelinePatch={onTaskTimelinePatch}
             />
           </>
         ) : (

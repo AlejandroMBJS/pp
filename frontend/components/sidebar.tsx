@@ -52,7 +52,6 @@ function menuForRole(role: string) {
         { id: "ownergallery",  label: "Progress gallery",     tag: "view",     group: "owner" },
         { id: "team",          label: "Team and tasks",       tag: "crm",      group: "owner" },
         { id: "review",        label: "Review queue",         tag: "qa",       group: "owner" },
-        { id: "timeline",      label: "Timeline Gantt",       tag: "gantt",    group: "owner" },
         { id: "capture",       label: "Capture progress",     tag: "field",    group: "owner" },
         { id: "history",       label: "Field history",        tag: "proof",    group: "owner" },
         { id: "summary",       label: "Client view",          tag: "client",   group: "owner" },

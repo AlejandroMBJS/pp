@@ -1992,7 +1992,7 @@ func (s *Service) detectPredecessorCycle(ctx context.Context, taskID, predID str
 			return ErrDependencyCycle
 		}
 		visited[cursor] = true
-		var next sql.NullString
+		var next string
 		err := s.db.QueryRowContext(ctx, `SELECT predecessor_task_id FROM tasks WHERE id = $1`, cursor).Scan(&next)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -2000,10 +2000,7 @@ func (s *Service) detectPredecessorCycle(ctx context.Context, taskID, predID str
 			}
 			return err
 		}
-		if !next.Valid {
-			return nil
-		}
-		cursor = next.String
+		cursor = next
 	}
 	return nil
 }
@@ -2050,13 +2047,9 @@ func (s *Service) UpdateTaskTimeline(ctx context.Context, actor Claims, taskID s
 			return Task{}, err
 		}
 	}
-	var predArg interface{}
-	if newPredecessor == "" {
-		predArg = nil
-	} else {
-		predArg = newPredecessor
-	}
-	_, err = s.db.ExecContext(ctx, `UPDATE tasks SET start_date = $1, end_date = $2, status = $3, progress_percent = $4, predecessor_task_id = $5, updated_at = $6 WHERE id = $7`, startDate, endDate, status, progressPercent, predArg, nowText(), taskID)
+	// Schema is TEXT NOT NULL DEFAULT '' — empty string is the sentinel for
+	// "no predecessor", never NULL.
+	_, err = s.db.ExecContext(ctx, `UPDATE tasks SET start_date = $1, end_date = $2, status = $3, progress_percent = $4, predecessor_task_id = $5, updated_at = $6 WHERE id = $7`, startDate, endDate, status, progressPercent, newPredecessor, nowText(), taskID)
 	if err != nil {
 		return Task{}, err
 	}

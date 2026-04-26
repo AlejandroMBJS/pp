@@ -602,6 +602,43 @@ body::before {
   background: rgba(255, 255, 255, 0.35);
 }
 
+/* PR-C: dep handle — small circle just past the right edge of the bar.
+   Drag from here to another bar to create a predecessor link. */
+.gantt-bar-handle-dep {
+  position: absolute;
+  right: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #3b82f6;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  cursor: crosshair;
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+  z-index: 4;
+  touch-action: none;
+}
+
+.gantt-bar-shell:hover .gantt-bar-handle-dep {
+  opacity: 1;
+}
+
+.gantt-bar-handle-dep:hover {
+  transform: translateY(-50%) scale(1.25);
+}
+
+.gantt-dep-ghost {
+  pointer-events: none;
+}
+
+.gantt-bar-shell.gantt-dep-target {
+  box-shadow:
+    0 0 0 2px rgba(59, 130, 246, 0.9),
+    0 0 16px rgba(59, 130, 246, 0.5);
+}
+
 .gantt-empty {
   padding: 40px;
   text-align: center;

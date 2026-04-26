@@ -1968,7 +1968,47 @@ func (s *Service) CreateTask(ctx context.Context, actor Claims, projectID string
 	return task, deliverable, nil
 }
 
-func (s *Service) UpdateTaskTimeline(ctx context.Context, actor Claims, taskID string, startDate, endDate, status string, progressPercent int) (Task, error) {
+// PR-C: invalid end-date and dependency-cycle errors are surfaced as sentinels
+// so the HTTP layer can map them to 400 / 409 instead of a generic 500.
+var (
+	ErrInvalidDateRange    = errors.New("end_date must be on or after start_date")
+	ErrDependencyCycle     = errors.New("dependency would create a cycle")
+)
+
+// detectPredecessorCycle walks the chain that would form if `taskID` were
+// assigned `predID` as predecessor, returning ErrDependencyCycle if `taskID`
+// itself is reachable from `predID`. Self-loops also trip the check.
+func (s *Service) detectPredecessorCycle(ctx context.Context, taskID, predID string) error {
+	if predID == "" {
+		return nil
+	}
+	if predID == taskID {
+		return ErrDependencyCycle
+	}
+	visited := map[string]bool{taskID: true}
+	cursor := predID
+	for cursor != "" {
+		if visited[cursor] {
+			return ErrDependencyCycle
+		}
+		visited[cursor] = true
+		var next sql.NullString
+		err := s.db.QueryRowContext(ctx, `SELECT predecessor_task_id FROM tasks WHERE id = $1`, cursor).Scan(&next)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+			return err
+		}
+		if !next.Valid {
+			return nil
+		}
+		cursor = next.String
+	}
+	return nil
+}
+
+func (s *Service) UpdateTaskTimeline(ctx context.Context, actor Claims, taskID string, startDate, endDate, status, predecessorTaskID string, progressPercent int) (Task, error) {
 	if effect := s.permissionEffect(ctx, actor.Role, "timeline.edit"); effect == "deny" {
 		return Task{}, errors.New("forbidden")
 	}
@@ -1995,7 +2035,28 @@ func (s *Service) UpdateTaskTimeline(ctx context.Context, actor Claims, taskID s
 	if progressPercent < 0 {
 		progressPercent = task.ProgressPercent
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE tasks SET start_date = $1, end_date = $2, status = $3, progress_percent = $4, predecessor_task_id = $5, updated_at = $6 WHERE id = $7`, startDate, endDate, status, progressPercent, task.PredecessorTaskID, nowText(), taskID)
+	// PR-C: predecessorTaskID="" means "keep current"; "null" string clears it.
+	newPredecessor := task.PredecessorTaskID
+	if predecessorTaskID == "null" {
+		newPredecessor = ""
+	} else if predecessorTaskID != "" {
+		newPredecessor = predecessorTaskID
+	}
+	if startDate != "" && endDate != "" && endDate < startDate {
+		return Task{}, ErrInvalidDateRange
+	}
+	if newPredecessor != task.PredecessorTaskID {
+		if err := s.detectPredecessorCycle(ctx, taskID, newPredecessor); err != nil {
+			return Task{}, err
+		}
+	}
+	var predArg interface{}
+	if newPredecessor == "" {
+		predArg = nil
+	} else {
+		predArg = newPredecessor
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE tasks SET start_date = $1, end_date = $2, status = $3, progress_percent = $4, predecessor_task_id = $5, updated_at = $6 WHERE id = $7`, startDate, endDate, status, progressPercent, predArg, nowText(), taskID)
 	if err != nil {
 		return Task{}, err
 	}

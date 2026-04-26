@@ -73,6 +73,11 @@
   --gantt-label-width: 200px;
   --gantt-month-width: 180px;
   --gantt-header-height: 40px;
+  /* PR-A: zoom — pixels per day at each zoom level. */
+  --gantt-day-width-day: 40px;
+  --gantt-day-width-week: 14px;
+  --gantt-day-width-month: 6px;
+  --gantt-weekend-bg: rgba(255, 255, 255, 0.025);
 }
 
 /* ── Keyframes ──────────────────────────────── */
@@ -332,29 +337,65 @@ body::before {
   position: relative;
 }
 
-.gantt-months {
-  display: flex;
-  height: var(--gantt-header-height);
-  border-bottom: 1px solid var(--card-border);
+/*
+ * PR-A: replaced flat .gantt-months row with a stack of two absolute axes
+ * (.gantt-axis-secondary above .gantt-axis-primary). Each cell is positioned
+ * by computed left+width so it works for any zoom (day/week/month).
+ */
+.gantt-axis-stack {
   position: sticky;
   top: 0;
-  background: rgba(8, 11, 20, 0.92);
   z-index: 1;
+  background: rgba(8, 11, 20, 0.92);
   backdrop-filter: blur(18px);
+  border-bottom: 1px solid var(--card-border);
 }
 
-.gantt-month {
-  width: var(--gantt-month-width);
-  flex-shrink: 0;
+.gantt-axis-secondary,
+.gantt-axis-primary {
+  position: relative;
+}
+
+.gantt-axis-secondary {
+  border-bottom: 1px solid var(--card-border);
+}
+
+.gantt-axis-cell {
+  position: absolute;
+  top: 0;
+  bottom: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  padding: 0 12px;
+  justify-content: center;
+  padding: 0 6px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   color: var(--text-secondary);
   border-right: 1px solid var(--card-border);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.gantt-axis-cell.secondary {
+  text-align: center;
+  justify-content: center;
+}
+
+.gantt-axis-cell.primary .gantt-axis-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.gantt-axis-cell.primary .gantt-axis-sublabel {
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 1px;
 }
 
 .gantt-rows {
@@ -498,6 +539,16 @@ body::before {
   bottom: 0;
   width: 1px;
   background: var(--card-border);
+}
+
+/* PR-A: weekend column shading, only rendered in Day zoom by the component. */
+.gantt-weekend-col {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--gantt-weekend-bg);
+  pointer-events: none;
+  z-index: 0;
 }
 
 .gantt-empty {

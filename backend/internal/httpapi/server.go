@@ -130,6 +130,7 @@ func (s *Server) Routes() http.Handler {
 		protected.Post("/api/v1/projects/{projectID}/logo/confirm", s.handleProjectLogoConfirm)
 		protected.Patch("/api/v1/projects/{projectID}/logo", s.handleProjectLogoUpdate)
 		protected.Get("/api/v1/projects/{projectID}/export.csv", s.handleExportCSV)
+		protected.Get("/api/v1/projects/{projectID}/export-detailed.csv", s.handleExportCSVDetailed)
 		protected.Get("/api/v1/client/projects/{projectID}/summary", s.handleClientSummary)
 
 		protected.Post("/api/v1/projects/{projectID}/tasks", s.handleCreateTask)
@@ -916,6 +917,17 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", "projectpulse-export.csv"))
+	_, _ = w.Write(csvBytes)
+}
+
+func (s *Server) handleExportCSVDetailed(w http.ResponseWriter, r *http.Request) {
+	csvBytes, err := s.service.ExportProjectCSVDetailed(r.Context(), s.actor(r), chi.URLParam(r, "projectID"))
+	if err != nil {
+		classifyAndWriteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", "projectpulse-export-detailed.csv"))
 	_, _ = w.Write(csvBytes)
 }
 

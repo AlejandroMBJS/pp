@@ -979,18 +979,33 @@ func (s *Server) handleTaskDelete(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTaskTimeline(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		StartDate       string `json:"start_date"`
-		EndDate         string `json:"end_date"`
-		Status          string `json:"status"`
-		ProgressPercent int    `json:"progress_percent"`
+		StartDate         string  `json:"start_date"`
+		EndDate           string  `json:"end_date"`
+		Status            string  `json:"status"`
+		ProgressPercent   int     `json:"progress_percent"`
+		PredecessorTaskID *string `json:"predecessor_task_id,omitempty"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	task, err := s.service.UpdateTaskTimeline(r.Context(), s.actor(r), chi.URLParam(r, "taskID"), req.StartDate, req.EndDate, req.Status, req.ProgressPercent)
+	// Map the optional pointer to a sentinel string the service understands:
+	// nil  → "" (keep current), explicit null → "null" (clear), value → value.
+	pred := ""
+	if req.PredecessorTaskID != nil {
+		if *req.PredecessorTaskID == "" {
+			pred = "null"
+		} else {
+			pred = *req.PredecessorTaskID
+		}
+	}
+	task, err := s.service.UpdateTaskTimeline(r.Context(), s.actor(r), chi.URLParam(r, "taskID"), req.StartDate, req.EndDate, req.Status, pred, req.ProgressPercent)
 	if err != nil {
 		status := http.StatusBadRequest
-		if strings.Contains(err.Error(), "forbidden") {
+		if errors.Is(err, app.ErrDependencyCycle) {
+			status = http.StatusConflict
+		} else if errors.Is(err, app.ErrInvalidDateRange) {
+			status = http.StatusBadRequest
+		} else if strings.Contains(err.Error(), "forbidden") {
 			status = http.StatusForbidden
 		}
 		writeJSON(w, status, map[string]any{"error": err.Error()})

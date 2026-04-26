@@ -91,6 +91,22 @@ type DragGhost = {
   width: number;
 };
 
+// PR-C: Dependency drag — separate state because it tracks chart-relative
+// pointer coords (not bar-relative) and a hovered drop target.
+type DepDragState = {
+  sourceId: string;
+  pointerId: number;
+  startX: number;
+  startY: number;
+};
+
+type DepGhost = {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+};
+
 // Pixels-per-day per zoom level. Day:big-and-spacious, Month:dense overview.
 const DAY_WIDTH: Record<GanttZoomLevel, number> = {
   day: 40,
@@ -197,6 +213,73 @@ export function GanttTimeline({
   // Suppress the bar's onClick if the pointer moved during a drag — the user
   // intended to drag, not navigate. Reset on next pointerdown.
   const suppressNextClick = useRef(false);
+
+  // ── PR-C: Dependency drag state ──────────────────────────────────────
+  const depDragState = useRef<DepDragState | null>(null);
+  const [depGhost, setDepGhost] = useState<DepGhost | null>(null);
+  const [depHoverTargetId, setDepHoverTargetId] = useState<string | null>(null);
+  // Ref on the .gantt-rows div so we can convert clientX/Y → chart coords.
+  const rowsRef = useRef<HTMLDivElement>(null);
+
+  function startDepDrag(e: React.PointerEvent<HTMLDivElement>, task: Task) {
+    if (!canEdit) return;
+    const end = parseSafe(task.end_date);
+    const rowIndex = tasks.findIndex((t) => t.id === task.id);
+    if (!end || rowIndex < 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    suppressNextClick.current = true;
+    const x1 = toPx(end) + dayWidth;
+    const y1 = rowIndex * ROW_HEIGHT + BAR_TOP + BAR_HEIGHT / 2;
+    depDragState.current = {
+      sourceId: task.id,
+      pointerId: e.pointerId,
+      startX: x1,
+      startY: y1,
+    };
+    setDepGhost({ x1, y1, x2: x1, y2: y1 });
+  }
+
+  function onDepDragMove(e: React.PointerEvent<HTMLDivElement>) {
+    const drag = depDragState.current;
+    if (!drag) return;
+    const rowsEl = rowsRef.current;
+    if (!rowsEl) return;
+    const rect = rowsEl.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setDepGhost({ x1: drag.startX, y1: drag.startY, x2: x, y2: y });
+    // Find drop target under the pointer.
+    let foundId: string | null = null;
+    const els = document.elementsFromPoint(e.clientX, e.clientY);
+    for (const el of els) {
+      const tid = (el as HTMLElement).getAttribute?.("data-testid");
+      if (tid && tid.startsWith("gantt-bar-")) {
+        const id = tid.slice("gantt-bar-".length);
+        if (id !== drag.sourceId) foundId = id;
+        break;
+      }
+    }
+    if (foundId !== depHoverTargetId) setDepHoverTargetId(foundId);
+  }
+
+  function endDepDrag(e: React.PointerEvent<HTMLDivElement>) {
+    const drag = depDragState.current;
+    if (!drag) return;
+    depDragState.current = null;
+    setDepGhost(null);
+    const target = depHoverTargetId;
+    setDepHoverTargetId(null);
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // pointer was already released
+    }
+    if (target && target !== drag.sourceId && onTaskTimelinePatch) {
+      onTaskTimelinePatch(target, { predecessor_task_id: drag.sourceId });
+    }
+  }
 
   function startDrag(
     e: React.PointerEvent<HTMLDivElement>,
@@ -534,7 +617,7 @@ export function GanttTimeline({
           </div>
 
           {/* Rows + overlays */}
-          <div className="gantt-rows" style={{ height: tasks.length * ROW_HEIGHT }}>
+          <div ref={rowsRef} className="gantt-rows" style={{ height: tasks.length * ROW_HEIGHT }}>
             {/* Weekend shading (Day zoom only) */}
             {weekendCols.map((w, i) => (
               <div
@@ -638,6 +721,21 @@ export function GanttTimeline({
                   />
                 );
               })}
+              {/* PR-C: dependency ghost while user is dragging from a bar's
+                  dep handle. Stops being rendered as soon as pointer is up. */}
+              {depGhost && (
+                <line
+                  x1={depGhost.x1}
+                  y1={depGhost.y1}
+                  x2={depGhost.x2}
+                  y2={depGhost.y2}
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  strokeDasharray="6 3"
+                  markerEnd="url(#arrowhead)"
+                  className="gantt-dep-ghost"
+                />
+              )}
             </svg>
 
             {tasks.map((task, rowIndex) => {
@@ -677,7 +775,7 @@ export function GanttTimeline({
                     const renderWidth = isDraggingThis ? dragGhost!.width : barWidth;
                     return (
                       <div
-                        className={`gantt-bar-shell ${isOverdue ? "gantt-overdue" : ""}`}
+                        className={`gantt-bar-shell ${isOverdue ? "gantt-overdue" : ""} ${depHoverTargetId === task.id ? "gantt-dep-target" : ""}`}
                         style={{
                           position: "absolute",
                           left: renderLeft,
@@ -751,6 +849,18 @@ export function GanttTimeline({
                               onPointerUp={endDrag}
                               onPointerCancel={endDrag}
                               title="Drag to move task"
+                            />
+                            {/* PR-C: dependency handle — small dot just past
+                                the bar's right edge. Drag onto another bar
+                                to create a predecessor link. */}
+                            <div
+                              data-testid={`gantt-handle-dep-${task.id}`}
+                              className="gantt-bar-handle-dep"
+                              onPointerDown={(ev) => startDepDrag(ev, task)}
+                              onPointerMove={onDepDragMove}
+                              onPointerUp={endDepDrag}
+                              onPointerCancel={endDepDrag}
+                              title="Drag onto another bar to create a dependency"
                             />
                           </>
                         )}

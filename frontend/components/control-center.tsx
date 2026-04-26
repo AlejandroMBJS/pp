@@ -1456,11 +1456,13 @@ export function ControlCenter() {
     }
   }
 
-  async function handleExportCsv() {
+  async function handleExportCsv(detailed: boolean = false) {
     if (!session || !selectedProjectId) return;
+    const path = detailed ? "export-detailed.csv" : "export.csv";
+    const suffix = detailed ? "-detailed" : "";
     try {
       const response = await fetch(
-        `/api/v1/projects/${selectedProjectId}/export.csv`,
+        `/api/v1/projects/${selectedProjectId}/${path}`,
         { headers: { Authorization: `Bearer ${session.access_token}` } }
       );
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1468,10 +1470,10 @@ export function ControlCenter() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${currentProject?.name ?? "project"}.csv`;
+      a.download = `${currentProject?.name ?? "project"}${suffix}.csv`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success("CSV exported successfully.");
+      toast.success(`CSV${detailed ? " (detailed)" : ""} exported.`);
     } catch (err) {
       toast.error(messageOf(err));
     }

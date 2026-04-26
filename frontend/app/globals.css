@@ -639,6 +639,53 @@ body::before {
     0 0 16px rgba(59, 130, 246, 0.5);
 }
 
+/* Split CSV export button in the topbar: basic | detailed. */
+.topbar-export {
+  display: inline-flex;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+  background: transparent;
+}
+
+.topbar-export-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  transition: background 0.15s, color 0.15s;
+}
+
+.topbar-export-main:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+}
+
+.topbar-export-detail {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 10px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  border: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.topbar-export-detail:hover {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
 /* TaskDetailsModal — read-first task modal opened from Gantt bar click. */
 .task-details-status-select {
   font-size: 11px;

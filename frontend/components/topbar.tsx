@@ -31,7 +31,7 @@ type TopBarProps = {
   activeView: string;
   onLogout: () => void;
   onMenuOpen: () => void;
-  onExportCsv?: () => void;
+  onExportCsv?: (detailed?: boolean) => void;
   pendingCount?: number;
   isMobile?: boolean;
   onNotificationClick?: () => void;
@@ -93,18 +93,29 @@ export function TopBar({
 
       {/* Right section */}
       <div className="flex items-center gap-2">
-        {/* CSV Export */}
+        {/* CSV Export — split button: click=basic, hover-menu offers detailed. */}
         {canExport && (
-          <button
-            type="button"
-            className="flex items-center gap-1.5 h-9 px-3 rounded-xl border border-white/10 text-white/70 text-xs font-semibold transition-colors hover:bg-white/5"
-            onClick={onExportCsv}
-            aria-label="Export CSV"
-            title="Export project to CSV"
-          >
-            <Download size={14} />
-            <span className="hidden sm:inline">CSV</span>
-          </button>
+          <div className="topbar-export">
+            <button
+              type="button"
+              className="topbar-export-main"
+              onClick={() => onExportCsv?.(false)}
+              aria-label="Export CSV (basic)"
+              title="Export basic CSV (one row per task × deliverable)"
+            >
+              <Download size={14} />
+              <span className="hidden sm:inline">CSV</span>
+            </button>
+            <button
+              type="button"
+              className="topbar-export-detail"
+              onClick={() => onExportCsv?.(true)}
+              aria-label="Export detailed CSV"
+              title="Export detailed CSV — one row per task with deliverable / evidence / dependency rollups"
+            >
+              <span className="text-[9px] font-black tracking-widest">DETAIL</span>
+            </button>
+          </div>
         )}
 
         {/* Notification bell (in-app notifications) */}

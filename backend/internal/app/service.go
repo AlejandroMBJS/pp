@@ -3271,6 +3271,88 @@ func (s *Service) ExportProjectCSV(ctx context.Context, actor Claims, projectID 
 	return buf.Bytes(), writer.Error()
 }
 
+// ExportProjectCSVDetailed returns one row per task with rolled-up
+// deliverable + evidence + dependency stats. Aimed at PM analysis (vs the
+// flat basic export which is one row per task×deliverable).
+func (s *Service) ExportProjectCSVDetailed(ctx context.Context, actor Claims, projectID string) ([]byte, error) {
+	if s.permissionEffect(ctx, actor.Role, "export.csv") == "deny" {
+		return nil, errors.New("forbidden")
+	}
+	project, err := s.projectByID(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
+		return nil, err
+	}
+	buf := &bytes.Buffer{}
+	writer := csv.NewWriter(buf)
+	_ = writer.Write([]string{
+		"project_id", "project_name", "project_status",
+		"task_id", "task_title", "task_description",
+		"task_status", "task_progress_percent",
+		"task_start_date", "task_end_date",
+		"task_budget_cents", "task_spent_cents", "task_budget_pct_used",
+		"task_assignee_email",
+		"task_predecessor_title",
+		"deliverables_count", "deliverables_approved_count",
+		"evidences_count", "evidences_approved_count", "evidences_avg_score",
+	})
+	q := `
+		SELECT
+			t.id, t.title, t.description, t.status, t.progress_percent,
+			t.start_date, t.end_date, t.budget_cents, t.spent_cents,
+			COALESCE(u.email, '') AS assignee_email,
+			COALESCE(p.title, '') AS predecessor_title,
+			(SELECT COUNT(*) FROM deliverables d WHERE d.task_id = t.id) AS deliv_count,
+			(SELECT COUNT(*) FROM deliverables d WHERE d.task_id = t.id AND d.status = 'approved') AS deliv_approved,
+			(SELECT COUNT(*) FROM evidences e WHERE e.task_id = t.id) AS ev_count,
+			(SELECT COUNT(*) FROM evidences e WHERE e.task_id = t.id AND e.status IN ('approved','committed')) AS ev_approved,
+			(SELECT COALESCE(AVG(NULLIF(e.quality_score, 0)), 0) FROM evidences e WHERE e.task_id = t.id) AS ev_avg_score
+		FROM tasks t
+		LEFT JOIN users u ON u.id = t.assigned_to_user_id
+		LEFT JOIN tasks p ON p.id = NULLIF(t.predecessor_task_id, '')
+		WHERE t.project_id = $1
+		ORDER BY t.start_date, t.created_at`
+	rows, err := s.db.QueryContext(ctx, q, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			taskID, taskTitle, taskDescription, taskStatus, startDate, endDate     string
+			assigneeEmail, predecessorTitle                                        string
+			progress                                                               int
+			budgetCents, spentCents                                                int64
+			delivCount, delivApproved, evCount, evApproved                         int
+			evAvgScore                                                             float64
+		)
+		if err := rows.Scan(
+			&taskID, &taskTitle, &taskDescription, &taskStatus, &progress,
+			&startDate, &endDate, &budgetCents, &spentCents,
+			&assigneeEmail, &predecessorTitle,
+			&delivCount, &delivApproved, &evCount, &evApproved, &evAvgScore,
+		); err != nil {
+			return nil, err
+		}
+		budgetPct := percent(spentCents, budgetCents)
+		_ = writer.Write([]string{
+			project.ID, project.Name, project.Status,
+			taskID, taskTitle, taskDescription,
+			taskStatus, fmt.Sprintf("%d", progress),
+			startDate, endDate,
+			fmt.Sprintf("%d", budgetCents), fmt.Sprintf("%d", spentCents), fmt.Sprintf("%d", budgetPct),
+			assigneeEmail,
+			predecessorTitle,
+			fmt.Sprintf("%d", delivCount), fmt.Sprintf("%d", delivApproved),
+			fmt.Sprintf("%d", evCount), fmt.Sprintf("%d", evApproved), fmt.Sprintf("%.1f", evAvgScore),
+		})
+	}
+	writer.Flush()
+	return buf.Bytes(), writer.Error()
+}
+
 func percent(numerator, denominator int64) int {
 	if denominator <= 0 {
 		return 0

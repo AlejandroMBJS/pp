@@ -17,7 +17,6 @@ import {
 import { es } from "date-fns/locale";
 import type { GanttZoomLevel } from "./ui/gantt-zoom-control";
 import { withAccessToken } from "../lib/files";
-import { Popover } from "./ui/popover";
 
 type Task = {
   id: string;
@@ -214,26 +213,6 @@ export function GanttTimeline({
   // Suppress the bar's onClick if the pointer moved during a drag — the user
   // intended to drag, not navigate. Reset on next pointerdown.
   const suppressNextClick = useRef(false);
-
-  // ── PR-D: Inline popover state ───────────────────────────────────────
-  const [popoverTaskId, setPopoverTaskId] = useState<string | null>(null);
-  const [popoverAnchor, setPopoverAnchor] = useState<{
-    top: number;
-    left: number;
-    width: number;
-    height: number;
-  } | null>(null);
-
-  function openPopover(taskId: string, target: HTMLElement) {
-    const r = target.getBoundingClientRect();
-    setPopoverAnchor({ top: r.top, left: r.left, width: r.width, height: r.height });
-    setPopoverTaskId(taskId);
-  }
-
-  function closePopover() {
-    setPopoverTaskId(null);
-    setPopoverAnchor(null);
-  }
 
   // ── PR-C: Dependency drag state ──────────────────────────────────────
   const depDragState = useRef<DepDragState | null>(null);
@@ -821,18 +800,12 @@ export function GanttTimeline({
                             border: isTaskCritical ? "1px solid #ef4444" : "none",
                             padding: 0,
                           }}
-                          onClick={(ev) => {
+                          onClick={() => {
                             if (suppressNextClick.current) {
                               suppressNextClick.current = false;
                               return;
                             }
-                            // PR-D: editor roles get the inline popover; helpers
-                            // and clients fall through to the existing modal.
-                            if (canEdit) {
-                              openPopover(task.id, ev.currentTarget as HTMLElement);
-                            } else {
-                              onTaskClick?.(task.id);
-                            }
+                            onTaskClick?.(task.id);
                           }}
                           title={`${isTaskCritical ? "[CRITICAL PATH] " : ""}${isOverdue ? "[OVERDUE] " : ""}Click to edit: ${task.title} · ${task.progress_percent}%`}
                         >
@@ -1001,85 +974,6 @@ export function GanttTimeline({
         Today
       </div>
     </div>
-
-    {/* PR-D: inline quick-edit popover for owner/supervisor click on a bar. */}
-    {(() => {
-      const popoverTask = popoverTaskId
-        ? tasks.find((t) => t.id === popoverTaskId)
-        : null;
-      if (!popoverTask) return null;
-      return (
-        <Popover open={true} onClose={closePopover} anchor={popoverAnchor}>
-          <div className="gantt-popover-inner">
-            <div className="gantt-popover-title" title={popoverTask.title}>
-              {popoverTask.title}
-            </div>
-            <div className="gantt-popover-row">
-              <label className="gantt-popover-label">Status</label>
-              <select
-                value={popoverTask.status}
-                onChange={(ev) => {
-                  onTaskTimelinePatch?.(popoverTask.id, { status: ev.target.value });
-                  closePopover();
-                }}
-                className="gantt-popover-select"
-              >
-                <option value="pending">Pending</option>
-                <option value="in_progress">In progress</option>
-                <option value="completed">Completed</option>
-              </select>
-            </div>
-            <div className="gantt-popover-row">
-              <label className="gantt-popover-label">Progress</label>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={5}
-                defaultValue={popoverTask.progress_percent}
-                className="gantt-popover-range"
-                onChange={(ev) => {
-                  // Optimistic local + debounced PATCH would be ideal; for now
-                  // commit on release (`onMouseUp` / `onTouchEnd`).
-                  ev.currentTarget.dataset.pending = ev.target.value;
-                }}
-                onMouseUp={(ev) => {
-                  const v = (ev.currentTarget as HTMLInputElement).dataset.pending;
-                  if (v != null) {
-                    onTaskTimelinePatch?.(popoverTask.id, {
-                      progress_percent: Number(v),
-                    });
-                  }
-                }}
-                onTouchEnd={(ev) => {
-                  const v = (ev.currentTarget as HTMLInputElement).dataset.pending;
-                  if (v != null) {
-                    onTaskTimelinePatch?.(popoverTask.id, {
-                      progress_percent: Number(v),
-                    });
-                  }
-                }}
-              />
-              <span className="gantt-popover-progress-num">
-                {popoverTask.progress_percent}%
-              </span>
-            </div>
-            <div className="gantt-popover-row gantt-popover-actions">
-              <button
-                type="button"
-                className="gantt-popover-btn"
-                onClick={() => {
-                  onTaskClick?.(popoverTask.id);
-                  closePopover();
-                }}
-              >
-                Open editor →
-              </button>
-            </div>
-          </div>
-        </Popover>
-      );
-    })()}
     </>
   );
 }

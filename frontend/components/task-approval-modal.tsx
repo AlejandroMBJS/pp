@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { X, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Star, Clock, Cpu, Eye } from "lucide-react";
 import { aiStatusLabel } from "../lib/ai-status";
+import { withAccessToken } from "../lib/files";
 
 type Evidence = {
   id: string;
@@ -24,6 +25,8 @@ type TaskApprovalModalProps = {
   onApprove: (id: string) => Promise<void>;
   onReject: (id: string) => Promise<void>;
   loading: boolean;
+  // JWT for authenticating /api/v1/files/* img loads (see lib/files.ts).
+  accessToken?: string;
 };
 
 function qualityColor(score: number) {
@@ -45,6 +48,7 @@ export function TaskApprovalModal({
   onApprove,
   onReject,
   loading,
+  accessToken,
 }: TaskApprovalModalProps) {
   const [idx, setIdx]           = useState(initialIndex);
   const [comment, setComment]   = useState("");
@@ -117,7 +121,7 @@ export function TaskApprovalModal({
               </div>
             ) : (
               <img
-                src={evidence.url_archivo}
+                src={withAccessToken(evidence.url_archivo, accessToken)}
                 alt={evidence.file_name}
                 className="w-full object-contain"
                 style={{ maxHeight: 340 }}
@@ -249,7 +253,7 @@ export function TaskApprovalModal({
                   }}
                 >
                   {e.url_archivo ? (
-                    <img src={e.url_archivo} alt={e.file_name} className="w-full h-full object-cover" />
+                    <img src={withAccessToken(e.url_archivo, accessToken)} alt={e.file_name} className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-lg">📸</div>
                   )}

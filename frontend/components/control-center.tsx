@@ -1687,6 +1687,7 @@ export function ControlCenter() {
             isMobile={isMobile}
             ganttZoom={ganttZoom}
             onGanttZoomChange={setGanttZoom}
+            accessToken={session.access_token}
             onTaskTimelinePatch={handleTaskTimelinePatch}
           />
         );
@@ -1847,6 +1848,7 @@ export function ControlCenter() {
           onTeamChanged={() => refreshRoleData(session)}
           ganttZoom={ganttZoom}
           onGanttZoomChange={setGanttZoom}
+          accessToken={session.access_token}
           onTaskTimelinePatch={handleTaskTimelinePatch}
         />
       );
@@ -1956,6 +1958,7 @@ export function ControlCenter() {
           isMobile={isMobile}
           ganttZoom={ganttZoom}
           onGanttZoomChange={setGanttZoom}
+          accessToken={session.access_token}
           onTaskTimelinePatch={handleTaskTimelinePatch}
         />
       );

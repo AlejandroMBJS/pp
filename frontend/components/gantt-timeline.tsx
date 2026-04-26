@@ -16,6 +16,7 @@ import {
 } from "date-fns";
 import { es } from "date-fns/locale";
 import type { GanttZoomLevel } from "./ui/gantt-zoom-control";
+import { withAccessToken } from "../lib/files";
 
 type Task = {
   id: string;
@@ -64,6 +65,10 @@ type GanttTimelineProps = {
   onEvidenceClick?: (evidence: Evidence) => void;
   onTaskClick?: (taskId: string) => void;
   zoomLevel?: GanttZoomLevel;
+  // JWT used to authenticate `<img>` requests for evidence thumbs against
+  // /api/v1/files/. Without it, native img loads return 401 and pins render
+  // empty.
+  accessToken?: string;
   // PR-B: when supplied, bars become draggable (move + resize). When omitted,
   // the Gantt is read-only — used for helper/client roles.
   onTaskTimelinePatch?: (taskId: string, patch: TaskTimelinePatch) => void;
@@ -178,6 +183,7 @@ export function GanttTimeline({
   onEvidenceClick,
   onTaskClick,
   zoomLevel = "month",
+  accessToken,
   onTaskTimelinePatch,
 }: GanttTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -801,7 +807,7 @@ export function GanttTimeline({
                         title={`${e.file_name} · Score: ${e.quality_score}`}
                       >
                         <img
-                          src={e.url_archivo}
+                          src={withAccessToken(e.url_archivo, accessToken)}
                           alt={e.file_name}
                           onError={(ev) => {
                             (ev.target as HTMLImageElement).style.display = "none";

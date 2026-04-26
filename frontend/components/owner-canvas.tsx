@@ -100,6 +100,7 @@ type OwnerCanvasProps = {
   onTeamChanged?: () => void | Promise<void>;
   ganttZoom?: GanttZoomLevel;
   onGanttZoomChange?: (zoom: GanttZoomLevel) => void;
+  accessToken?: string;
   onTaskTimelinePatch?: (
     taskId: string,
     patch: { start_date?: string; end_date?: string; status?: string; progress_percent?: number; predecessor_task_id?: string | null }
@@ -146,6 +147,7 @@ export function OwnerCanvas({
   onTeamChanged,
   ganttZoom = "month",
   onGanttZoomChange,
+  accessToken,
   onTaskTimelinePatch,
 }: OwnerCanvasProps) {
   const [selectedTeamUserId, setSelectedTeamUserId] = useState<string | null>(null);
@@ -527,6 +529,7 @@ export function OwnerCanvas({
                   onDeliverableClick={onDeliverableNavigate}
                   onTaskClick={onTaskClick}
                   zoomLevel={ganttZoom}
+                  accessToken={accessToken}
                   onTaskTimelinePatch={onTaskTimelinePatch}
                 />
               </>

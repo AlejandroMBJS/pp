@@ -1663,6 +1663,7 @@ export function ControlCenter() {
             isMobile={isMobile}
             ganttZoom={ganttZoom}
             onGanttZoomChange={setGanttZoom}
+            accessToken={session.access_token}
           />
         );
       }
@@ -1822,6 +1823,7 @@ export function ControlCenter() {
           onTeamChanged={() => refreshRoleData(session)}
           ganttZoom={ganttZoom}
           onGanttZoomChange={setGanttZoom}
+          accessToken={session.access_token}
         />
       );
     }
@@ -1930,6 +1932,7 @@ export function ControlCenter() {
           isMobile={isMobile}
           ganttZoom={ganttZoom}
           onGanttZoomChange={setGanttZoom}
+          accessToken={session.access_token}
         />
       );
     }

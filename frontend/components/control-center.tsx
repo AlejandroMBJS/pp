@@ -18,6 +18,7 @@ import { SettingsProjectModal } from "./settings-project-modal";
 import { TaskApprovalModal } from "./task-approval-modal";
 import { PhotoUploadModal } from "./photo-upload-modal";
 import { TaskEditModal } from "./task-edit-modal";
+import { TaskDetailsModal } from "./task-details-modal";
 import { FinancialControl } from "./financial-control";
 import { DailyJournal } from "./daily-journal";
 import { MessagingHub } from "./messaging-hub";
@@ -373,8 +374,16 @@ export function ControlCenter() {
   const [taskApprovalIndex, setTaskApprovalIndex] = useState(0);
   const [photoUploadOpen, setPhotoUploadOpen] = useState(false);
   const [taskEditOpen, setTaskEditOpen] = useState(false);
+  const [taskDetailsOpen, setTaskDetailsOpen] = useState(false);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
+
+  // Bar click in Gantt opens the details modal first; advanced edits route
+  // through "Edit details" button on the modal which opens TaskEditModal.
+  const handleOpenTaskDetails = (taskId: string) => {
+    setSelectedTaskId(taskId);
+    setTaskDetailsOpen(true);
+  };
 
   const handleOpenTaskEdit = (taskId: string) => {
     setSelectedTaskId(taskId);
@@ -1677,7 +1686,7 @@ export function ControlCenter() {
             onPollAudit={pollAuditProgress}
             highlightedDeliverableId={highlightedDeliverableId}
             onDeliverableNavigate={handleDeliverableNavigate}
-            onTaskClick={handleOpenTaskEdit}
+            onTaskClick={handleOpenTaskDetails}
             onViewChange={setActiveView}
             onNewTask={() => {
               setSelectedTaskId("");
@@ -1833,7 +1842,7 @@ export function ControlCenter() {
           highlightedDeliverableId={highlightedDeliverableId}
           onDeliverableNavigate={handleDeliverableNavigate}
           onEvidenceDecision={handleEvidenceDecision}
-          onTaskClick={handleOpenTaskEdit}
+          onTaskClick={handleOpenTaskDetails}
           onViewChange={setActiveView}
           onNewProject={() => setNewProjectModalOpen(true)}
           onNewTask={() => {
@@ -1948,7 +1957,7 @@ export function ControlCenter() {
           onPollAudit={pollAuditProgress}
           highlightedDeliverableId={highlightedDeliverableId}
           onDeliverableNavigate={handleDeliverableNavigate}
-          onTaskClick={handleOpenTaskEdit}
+          onTaskClick={handleOpenTaskDetails}
           loading={loading}
           onViewChange={setActiveView}
           onNewTask={() => {
@@ -2209,6 +2218,23 @@ export function ControlCenter() {
         token={session?.access_token}
         projects={projects.map((p) => ({ id: p.id, name: p.name }))}
         defaultProjectId={selectedProjectId}
+      />
+      <TaskDetailsModal
+        isOpen={taskDetailsOpen}
+        onClose={() => setTaskDetailsOpen(false)}
+        task={currentTask}
+        tasks={tasks}
+        deliverables={deliverables}
+        evidences={evidences}
+        users={users}
+        accessToken={session?.access_token}
+        onStatusChange={(status) => {
+          if (currentTask) handleTaskTimelinePatch(currentTask.id, { status });
+        }}
+        onOpenEditor={() => {
+          setTaskDetailsOpen(false);
+          setTaskEditOpen(true);
+        }}
       />
 
       {!isMobile && (

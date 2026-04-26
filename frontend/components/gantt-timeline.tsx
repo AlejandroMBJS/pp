@@ -16,6 +16,7 @@ import {
 } from "date-fns";
 import { es } from "date-fns/locale";
 import type { GanttZoomLevel } from "./ui/gantt-zoom-control";
+import { withAccessToken } from "../lib/files";
 
 type Task = {
   id: string;
@@ -56,6 +57,10 @@ type GanttTimelineProps = {
   onEvidenceClick?: (evidence: Evidence) => void;
   onTaskClick?: (taskId: string) => void;
   zoomLevel?: GanttZoomLevel;
+  // JWT used to authenticate `<img>` requests for evidence thumbs against
+  // /api/v1/files/. Without it, native img loads return 401 and pins render
+  // empty.
+  accessToken?: string;
 };
 
 // Pixels-per-day per zoom level. Day:big-and-spacious, Month:dense overview.
@@ -150,6 +155,7 @@ export function GanttTimeline({
   onEvidenceClick,
   onTaskClick,
   zoomLevel = "month",
+  accessToken,
 }: GanttTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [highlightedLocal, setHighlightedLocal] = useState<string | null>(null);
@@ -626,7 +632,7 @@ export function GanttTimeline({
                         title={`${e.file_name} · Score: ${e.quality_score}`}
                       >
                         <img
-                          src={e.url_archivo}
+                          src={withAccessToken(e.url_archivo, accessToken)}
                           alt={e.file_name}
                           onError={(ev) => {
                             (ev.target as HTMLImageElement).style.display = "none";

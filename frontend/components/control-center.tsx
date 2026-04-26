@@ -2184,6 +2184,7 @@ export function ControlCenter() {
         onApprove={(id) => handleEvidenceDecision(id, "approve")}
         onReject={(id) => handleEvidenceDecision(id, "reject")}
         loading={loading}
+        accessToken={session?.access_token}
       />
       <PhotoUploadModal
         open={photoUploadOpen}

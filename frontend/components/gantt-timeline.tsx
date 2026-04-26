@@ -5,12 +5,17 @@ import {
   parseISO,
   startOfMonth,
   endOfMonth,
+  startOfWeek,
+  endOfWeek,
+  startOfDay,
+  addDays,
   addMonths,
   format,
-  differenceInMilliseconds,
+  differenceInCalendarDays,
   isValid,
 } from "date-fns";
 import { es } from "date-fns/locale";
+import type { GanttZoomLevel } from "./ui/gantt-zoom-control";
 
 type Task = {
   id: string;
@@ -50,11 +55,18 @@ type GanttTimelineProps = {
   onDeliverableClick?: (deliverableId: string, taskId: string) => void;
   onEvidenceClick?: (evidence: Evidence) => void;
   onTaskClick?: (taskId: string) => void;
+  zoomLevel?: GanttZoomLevel;
 };
 
-const MONTH_WIDTH = 180;
+// Pixels-per-day per zoom level. Day:big-and-spacious, Month:dense overview.
+const DAY_WIDTH: Record<GanttZoomLevel, number> = {
+  day: 40,
+  week: 14,
+  month: 6,
+};
 const ROW_HEIGHT = 80;
 const LABEL_WIDTH = 200;
+const HEADER_HEIGHT = 40;
 const BAR_TOP = 16;
 const BAR_HEIGHT = 26;
 const BUDGET_TOP = BAR_TOP + BAR_HEIGHT + 4;
@@ -75,20 +87,58 @@ function parseSafe(date: string): Date | null {
   return isValid(d) ? d : null;
 }
 
-function buildMonths(start: Date, end: Date): Array<{ label: string; startMs: number; endMs: number }> {
-  const months: Array<{ label: string; startMs: number; endMs: number }> = [];
+type AxisBucket = { label: string; sublabel?: string; startMs: number; widthDays: number };
+
+/**
+ * Build the secondary axis (top row of headers): months, regardless of zoom.
+ * In Day zoom we additionally render a primary axis of day numbers below.
+ */
+function buildMonths(start: Date, end: Date, dayWidth: number): AxisBucket[] {
+  const out: AxisBucket[] = [];
   let cursor = startOfMonth(start);
   const last = endOfMonth(end);
   while (cursor <= last) {
     const mEnd = endOfMonth(cursor);
-    months.push({
+    const days = differenceInCalendarDays(mEnd, cursor) + 1;
+    out.push({
       label: format(cursor, "MMM yyyy", { locale: es }),
       startMs: cursor.getTime(),
-      endMs: mEnd.getTime(),
+      widthDays: days,
     });
     cursor = addMonths(cursor, 1);
   }
-  return months;
+  return out;
+}
+
+function buildWeeks(start: Date, end: Date): AxisBucket[] {
+  const out: AxisBucket[] = [];
+  let cursor = startOfWeek(start, { weekStartsOn: 1 });
+  while (cursor <= end) {
+    const wEnd = endOfWeek(cursor, { weekStartsOn: 1 });
+    out.push({
+      label: format(cursor, "d MMM", { locale: es }),
+      sublabel: `S${format(cursor, "w")}`,
+      startMs: cursor.getTime(),
+      widthDays: 7,
+    });
+    cursor = addDays(cursor, 7);
+  }
+  return out;
+}
+
+function buildDays(start: Date, end: Date): AxisBucket[] {
+  const out: AxisBucket[] = [];
+  let cursor = startOfDay(start);
+  while (cursor <= end) {
+    out.push({
+      label: format(cursor, "d"),
+      sublabel: format(cursor, "EEE", { locale: es }).slice(0, 3),
+      startMs: cursor.getTime(),
+      widthDays: 1,
+    });
+    cursor = addDays(cursor, 1);
+  }
+  return out;
 }
 
 export function GanttTimeline({
@@ -99,12 +149,14 @@ export function GanttTimeline({
   onDeliverableClick,
   onEvidenceClick,
   onTaskClick,
+  zoomLevel = "month",
 }: GanttTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [highlightedLocal, setHighlightedLocal] = useState<string | null>(null);
+  const dayWidth = DAY_WIDTH[zoomLevel];
 
   // ── Memoized time axis ─────────────────────────────────────────────────
-  const { axisStart, axisEnd, months, totalMs, totalWidth } = useMemo(() => {
+  const { axisStart, axisEnd, primaryAxis, secondaryAxis, totalWidth } = useMemo(() => {
     const validTasks = tasks.filter((t) => parseSafe(t.start_date) && parseSafe(t.end_date));
     let tStart: Date | null = null;
     let tEnd: Date | null = null;
@@ -119,12 +171,30 @@ export function GanttTimeline({
       tStart = startOfMonth(today);
       tEnd = addMonths(tStart, 2);
     }
+    // Pad axis to whole-month boundaries so the secondary axis is clean.
     const aStart = startOfMonth(tStart);
     const aEnd = endOfMonth(tEnd);
-    const ms = differenceInMilliseconds(aEnd, aStart) || 1;
-    const mths = buildMonths(aStart, aEnd);
-    return { axisStart: aStart, axisEnd: aEnd, months: mths, totalMs: ms, totalWidth: mths.length * MONTH_WIDTH };
-  }, [tasks]);
+    const totalDays = differenceInCalendarDays(aEnd, aStart) + 1;
+    const width = totalDays * dayWidth;
+
+    let primary: AxisBucket[] = [];
+    let secondary: AxisBucket[] = buildMonths(aStart, aEnd, dayWidth);
+    if (zoomLevel === "day") {
+      primary = buildDays(aStart, aEnd);
+    } else if (zoomLevel === "week") {
+      primary = buildWeeks(aStart, aEnd);
+    } else {
+      primary = secondary;
+      secondary = [];
+    }
+    return {
+      axisStart: aStart,
+      axisEnd: aEnd,
+      primaryAxis: primary,
+      secondaryAxis: secondary,
+      totalWidth: width,
+    };
+  }, [tasks, dayWidth, zoomLevel]);
 
   // ── Critical Path Calculation (CPM) ──────────────────────────────────
   const criticalPathIds = useMemo(() => {
@@ -140,7 +210,7 @@ export function GanttTimeline({
       }
     }
 
-    // Forward pass: Calculate Earliest Finish (EF)
+    // Forward pass: Earliest Finish (EF)
     const efMap = new Map<string, number>();
     function getEF(id: string): number {
       if (efMap.has(id)) return efMap.get(id)!;
@@ -148,22 +218,19 @@ export function GanttTimeline({
       const start = parseSafe(t.start_date)?.getTime() || 0;
       const end = parseSafe(t.end_date)?.getTime() || start;
       const duration = end - start;
-      
       if (!t.predecessor_task_id) {
         efMap.set(id, start + duration);
         return start + duration;
       }
-      
       const predEF = getEF(t.predecessor_task_id);
       const ef = Math.max(start, predEF) + duration;
       efMap.set(id, ef);
       return ef;
     }
-    
-    tasks.forEach(t => getEF(t.id));
+    tasks.forEach((t) => getEF(t.id));
     const projectEnd = Math.max(...Array.from(efMap.values()));
 
-    // Backward pass: Calculate Latest Finish (LF)
+    // Backward pass: Latest Finish (LF)
     const lfMap = new Map<string, number>();
     function getLF(id: string): number {
       if (lfMap.has(id)) return lfMap.get(id)!;
@@ -171,38 +238,34 @@ export function GanttTimeline({
       const start = parseSafe(t.start_date)?.getTime() || 0;
       const end = parseSafe(t.end_date)?.getTime() || start;
       const duration = end - start;
-
       const succIds = successors.get(id) || [];
       if (succIds.length === 0) {
         lfMap.set(id, projectEnd);
         return projectEnd;
       }
-
-      const minSuccLS = Math.min(...succIds.map(sid => {
-        const lf = getLF(sid);
-        const st = parseSafe(tasksById.get(sid)!.start_date)?.getTime() || 0;
-        const en = parseSafe(tasksById.get(sid)!.end_date)?.getTime() || st;
-        return lf - (en - st);
-      }));
-      
+      const minSuccLS = Math.min(
+        ...succIds.map((sid) => {
+          const lf = getLF(sid);
+          const st = parseSafe(tasksById.get(sid)!.start_date)?.getTime() || 0;
+          const en = parseSafe(tasksById.get(sid)!.end_date)?.getTime() || st;
+          return lf - (en - st);
+        })
+      );
       lfMap.set(id, minSuccLS);
       return minSuccLS;
     }
 
     const path = new Set<string>();
-    tasks.forEach(t => {
+    tasks.forEach((t) => {
       const ef = efMap.get(t.id)!;
       const lf = getLF(t.id)!;
-      // Float = LF - EF. We use a small threshold (1 hour) for precision issues
-      if (Math.abs(lf - ef) < 3600000) {
-        path.add(t.id);
-      }
+      // Float = LF - EF; tolerate 1h jitter for floating-point safety.
+      if (Math.abs(lf - ef) < 3600000) path.add(t.id);
     });
-
     return path;
   }, [tasks]);
 
-  // ── Memoized deliverable grouping (O(m) not O(n*m)) ─────────────────────
+  // ── Memoized deliverable grouping (O(m), not O(n*m)) ────────────────────
   const deliverablesByTask = useMemo(() => {
     const map = new Map<string, Deliverable[]>();
     for (const d of deliverables) {
@@ -212,12 +275,28 @@ export function GanttTimeline({
     return map;
   }, [deliverables]);
 
+  // Day-based pixel projection. Half-day fractional = differenceInCalendarDays.
   function toPx(date: Date): number {
-    const ms = differenceInMilliseconds(date, axisStart);
-    return (ms / totalMs) * totalWidth;
+    return differenceInCalendarDays(date, axisStart) * dayWidth;
   }
 
-  // ── Scroll to highlighted deliverable ───────────────────────────────────
+  // ── Weekend overlay (Day zoom only) ────────────────────────────────────
+  const weekendCols = useMemo(() => {
+    if (zoomLevel !== "day") return [] as Array<{ left: number; width: number }>;
+    const out: Array<{ left: number; width: number }> = [];
+    let cursor = startOfDay(axisStart);
+    while (cursor <= axisEnd) {
+      const dow = cursor.getDay();
+      if (dow === 0 || dow === 6) {
+        out.push({ left: toPx(cursor), width: dayWidth });
+      }
+      cursor = addDays(cursor, 1);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoomLevel, axisStart, axisEnd, dayWidth]);
+
+  // ── Scroll to highlighted deliverable ──────────────────────────────────
   useEffect(() => {
     if (!highlightDeliverableId) return;
     const d = deliverables.find((del) => del.id === highlightDeliverableId);
@@ -232,7 +311,7 @@ export function GanttTimeline({
     const timer = setTimeout(() => setHighlightedLocal(null), 3000);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [highlightDeliverableId]);
+  }, [highlightDeliverableId, dayWidth]);
 
   if (tasks.length === 0) {
     return (
@@ -244,16 +323,33 @@ export function GanttTimeline({
     );
   }
 
+  const showSecondaryAxis = secondaryAxis.length > 0;
+  const headerStackHeight = showSecondaryAxis ? HEADER_HEIGHT * 2 : HEADER_HEIGHT;
+
   return (
     <>
-    <div className="gantt-root" style={{ maxHeight: ROW_HEIGHT * tasks.length + 80 + "px" }}>
+    <div
+      className="gantt-root"
+      data-zoom={zoomLevel}
+      style={{ maxHeight: ROW_HEIGHT * tasks.length + headerStackHeight + 40 + "px" }}
+    >
       {/* Label column */}
       <div className="gantt-labels">
-        <div className="gantt-label-header">Task</div>
+        <div className="gantt-label-header" style={{ height: headerStackHeight }}>
+          Task
+        </div>
         {tasks.map((task) => (
           <div key={task.id} className="gantt-label-row">
-            <div className="gantt-label-title" style={{ color: criticalPathIds.has(task.id) ? "#ef4444" : "white" }}>
-              {task.title} {criticalPathIds.has(task.id) && <span className="text-[9px] border border-red-500/30 text-red-400 px-1 rounded ml-1">CRITICAL PATH</span>}
+            <div
+              className="gantt-label-title"
+              style={{ color: criticalPathIds.has(task.id) ? "#ef4444" : "white" }}
+            >
+              {task.title}
+              {criticalPathIds.has(task.id) && (
+                <span className="text-[9px] border border-red-500/30 text-red-400 px-1 rounded ml-1">
+                  CRITICAL PATH
+                </span>
+              )}
             </div>
             <div className="gantt-label-meta">
               {task.progress_percent}% · {task.status}
@@ -265,23 +361,71 @@ export function GanttTimeline({
       {/* Scrollable chart */}
       <div className="gantt-scroll" ref={scrollRef}>
         <div className="gantt-chart" style={{ width: totalWidth }}>
-          {/* Month headers */}
-          <div className="gantt-months">
-            {months.map((m, i) => (
-              <div key={i} className="gantt-month">
-                {m.label}
+          {/* Header axis stack (secondary above primary) */}
+          <div
+            className="gantt-axis-stack"
+            style={{ height: headerStackHeight }}
+          >
+            {showSecondaryAxis && (
+              <div
+                className="gantt-axis-secondary"
+                style={{ height: HEADER_HEIGHT, width: totalWidth }}
+              >
+                {secondaryAxis.map((b, i) => (
+                  <div
+                    key={`sec-${i}`}
+                    className="gantt-axis-cell secondary"
+                    style={{
+                      left: differenceInCalendarDays(new Date(b.startMs), axisStart) * dayWidth,
+                      width: b.widthDays * dayWidth,
+                    }}
+                  >
+                    {b.label}
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
+            <div
+              className="gantt-axis-primary"
+              style={{ height: HEADER_HEIGHT, width: totalWidth }}
+            >
+              {primaryAxis.map((b, i) => (
+                <div
+                  key={`pri-${i}`}
+                  className="gantt-axis-cell primary"
+                  style={{
+                    left: differenceInCalendarDays(new Date(b.startMs), axisStart) * dayWidth,
+                    width: b.widthDays * dayWidth,
+                  }}
+                >
+                  <span className="gantt-axis-label">{b.label}</span>
+                  {b.sublabel && (
+                    <span className="gantt-axis-sublabel">{b.sublabel}</span>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
-          {/* Rows */}
+          {/* Rows + overlays */}
           <div className="gantt-rows" style={{ height: tasks.length * ROW_HEIGHT }}>
-            {/* Vertical grid lines */}
-            {months.map((_, i) => (
+            {/* Weekend shading (Day zoom only) */}
+            {weekendCols.map((w, i) => (
               <div
-                key={i}
+                key={`wknd-${i}`}
+                className="gantt-weekend-col"
+                style={{ left: w.left, width: w.width }}
+              />
+            ))}
+
+            {/* Vertical grid lines aligned to primary axis buckets */}
+            {primaryAxis.map((b, i) => (
+              <div
+                key={`grid-${i}`}
                 className="gantt-grid-line"
-                style={{ left: i * MONTH_WIDTH }}
+                style={{
+                  left: differenceInCalendarDays(new Date(b.startMs), axisStart) * dayWidth,
+                }}
               />
             ))}
 
@@ -293,17 +437,21 @@ export function GanttTimeline({
                   <div
                     className="gantt-today-line"
                     style={{ left: toPx(today) }}
-                      title="Today"
+                    title="Today"
                   />
                 );
               }
               return null;
             })()}
 
-            {/* Dependency lines (SVG Layer) */}
+            {/* Dependency lines (SVG layer) */}
             <svg
               className="absolute inset-0 pointer-events-none"
-              style={{ width: totalWidth, height: tasks.length * ROW_HEIGHT, zIndex: 10 }}
+              style={{
+                width: totalWidth,
+                height: tasks.length * ROW_HEIGHT,
+                zIndex: 10,
+              }}
             >
               <defs>
                 <marker
@@ -329,30 +477,26 @@ export function GanttTimeline({
               </defs>
               {tasks.map((task, rowIndex) => {
                 if (!task.predecessor_task_id) return null;
-                const predIndex = tasks.findIndex((t) => t.id === task.predecessor_task_id);
+                const predIndex = tasks.findIndex(
+                  (t) => t.id === task.predecessor_task_id
+                );
                 if (predIndex === -1) return null;
-
                 const pred = tasks[predIndex];
                 const pStart = parseSafe(pred.start_date);
                 const pEnd = parseSafe(pred.end_date);
                 const tStart = parseSafe(task.start_date);
-
                 if (!pStart || !pEnd || !tStart) return null;
-
                 const x1 = toPx(pEnd);
                 const y1 = predIndex * ROW_HEIGHT + BAR_TOP + BAR_HEIGHT / 2;
                 const x2 = toPx(tStart);
                 const y2 = rowIndex * ROW_HEIGHT + BAR_TOP + BAR_HEIGHT / 2;
-
-                const isCriticalDep = criticalPathIds.has(task.id) && criticalPathIds.has(pred.id);
-
-                // Path: Exit right, vertical jump, enter left
+                const isCriticalDep =
+                  criticalPathIds.has(task.id) && criticalPathIds.has(pred.id);
                 const midX = x1 + (x2 - x1) / 2;
-                // If the tasks are overlapping or backwards, we handle it with a simple path
-                const points = x2 > x1 + 10 
-                  ? `${x1},${y1} ${midX},${y1} ${midX},${y2} ${x2},${y2}`
-                  : `${x1},${y1} ${x1+10},${y1} ${x1+10},${y1 + (y2-y1)/2} ${x2-10},${y1 + (y2-y1)/2} ${x2-10},${y2} ${x2},${y2}`;
-
+                const points =
+                  x2 > x1 + 10
+                    ? `${x1},${y1} ${midX},${y1} ${midX},${y2} ${x2},${y2}`
+                    : `${x1},${y1} ${x1 + 10},${y1} ${x1 + 10},${y1 + (y2 - y1) / 2} ${x2 - 10},${y1 + (y2 - y1) / 2} ${x2 - 10},${y2} ${x2},${y2}`;
                 return (
                   <polyline
                     key={`dep-${task.id}`}
@@ -361,7 +505,9 @@ export function GanttTimeline({
                     stroke={isCriticalDep ? "#ef4444" : "#60a5fa"}
                     strokeWidth={isCriticalDep ? "2" : "1.5"}
                     strokeDasharray={task.status === "pending" ? "4 2" : "0"}
-                    markerEnd={isCriticalDep ? "url(#arrowhead-critical)" : "url(#arrowhead)"}
+                    markerEnd={
+                      isCriticalDep ? "url(#arrowhead-critical)" : "url(#arrowhead)"
+                    }
                     className="opacity-40 hover:opacity-100 transition-opacity"
                   />
                 );
@@ -371,13 +517,15 @@ export function GanttTimeline({
             {tasks.map((task, rowIndex) => {
               const start = parseSafe(task.start_date);
               const end = parseSafe(task.end_date);
-              const taskDeliverables = (deliverablesByTask.get(task.id) as Deliverable[]) ?? [];
+              const taskDeliverables =
+                (deliverablesByTask.get(task.id) as Deliverable[]) ?? [];
               const taskEvidences = allEvidences.get(task.id) ?? [];
               const top = rowIndex * ROW_HEIGHT;
               const isTaskCritical = criticalPathIds.has(task.id);
 
               const barLeft = start ? toPx(start) : 0;
-              const barWidth = start && end ? Math.max(6, toPx(end) - toPx(start)) : 0;
+              const barWidth =
+                start && end ? Math.max(6, toPx(end) - toPx(start) + dayWidth) : 0;
               const budgetWidth =
                 task.budget_cents > 0
                   ? barWidth * Math.min((task.spent_cents || 0) / task.budget_cents, 1)
@@ -389,13 +537,20 @@ export function GanttTimeline({
                   className="gantt-row"
                   style={{ position: "absolute", top, left: 0, right: 0 }}
                 >
-                  <div className={`gantt-row-bg ${rowIndex % 2 === 0 ? "even" : "odd"}`} />
+                  <div
+                    className={`gantt-row-bg ${rowIndex % 2 === 0 ? "even" : "odd"}`}
+                  />
 
                   {/* Task bar */}
                   {start && end && (
                     <button
                       type="button"
-                      className={`gantt-bar group ${isTaskCritical ? "ring-2 ring-red-500 ring-offset-2 ring-offset-black/20" : ""}`}
+                      data-testid={`gantt-bar-${task.id}`}
+                      className={`gantt-bar group ${
+                        isTaskCritical
+                          ? "ring-2 ring-red-500 ring-offset-2 ring-offset-black/20"
+                          : ""
+                      }`}
                       style={{
                         left: barLeft,
                         width: barWidth,
@@ -412,7 +567,10 @@ export function GanttTimeline({
                         className="gantt-bar-progress"
                         style={{ width: `${task.progress_percent}%` }}
                       />
-                      <span className="gantt-bar-label" style={{ maxWidth: barWidth - 16 }}>
+                      <span
+                        className="gantt-bar-label"
+                        style={{ maxWidth: barWidth - 16 }}
+                      >
                         {task.progress_percent}%
                       </span>
                       <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-white/10 transition-opacity" />
@@ -437,7 +595,7 @@ export function GanttTimeline({
                   {taskDeliverables.map((d) => {
                     const dDate = parseSafe(d.due_date);
                     if (!dDate) return null;
-                    const dLeft = toPx(dDate);
+                    const dLeft = toPx(dDate) + dayWidth / 2;
                     const isHighlighted = d.id === highlightedLocal;
                     return (
                       <button
@@ -457,7 +615,7 @@ export function GanttTimeline({
                   {taskEvidences.map((e) => {
                     const eDate = e.created_at ? parseSafe(e.created_at) : null;
                     if (!eDate) return null;
-                    const eLeft = toPx(eDate);
+                    const eLeft = toPx(eDate) + dayWidth / 2;
                     return (
                       <button
                         key={e.id}

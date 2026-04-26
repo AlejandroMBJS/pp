@@ -17,6 +17,7 @@ import { ListRow } from "./ui/list-row";
 import { ProgressBar } from "./ui/progress-bar";
 import { BudgetPanel } from "./budget-panel";
 import { GanttTimeline } from "./gantt-timeline";
+import { GanttZoomControl, type GanttZoomLevel } from "./ui/gantt-zoom-control";
 import { EvidenceGallery } from "./evidence-gallery";
 import { UsagePanel } from "./usage-panel";
 import { TeamMemberDetail, type TeamProjectLite, type TeamUser } from "./team-member-detail";
@@ -97,6 +98,8 @@ type OwnerCanvasProps = {
   token?: string;
   currentUserId?: string;
   onTeamChanged?: () => void | Promise<void>;
+  ganttZoom?: GanttZoomLevel;
+  onGanttZoomChange?: (zoom: GanttZoomLevel) => void;
 };
 
 function money(value: number) {
@@ -137,6 +140,8 @@ export function OwnerCanvas({
   token,
   currentUserId,
   onTeamChanged,
+  ganttZoom = "month",
+  onGanttZoomChange,
 }: OwnerCanvasProps) {
   const [selectedTeamUserId, setSelectedTeamUserId] = useState<string | null>(null);
   const canManageTeam = !!token;
@@ -503,14 +508,22 @@ export function OwnerCanvas({
                 ))}
               </div>
             ) : filteredTasks.length > 0 ? (
-              <GanttTimeline
-                tasks={filteredTasks}
-                deliverables={deliverables}
-                allEvidences={allEvidences}
-                highlightDeliverableId={highlightedDeliverableId}
-                onDeliverableClick={onDeliverableNavigate}
-                onTaskClick={onTaskClick}
-              />
+              <>
+                {onGanttZoomChange && (
+                  <div className="flex items-center justify-end mb-3">
+                    <GanttZoomControl value={ganttZoom} onChange={onGanttZoomChange} />
+                  </div>
+                )}
+                <GanttTimeline
+                  tasks={filteredTasks}
+                  deliverables={deliverables}
+                  allEvidences={allEvidences}
+                  highlightDeliverableId={highlightedDeliverableId}
+                  onDeliverableClick={onDeliverableNavigate}
+                  onTaskClick={onTaskClick}
+                  zoomLevel={ganttZoom}
+                />
+              </>
             ) : null}
           </div>
         ) : (

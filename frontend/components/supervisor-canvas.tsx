@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { EmptyState } from "./ui/empty-state";
 import { EvidenceGallery, type AIFeedback } from "./evidence-gallery";
 import { GanttTimeline } from "./gantt-timeline";
+import { GanttZoomControl, type GanttZoomLevel } from "./ui/gantt-zoom-control";
 import { BudgetPanel } from "./budget-panel";
 import { Loader2, TrendingUp, AlignLeft, Plus, ListChecks } from "lucide-react";
 import { Toolbar, FilterChips, BulkBar, BulkApproveIcon, BulkRejectIcon, runBulk, type FilterChipOption } from "./ui/toolbar";
@@ -81,6 +82,8 @@ type SupervisorCanvasProps = {
   onViewChange?: (view: string) => void;
   onNewTask?: () => void;
   isMobile?: boolean;
+  ganttZoom?: GanttZoomLevel;
+  onGanttZoomChange?: (zoom: GanttZoomLevel) => void;
 };
 
 export function SupervisorCanvas({
@@ -104,6 +107,8 @@ export function SupervisorCanvas({
   onViewChange,
   onNewTask,
   isMobile = false,
+  ganttZoom = "month",
+  onGanttZoomChange,
 }: SupervisorCanvasProps) {
   const [reviewStatusFilter, setReviewStatusFilter] = useState<"all" | "pending_approval" | "approved" | "rejected">("all");
   const [reviewTaskFilter, setReviewTaskFilter] = useState<string>("");
@@ -561,14 +566,22 @@ export function SupervisorCanvas({
         )}
 
         {tasks.length > 0 ? (
-          <GanttTimeline
-            tasks={tasks}
-            deliverables={deliverables}
-            allEvidences={allEvidences}
-            highlightDeliverableId={highlightedDeliverableId}
-            onDeliverableClick={onDeliverableNavigate}
-            onTaskClick={onTaskClick}
-          />
+          <>
+            {onGanttZoomChange && (
+              <div className="flex items-center justify-end mb-3">
+                <GanttZoomControl value={ganttZoom} onChange={onGanttZoomChange} />
+              </div>
+            )}
+            <GanttTimeline
+              tasks={tasks}
+              deliverables={deliverables}
+              allEvidences={allEvidences}
+              highlightDeliverableId={highlightedDeliverableId}
+              onDeliverableClick={onDeliverableNavigate}
+              onTaskClick={onTaskClick}
+              zoomLevel={ganttZoom}
+            />
+          </>
         ) : (
           <EmptyState text="No tasks in this project. Select a project that has tasks." />
         )}

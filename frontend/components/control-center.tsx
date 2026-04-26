@@ -339,6 +339,9 @@ export function ControlCenter() {
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [activeView, setActiveView] = useState("overview");
   const [highlightedDeliverableId, setHighlightedDeliverableId] = useState<string | null>(null);
+  // PR-A: Gantt zoom level lifted here so it survives view re-mounts within
+  // the same session. Owner + supervisor canvases share the same control.
+  const [ganttZoom, setGanttZoom] = useState<"day" | "week" | "month">("month");
   const [clientGalleryTaskId, setClientGalleryTaskId] = useState<string | null>(null);
   const [lastUserInvite, setLastUserInvite] = useState<UserInviteResponse | null>(null);
   const [inviteToken, setInviteToken] = useState("");
@@ -1658,6 +1661,8 @@ export function ControlCenter() {
             }}
             loading={loading}
             isMobile={isMobile}
+            ganttZoom={ganttZoom}
+            onGanttZoomChange={setGanttZoom}
           />
         );
       }
@@ -1815,6 +1820,8 @@ export function ControlCenter() {
           token={session.access_token}
           currentUserId={session.user.id}
           onTeamChanged={() => refreshRoleData(session)}
+          ganttZoom={ganttZoom}
+          onGanttZoomChange={setGanttZoom}
         />
       );
     }
@@ -1921,10 +1928,12 @@ export function ControlCenter() {
             setTaskEditOpen(true);
           }}
           isMobile={isMobile}
+          ganttZoom={ganttZoom}
+          onGanttZoomChange={setGanttZoom}
         />
       );
     }
-    
+
     if (role === "helper") {
       if (activeView === "journal") {
         if (!currentProject) {

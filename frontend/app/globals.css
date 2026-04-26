@@ -639,6 +639,104 @@ body::before {
     0 0 16px rgba(59, 130, 246, 0.5);
 }
 
+/* PR-D: inline quick-edit popover. Dark glass to match the rest of the app. */
+.gantt-popover {
+  background: rgba(8, 11, 20, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  box-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.75),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(22px) saturate(160%);
+  color: #fff;
+  font-size: 12px;
+}
+
+.gantt-popover-inner {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gantt-popover-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gantt-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gantt-popover-row.gantt-popover-actions {
+  justify-content: flex-end;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 10px;
+}
+
+.gantt-popover-label {
+  flex: 0 0 60px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.gantt-popover-select {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  outline: none;
+}
+
+.gantt-popover-select:focus {
+  border-color: var(--accent-blue);
+}
+
+.gantt-popover-range {
+  flex: 1;
+  height: 4px;
+  accent-color: var(--accent-blue);
+}
+
+.gantt-popover-progress-num {
+  flex: 0 0 38px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.gantt-popover-btn {
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.gantt-popover-btn:hover {
+  background: rgba(59, 130, 246, 0.28);
+  border-color: rgba(59, 130, 246, 0.7);
+}
+
 .gantt-empty {
   padding: 40px;
   text-align: center;

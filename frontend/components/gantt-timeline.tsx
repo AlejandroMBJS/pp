@@ -345,7 +345,15 @@ export function GanttTimeline({
     } catch {
       // pointer was already released
     }
-    if (drag.dxDays === 0 || !onTaskTimelinePatch) return;
+    if (drag.dxDays === 0) {
+      // No-movement pointerup on the mid handle is a click — surface it as
+      // onTaskClick so the bar still opens the details modal. The button
+      // underneath never fires its native click because the handle div sits
+      // on top in the z-stack.
+      if (drag.mode === "move") onTaskClick?.(drag.taskId);
+      return;
+    }
+    if (!onTaskTimelinePatch) return;
     let newStart = drag.originStart;
     let newEnd = drag.originEnd;
     if (drag.mode === "move") {

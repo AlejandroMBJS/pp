@@ -385,7 +385,12 @@ export function OwnerCanvas({
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex items-start gap-3 min-w-0">
                       {logoUrl ? (
-                        <img src={logoUrl} alt="" className="h-10 w-10 rounded-xl object-cover flex-shrink-0 border border-white/10" />
+                        <img
+                          src={logoUrl}
+                          alt=""
+                          className="h-10 w-10 rounded-xl object-cover flex-shrink-0 border border-white/10"
+                          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                        />
                       ) : (
                         <div
                           className="flex h-10 w-10 items-center justify-center rounded-xl flex-shrink-0"

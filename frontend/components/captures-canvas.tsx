@@ -12,6 +12,7 @@ import {
   Plus
 } from "lucide-react";
 import { EvidenceGallery } from "./evidence-gallery";
+import { buildTaskColorMap } from "../lib/colors";
 import { DateRangeInputs } from "./ui/toolbar";
 
 type Evidence = {
@@ -29,6 +30,7 @@ type Evidence = {
 type Task = {
   id: string;
   title: string;
+  color_hex?: string;
 };
 
 type Project = {
@@ -61,6 +63,8 @@ export function CapturesCanvas({
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+
+  const taskColorByTaskId = useMemo(() => buildTaskColorMap(tasks), [tasks]);
 
   const filteredEvidences = useMemo(() => {
     return evidences.filter(ev => {
@@ -186,11 +190,12 @@ export function CapturesCanvas({
                </div>
             </div>
          ) : filteredEvidences.length > 0 ? (
-            <EvidenceGallery 
-               evidences={filteredEvidences} 
+            <EvidenceGallery
+               evidences={filteredEvidences}
                onApprove={onApprove}
                onReject={onReject}
                showActions={true}
+               taskColorByTaskId={taskColorByTaskId}
             />
          ) : (
             <div className="h-full flex flex-col items-center justify-center text-center space-y-6 opacity-20">

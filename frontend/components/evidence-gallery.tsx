@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, X, Star, CheckCircle, XCircle, RefreshCw } f
 import { EmptyState } from "./ui/empty-state";
 import { useAuthToken } from "./auth-context";
 import { aiStatusLabel, aiStatusPillClasses, aiStatusTooltip, canReAudit } from "../lib/ai-status";
+import { taskTintStyle } from "../lib/colors";
 
 function browserSafeURL(rawUrl: string) {
   if (typeof window === "undefined" || !rawUrl) return rawUrl;
@@ -138,6 +139,10 @@ type EvidenceGalleryProps = {
   isMobile?: boolean;
   bulkSelected?: Set<string>;
   onToggleBulk?: (id: string) => void;
+  // Map of task_id → color_hex so each card can pick up its task's
+  // custom color (tint + left accent border). Optional — gallery falls
+  // back to default theme when no entry exists for a task.
+  taskColorByTaskId?: Map<string, string>;
 };
 
 function statusBadgeClass(status: string) {
@@ -428,6 +433,7 @@ export function EvidenceGallery({
   isMobile = false,
   bulkSelected,
   onToggleBulk,
+  taskColorByTaskId,
 }: EvidenceGalleryProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -460,6 +466,7 @@ export function EvidenceGallery({
           const selected = bulkSelected?.has(evidence.id) ?? false;
           const bulkMode = !!onToggleBulk;
           const inFlight = evidence.ai_processing_status === "queued" || evidence.ai_processing_status === "processing";
+          const taskColor = taskColorByTaskId?.get(evidence.task_id);
           return (
             <div
               key={evidence.id}
@@ -470,6 +477,7 @@ export function EvidenceGallery({
               className={`glass-card overflow-hidden transition-all border cursor-pointer relative ${
                 selected ? "border-blue-400/60 ring-2 ring-blue-400/30" : "border-white/5 hover:border-white/20 hover:shadow-lg hover:shadow-black/20"
               }`}
+              style={taskTintStyle(taskColor)}
               aria-label={`Ver detalle de ${evidence.file_name}`}
             >
               {bulkMode && (

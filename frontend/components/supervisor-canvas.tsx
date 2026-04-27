@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { toast } from "sonner";
 import { EmptyState } from "./ui/empty-state";
@@ -10,6 +10,7 @@ import { GanttZoomControl, type GanttZoomLevel } from "./ui/gantt-zoom-control";
 import { BudgetPanel } from "./budget-panel";
 import { Loader2, TrendingUp, AlignLeft, Plus, ListChecks } from "lucide-react";
 import { Toolbar, FilterChips, BulkBar, BulkApproveIcon, BulkRejectIcon, runBulk, type FilterChipOption } from "./ui/toolbar";
+import { buildTaskColorMap } from "../lib/colors";
 
 type Task = {
   id: string;
@@ -23,6 +24,7 @@ type Task = {
   spent_cents: number;
   description: string;
   assigned_to_user_id: string;
+  color_hex?: string;
 };
 
 type Deliverable = {
@@ -128,6 +130,8 @@ export function SupervisorCanvas({
   const [bulkRejectReason, setBulkRejectReason] = useState("");
   const [bulkApproveOpen, setBulkApproveOpen] = useState(false);
   const [bulkApproveVisible, setBulkApproveVisible] = useState(true);
+
+  const taskColorByTaskId = useMemo(() => buildTaskColorMap(tasks), [tasks]);
 
   // Auto-poll while any evidence is queued/processing so the score/status
   // updates without the supervisor having to manually refresh.
@@ -507,6 +511,7 @@ export function SupervisorCanvas({
                   bulkSelected={bulkMode ? bulkSelected : undefined}
                   onToggleBulk={bulkMode ? toggleOne : undefined}
                   isMobile={isMobile}
+                  taskColorByTaskId={taskColorByTaskId}
                   emptyText=""
                 />
               </div>
@@ -551,7 +556,7 @@ export function SupervisorCanvas({
               <div className="h-px flex-1 bg-white/5 mx-4" />
             </div>
             <div className="glass-card p-6 border-white/5 bg-white/[0.02]">
-              <EvidenceGallery evidences={rest} onReAudit={onReAudit} isMobile={isMobile} emptyText="" />
+              <EvidenceGallery evidences={rest} onReAudit={onReAudit} isMobile={isMobile} emptyText="" taskColorByTaskId={taskColorByTaskId} />
             </div>
           </div>
         )}

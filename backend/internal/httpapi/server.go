@@ -72,6 +72,11 @@ func (s *Server) Routes() http.Handler {
 		pub.Post("/api/v1/public/demo-resend", s.handleDemoResend)
 	})
 	r.Put("/uploads/{sessionID}", s.handleSignedUpload) // Auth via signed token in query param, not JWT
+	// GET /uploads/* serves tenant/project logos (and other public-by-design
+	// assets stored under UploadDir). Logos are referenced from <img src> on
+	// the login page and dashboards, so they cannot require JWT.
+	uploadFS := http.FileServer(http.Dir(s.service.UploadDir()))
+	r.Get("/uploads/*", http.StripPrefix("/uploads/", uploadFS).ServeHTTP)
 
 	r.Group(func(protected chi.Router) {
 		protected.Use(s.authMiddleware)

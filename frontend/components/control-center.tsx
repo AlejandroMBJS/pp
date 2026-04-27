@@ -2134,10 +2134,18 @@ export function ControlCenter() {
     if (p) {
       style["--brand-primary"] = p;
       style["--accent-primary"] = p;
+      // Override the default :root --accent-blue / --accent-gradient so
+      // primary-coloured surfaces (buttons, focus rings, progress bar,
+      // role-owner accent) actually pick up the tenant brand.
+      style["--accent-blue"] = p;
     }
     if (s) {
       style["--brand-secondary"] = s;
       style["--accent-secondary"] = s;
+      style["--accent-purple"] = s;
+    }
+    if (p && s) {
+      style["--accent-gradient"] = `linear-gradient(135deg, ${p} 0%, ${s} 100%)`;
     }
     return style as React.CSSProperties;
   })();

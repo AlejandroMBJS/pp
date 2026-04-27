@@ -639,6 +639,63 @@ body::before {
     0 0 16px rgba(59, 130, 246, 0.5);
 }
 
+/* Evidence preview modal — read-only lightbox for Gantt photo pins. */
+.evidence-preview-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.evidence-preview-image-wrap {
+  position: relative;
+  width: 100%;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 280px;
+}
+
+.evidence-preview-image {
+  width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  display: block;
+}
+
+.evidence-preview-score {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  color: #fbbf24;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 10px;
+}
+
+.evidence-preview-meta {
+  padding: 12px 24px 16px;
+}
+
+.evidence-preview-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+
 /* Split CSV export button in the topbar: basic | detailed. */
 .topbar-export {
   display: inline-flex;

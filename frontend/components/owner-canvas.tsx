@@ -89,6 +89,7 @@ type OwnerCanvasProps = {
   onDeliverableNavigate: (deliverableId: string, taskId: string) => void;
   onEvidenceDecision: (id: string, action: "approve" | "reject") => Promise<void>;
   onTaskClick?: (taskId: string) => void;
+  onEvidenceClick?: (evidence: Evidence) => void;
   onViewChange?: (view: string) => void;
   onNewProject?: () => void;
   onNewTask?: () => void;
@@ -136,6 +137,7 @@ export function OwnerCanvas({
   onDeliverableNavigate,
   onEvidenceDecision,
   onTaskClick,
+  onEvidenceClick,
   onViewChange,
   onNewProject,
   onNewTask,
@@ -528,6 +530,7 @@ export function OwnerCanvas({
                   highlightDeliverableId={highlightedDeliverableId}
                   onDeliverableClick={onDeliverableNavigate}
                   onTaskClick={onTaskClick}
+                  onEvidenceClick={onEvidenceClick as ((e: { id: string }) => void) | undefined}
                   zoomLevel={ganttZoom}
                   accessToken={accessToken}
                   onTaskTimelinePatch={onTaskTimelinePatch}

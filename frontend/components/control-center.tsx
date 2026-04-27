@@ -19,6 +19,7 @@ import { TaskApprovalModal } from "./task-approval-modal";
 import { PhotoUploadModal } from "./photo-upload-modal";
 import { TaskEditModal } from "./task-edit-modal";
 import { TaskDetailsModal } from "./task-details-modal";
+import { EvidencePreviewModal } from "./evidence-preview-modal";
 import { FinancialControl } from "./financial-control";
 import { DailyJournal } from "./daily-journal";
 import { MessagingHub } from "./messaging-hub";
@@ -375,6 +376,7 @@ export function ControlCenter() {
   const [photoUploadOpen, setPhotoUploadOpen] = useState(false);
   const [taskEditOpen, setTaskEditOpen] = useState(false);
   const [taskDetailsOpen, setTaskDetailsOpen] = useState(false);
+  const [previewEvidence, setPreviewEvidence] = useState<Evidence | null>(null);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -1689,6 +1691,7 @@ export function ControlCenter() {
             highlightedDeliverableId={highlightedDeliverableId}
             onDeliverableNavigate={handleDeliverableNavigate}
             onTaskClick={handleOpenTaskDetails}
+            onEvidenceClick={setPreviewEvidence}
             onViewChange={setActiveView}
             onNewTask={() => {
               setSelectedTaskId("");
@@ -1845,6 +1848,7 @@ export function ControlCenter() {
           onDeliverableNavigate={handleDeliverableNavigate}
           onEvidenceDecision={handleEvidenceDecision}
           onTaskClick={handleOpenTaskDetails}
+          onEvidenceClick={setPreviewEvidence}
           onViewChange={setActiveView}
           onNewProject={() => setNewProjectModalOpen(true)}
           onNewTask={() => {
@@ -1960,6 +1964,7 @@ export function ControlCenter() {
           highlightedDeliverableId={highlightedDeliverableId}
           onDeliverableNavigate={handleDeliverableNavigate}
           onTaskClick={handleOpenTaskDetails}
+          onEvidenceClick={setPreviewEvidence}
           loading={loading}
           onViewChange={setActiveView}
           onNewTask={() => {
@@ -2237,6 +2242,11 @@ export function ControlCenter() {
           setTaskDetailsOpen(false);
           setTaskEditOpen(true);
         }}
+      />
+      <EvidencePreviewModal
+        evidence={previewEvidence}
+        onClose={() => setPreviewEvidence(null)}
+        accessToken={session?.access_token}
       />
 
       {!isMobile && (

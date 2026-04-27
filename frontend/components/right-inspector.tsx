@@ -247,7 +247,7 @@ export function RightInspector({
           {/* Team onboarding */}
           <Accordion
             icon={<UserPlus size={15} />}
-            iconBg="linear-gradient(135deg, #3b82f6, #0ea5e9)"
+            iconBg="var(--accent-gradient)"
             title="Team onboarding"
             subtitle="Supervisor, operator, or client"
             badge={users.length}
@@ -806,7 +806,11 @@ export function RightInspector({
 
           <div
             className="rounded-xl px-4 py-3 text-xs flex items-start gap-2"
-            style={{ background: "rgba(59,130,246,0.05)", border: "1px solid rgba(59,130,246,0.12)", color: "#1e40af" }}
+            style={{
+              background: "color-mix(in srgb, var(--accent-blue) 6%, transparent)",
+              border: "1px solid color-mix(in srgb, var(--accent-blue) 14%, transparent)",
+              color: "var(--accent-blue)",
+            }}
           >
             <ExternalLink size={12} className="flex-shrink-0 mt-0.5" />
             Click any timeline deliverable to jump to the matching point.

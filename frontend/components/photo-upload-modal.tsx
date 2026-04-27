@@ -213,9 +213,9 @@ export function PhotoUploadModal({
                   <div className="flex flex-col items-center gap-3">
                     <div
                       className="flex h-14 w-14 items-center justify-center rounded-2xl"
-                      style={{ background: "rgba(59,130,246,0.12)" }}
+                      style={{ background: "color-mix(in srgb, var(--accent-blue) 12%, transparent)" }}
                     >
-                      <ImageIcon size={26} style={{ color: "#3b82f6" }} />
+                      <ImageIcon size={26} style={{ color: "var(--accent-blue)" }} />
                     </div>
                     <div>
                       <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
@@ -227,7 +227,7 @@ export function PhotoUploadModal({
                     </div>
                     <div
                       className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-full"
-                      style={{ background: "rgba(59,130,246,0.08)", color: "#3b82f6" }}
+                      style={{ background: "color-mix(in srgb, var(--accent-blue) 8%, transparent)", color: "var(--accent-blue)" }}
                     >
                       <Camera size={12} />
                       You can also use the device camera

@@ -283,9 +283,9 @@ export function TeamMemberDetail({
           disabled={busy !== null}
           className="flex items-center justify-center gap-2 rounded-xl py-3 text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           style={{
-            background: "rgba(59, 130, 246, 0.1)",
-            color: "#2563eb",
-            border: "1px solid rgba(59, 130, 246, 0.2)",
+            background: "color-mix(in srgb, var(--accent-blue) 10%, transparent)",
+            color: "var(--accent-blue)",
+            border: "1px solid color-mix(in srgb, var(--accent-blue) 20%, transparent)",
           }}
         >
           {busy === "invite" ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />}
@@ -494,7 +494,7 @@ export function ProjectAssignmentsSection({
                 onClick={() => void assign(p)}
                 disabled={busyId !== null}
                 className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md disabled:opacity-40"
-                style={{ color: "#3b82f6", background: "rgba(59,130,246,0.1)" }}
+                style={{ color: "var(--accent-blue)", background: "color-mix(in srgb, var(--accent-blue) 10%, transparent)" }}
               >
                 {busyId === p.id ? <Loader2 size={10} className="animate-spin" /> : "Add"}
               </button>

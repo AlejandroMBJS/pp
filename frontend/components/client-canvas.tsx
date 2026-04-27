@@ -91,7 +91,14 @@ export function ClientCanvas({
               <div className="metric-label text-white/40 text-xs uppercase">Overall Progress</div>
               <div className="metric-value text-blue-400 font-black text-3xl">{clientSummary?.timeline_progress ?? 0}%</div>
               <div className="mt-3 h-2 w-full bg-white/5 rounded-full overflow-hidden">
-                <div className="h-full bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,0.5)] transition-all duration-1000" style={{ width: `${clientSummary?.timeline_progress ?? 0}%` }} />
+                <div
+                className="h-full transition-all duration-1000"
+                style={{
+                  width: `${clientSummary?.timeline_progress ?? 0}%`,
+                  background: "var(--accent-blue)",
+                  boxShadow: "0 0 12px color-mix(in srgb, var(--accent-blue) 50%, transparent)",
+                }}
+              />
               </div>
             </div>
             <div className="glass-card p-4 border-white/5">
@@ -108,7 +115,14 @@ export function ClientCanvas({
             <div className="metric-label text-white/40">Overall Progress</div>
             <div className="metric-value text-blue-400 font-black">{clientSummary?.timeline_progress ?? 0}%</div>
             <div className="mt-3 h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-              <div className="h-full bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,0.5)] transition-all duration-1000" style={{ width: `${clientSummary?.timeline_progress ?? 0}%` }} />
+              <div
+                className="h-full transition-all duration-1000"
+                style={{
+                  width: `${clientSummary?.timeline_progress ?? 0}%`,
+                  background: "var(--accent-blue)",
+                  boxShadow: "0 0 12px color-mix(in srgb, var(--accent-blue) 50%, transparent)",
+                }}
+              />
             </div>
           </div>
           <div className="glass-card metric-card-premium border-white/5">

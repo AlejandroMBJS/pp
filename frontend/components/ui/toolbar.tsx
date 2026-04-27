@@ -262,8 +262,8 @@ export function BulkBar({ count, actions, onClear }: BulkBarProps) {
     <div
       className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-2xl px-4 py-2.5 shadow-xl"
       style={{
-        background: "rgba(59,130,246,0.15)",
-        border: "1px solid rgba(59,130,246,0.3)",
+        background: "color-mix(in srgb, var(--accent-blue) 15%, transparent)",
+        border: "1px solid color-mix(in srgb, var(--accent-blue) 30%, transparent)",
         backdropFilter: "blur(12px)",
       }}
     >

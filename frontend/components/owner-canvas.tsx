@@ -21,6 +21,7 @@ import { GanttZoomControl, type GanttZoomLevel } from "./ui/gantt-zoom-control";
 import { EvidenceGallery } from "./evidence-gallery";
 import { UsagePanel } from "./usage-panel";
 import { TeamMemberDetail, type TeamProjectLite, type TeamUser } from "./team-member-detail";
+import { buildTaskColorMap } from "../lib/colors";
 
 type Dashboard = {
   product_name: string;
@@ -173,6 +174,8 @@ export function OwnerCanvas({
   // Team toolbar state
   const [teamSearch, setTeamSearch] = useState("");
   const [teamRoleFilter, setTeamRoleFilter] = useState<"all" | "owner" | "supervisor" | "helper" | "client">("all");
+
+  const taskColorByTaskId = useMemo(() => buildTaskColorMap(tasks), [tasks]);
 
   const filteredTasks = useMemo(() => {
     const q = taskSearch.trim().toLowerCase();
@@ -577,6 +580,7 @@ export function OwnerCanvas({
               onApprove={(id) => onEvidenceDecision(id, "approve")}
               onReject={(id) => onEvidenceDecision(id, "reject")}
               isMobile={isMobile}
+              taskColorByTaskId={taskColorByTaskId}
             />
           </div>
         )}

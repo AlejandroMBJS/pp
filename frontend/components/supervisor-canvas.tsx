@@ -8,7 +8,7 @@ import { EvidenceGallery, type AIFeedback } from "./evidence-gallery";
 import { GanttTimeline } from "./gantt-timeline";
 import { GanttZoomControl, type GanttZoomLevel } from "./ui/gantt-zoom-control";
 import { BudgetPanel } from "./budget-panel";
-import { Loader2, TrendingUp, AlignLeft, Plus, ListChecks } from "lucide-react";
+import { Loader2, TrendingUp, AlignLeft, Plus, ListChecks, Maximize2, Minimize2, X } from "lucide-react";
 import { Toolbar, FilterChips, BulkBar, BulkApproveIcon, BulkRejectIcon, runBulk, type FilterChipOption } from "./ui/toolbar";
 import { buildTaskColorMap } from "../lib/colors";
 
@@ -130,6 +130,17 @@ export function SupervisorCanvas({
   const [bulkRejectReason, setBulkRejectReason] = useState("");
   const [bulkApproveOpen, setBulkApproveOpen] = useState(false);
   const [bulkApproveVisible, setBulkApproveVisible] = useState(true);
+  const [ganttFullscreen, setGanttFullscreen] = useState(false);
+
+  // Exit fullscreen with Escape.
+  useEffect(() => {
+    if (!ganttFullscreen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setGanttFullscreen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [ganttFullscreen]);
 
   const taskColorByTaskId = useMemo(() => buildTaskColorMap(tasks), [tasks]);
 
@@ -580,12 +591,21 @@ export function SupervisorCanvas({
         )}
 
         {tasks.length > 0 ? (
-          <>
-            {onGanttZoomChange && (
-              <div className="flex items-center justify-end mb-3">
+          <div className={ganttFullscreen ? "gantt-fullscreen-wrap" : ""}>
+            <div className="flex items-center justify-end mb-3 gap-2">
+              {onGanttZoomChange && (
                 <GanttZoomControl value={ganttZoom} onChange={onGanttZoomChange} />
-              </div>
-            )}
+              )}
+              <button
+                type="button"
+                className="gantt-fullscreen-btn"
+                onClick={() => setGanttFullscreen((v) => !v)}
+                title={ganttFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen — easier to click short tasks"}
+                aria-label={ganttFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              >
+                {ganttFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              </button>
+            </div>
             <GanttTimeline
               tasks={tasks}
               deliverables={deliverables}
@@ -598,7 +618,7 @@ export function SupervisorCanvas({
               accessToken={accessToken}
               onTaskTimelinePatch={onTaskTimelinePatch}
             />
-          </>
+          </div>
         ) : (
           <EmptyState text="No tasks in this project. Select a project that has tasks." />
         )}

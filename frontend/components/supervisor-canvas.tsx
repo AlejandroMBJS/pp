@@ -78,6 +78,7 @@ type SupervisorCanvasProps = {
   highlightedDeliverableId: string | null;
   onDeliverableNavigate: (deliverableId: string, taskId: string) => void;
   onTaskClick?: (taskId: string) => void;
+  onEvidenceClick?: (evidence: Evidence) => void;
   loading: boolean;
   onViewChange?: (view: string) => void;
   onNewTask?: () => void;
@@ -108,6 +109,7 @@ export function SupervisorCanvas({
   highlightedDeliverableId,
   onDeliverableNavigate,
   onTaskClick,
+  onEvidenceClick,
   loading,
   onViewChange,
   onNewTask,
@@ -586,6 +588,7 @@ export function SupervisorCanvas({
               highlightDeliverableId={highlightedDeliverableId}
               onDeliverableClick={onDeliverableNavigate}
               onTaskClick={onTaskClick}
+              onEvidenceClick={onEvidenceClick as ((e: { id: string }) => void) | undefined}
               zoomLevel={ganttZoom}
               accessToken={accessToken}
               onTaskTimelinePatch={onTaskTimelinePatch}

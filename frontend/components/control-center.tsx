@@ -309,7 +309,8 @@ function BrandStyleTag({ tenant }: { tenant: { primary_color?: string; secondary
       .app-shell .bg-blue-500\\/15 { background-color: ${p}26 !important; }
       .app-shell .bg-blue-500\\/20, .app-shell .bg-blue-600\\/20 { background-color: ${p}33 !important; }
       .app-shell .bg-blue-500\\/30 { background-color: ${p}4d !important; }
-      .app-shell .text-blue-300, .app-shell .text-blue-400, .app-shell .text-blue-500 { color: ${p} !important; }
+      .app-shell .text-blue-100, .app-shell .text-blue-200, .app-shell .text-blue-300, .app-shell .text-blue-400, .app-shell .text-blue-500, .app-shell .text-blue-600, .app-shell .text-blue-700 { color: ${p} !important; }
+      .app-shell .text-blue-400\\/60 { color: ${p}99 !important; }
       .app-shell .border-blue-400, .app-shell .border-blue-500 { border-color: ${p} !important; }
       .app-shell .border-blue-400\\/30, .app-shell .border-blue-500\\/30 { border-color: ${p}4d !important; }
       .app-shell .border-blue-500\\/40 { border-color: ${p}66 !important; }
@@ -320,7 +321,14 @@ function BrandStyleTag({ tenant }: { tenant: { primary_color?: string; secondary
       .app-shell .to-blue-500, .app-shell .to-blue-600 { --tw-gradient-to: ${p} !important; }
       .app-shell .via-blue-400, .app-shell .via-blue-500 { --tw-gradient-via: ${p} !important; }
       .app-shell .accent-blue-500 { accent-color: ${p} !important; }
+      .app-shell .shadow-blue-500\\/20 { --tw-shadow-color: ${p}33 !important; --tw-shadow: var(--tw-shadow-colored) !important; }
       .app-shell .hover\\:border-blue-500\\/30:hover { border-color: ${p}4d !important; }
+      .app-shell .hover\\:bg-blue-400:hover, .app-shell .hover\\:bg-blue-500:hover, .app-shell .hover\\:bg-blue-600:hover { background-color: ${p} !important; }
+      .app-shell .hover\\:bg-blue-500\\/30:hover { background-color: ${p}4d !important; }
+      .app-shell .hover\\:text-blue-300:hover, .app-shell .hover\\:text-blue-400:hover { color: ${p} !important; }
+      .app-shell .group:hover .group-hover\\:text-blue-400 { color: ${p} !important; }
+      .app-shell .group:hover .group-hover\\:bg-blue-500\\/10 { background-color: ${p}1a !important; }
+      .app-shell .bg-blue-600\\/80 { background-color: ${p}cc !important; }
     ` : ""}
     ${s ? `
       .app-shell .from-cyan-500, .app-shell .from-sky-500, .app-shell .from-cyan-600 { --tw-gradient-from: ${s} !important; }
@@ -2419,7 +2427,7 @@ export function ControlCenter() {
       {(role === "owner" || role === "supervisor") && (
         <FabActions
           actions={[
-            { id: "project", label: "New Project", icon: <FolderPlus size={20} className="text-white" />, color: "#3b82f6", onClick: () => setNewProjectModalOpen(true) },
+            { id: "project", label: "New Project", icon: <FolderPlus size={20} className="text-white" />, color: "var(--accent-blue)", onClick: () => setNewProjectModalOpen(true) },
             {
               id: "task",
               label: "New Task",

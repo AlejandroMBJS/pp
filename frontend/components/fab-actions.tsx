@@ -43,7 +43,7 @@ export function FabActions({ actions }: Props) {
             : "var(--accent-gradient)",
           boxShadow: open
             ? "0 6px 30px rgba(239,68,68,0.4)"
-            : "0 6px 30px rgba(59,130,246,0.4)",
+            : "0 6px 30px color-mix(in srgb, var(--accent-blue) 40%, transparent)",
         }}
       >
         <Plus
@@ -77,7 +77,7 @@ export function FabActions({ actions }: Props) {
             className="flex h-11 w-11 items-center justify-center rounded-full shadow-lg transition-transform hover:scale-110 active:scale-95 disabled:hover:scale-100"
             style={{
               background: action.disabled ? "rgba(255,255,255,0.08)" : action.color,
-              boxShadow: action.disabled ? "none" : `0 4px 16px ${action.color}40`,
+              boxShadow: action.disabled ? "none" : `0 4px 16px color-mix(in srgb, ${action.color} 25%, transparent)`,
               opacity: action.disabled ? 0.6 : 1,
               cursor: action.disabled ? "not-allowed" : "pointer",
             }}

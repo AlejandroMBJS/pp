@@ -217,14 +217,18 @@ export function TaskDetailsModal({
                   <div className="task-details-label">Bar &amp; row color</div>
                   <div className="task-details-color-row">
                     {[
+                      // Default: clears override → bar uses status color.
                       "",
-                      "#3b82f6",
-                      "#10b981",
-                      "#f59e0b",
-                      "#ef4444",
-                      "#8b5cf6",
-                      "#ec4899",
-                      "#0ea5e9",
+                      // Status colors (blue/green/amber/red) intentionally
+                      // omitted — they map to in_progress/completed/pending/
+                      // overdue and would confuse users.
+                      "#8b5cf6", // purple
+                      "#ec4899", // pink
+                      "#14b8a6", // teal
+                      "#6366f1", // indigo
+                      "#d946ef", // fuchsia
+                      "#a855f7", // violet
+                      "#64748b", // slate
                     ].map((c) => {
                       const active = (task.color_hex ?? "") === c;
                       return (

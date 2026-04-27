@@ -1591,7 +1591,7 @@ export function ControlCenter() {
     await api(`/api/v1/deliverables/${deliverableId}/reject`, {
       token: session.access_token,
       method: "POST",
-      body: JSON.stringify({ reason }),
+      body: { reason },
     });
     if (selectedProjectId) {
       try {

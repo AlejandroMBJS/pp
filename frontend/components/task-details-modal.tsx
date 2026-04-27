@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { X, Pencil, ChevronRight, GitBranch, Calendar, Users, Star } from "lucide-react";
 import { withAccessToken } from "../lib/files";
 
@@ -78,8 +77,6 @@ function formatDate(iso?: string) {
   return d.toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-type Tab = "info" | "deliverables" | "evidences" | "dependencies";
-
 export function TaskDetailsModal({
   isOpen,
   onClose,
@@ -93,8 +90,6 @@ export function TaskDetailsModal({
   onColorChange,
   onOpenEditor,
 }: TaskDetailsModalProps) {
-  const [tab, setTab] = useState<Tab>("info");
-
   if (!isOpen || !task) return null;
 
   const taskDeliverables = deliverables.filter((d) => d.task_id === task.id);
@@ -152,233 +147,215 @@ export function TaskDetailsModal({
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="task-details-tabs">
-          {([
-            ["info", "Info", null] as const,
-            ["deliverables", "Deliverables", taskDeliverables.length] as const,
-            ["evidences", "Evidences", taskEvidences.length] as const,
-            ["dependencies", "Dependencies", successors.length + (predecessor ? 1 : 0)] as const,
-          ]).map(([id, label, count]) => (
-            <button
-              key={id}
-              type="button"
-              data-active={tab === id ? "true" : "false"}
-              className="task-details-tab"
-              onClick={() => setTab(id)}
-            >
-              {label}
-              {count != null && count > 0 && (
-                <span className="task-details-tab-count">{count}</span>
-              )}
-            </button>
-          ))}
-        </div>
+        <div className="modal-body" style={{ maxHeight: "70vh", overflowY: "auto" }}>
+          <div className="space-y-5">
+            {task.description && (
+              <div>
+                <div className="task-details-label">Description</div>
+                <div className="text-sm text-white/80 whitespace-pre-wrap">{task.description}</div>
+              </div>
+            )}
 
-        <div className="modal-body" style={{ minHeight: 280, maxHeight: "60vh", overflowY: "auto" }}>
-          {tab === "info" && (
-            <div className="space-y-4">
-              {task.description && (
-                <div>
-                  <div className="task-details-label">Description</div>
-                  <div className="text-sm text-white/80 whitespace-pre-wrap">{task.description}</div>
+            {/* Quick info grid */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="task-details-label">Start</div>
+                <div className="task-details-value">
+                  <Calendar size={12} /> {formatDate(task.start_date)}
+                </div>
+              </div>
+              <div>
+                <div className="task-details-label">End</div>
+                <div className="task-details-value">
+                  <Calendar size={12} /> {formatDate(task.end_date)}
+                </div>
+              </div>
+              <div>
+                <div className="task-details-label">Progress</div>
+                <div className="task-details-progress-track">
+                  <div
+                    className="task-details-progress-fill"
+                    style={{ width: `${task.progress_percent}%` }}
+                  />
+                </div>
+                <div className="text-xs text-white/60 mt-1">{task.progress_percent}%</div>
+              </div>
+              <div>
+                <div className="task-details-label">Assignee</div>
+                <div className="task-details-value">
+                  <Users size={12} /> {assignee?.full_name || assignee?.email || "Unassigned"}
+                </div>
+              </div>
+              {budgetTotal > 0 && (
+                <>
+                  <div>
+                    <div className="task-details-label">Budget</div>
+                    <div className="task-details-value">{money(budgetTotal)}</div>
+                  </div>
+                  <div>
+                    <div className="task-details-label">Spent</div>
+                    <div className="task-details-value" style={{ color: budgetDelta > 100 ? "#ef4444" : "#fff" }}>
+                      {money(budgetSpent)} ({budgetDelta}%)
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Color picker */}
+            <div>
+              <div className="task-details-label">Bar &amp; row color</div>
+              <div className="task-details-color-row">
+                {[
+                  // Default: clears override → bar uses status color.
+                  "",
+                  // Status colors (blue/green/amber/red) intentionally
+                  // omitted — they map to in_progress/completed/pending/
+                  // overdue and would confuse users.
+                  "#8b5cf6", // purple
+                  "#ec4899", // pink
+                  "#14b8a6", // teal
+                  "#6366f1", // indigo
+                  "#d946ef", // fuchsia
+                  "#a855f7", // violet
+                  "#64748b", // slate
+                ].map((c) => {
+                  const active = (task.color_hex ?? "") === c;
+                  return (
+                    <button
+                      key={c || "default"}
+                      type="button"
+                      className={`task-details-swatch ${active ? "active" : ""}`}
+                      style={{
+                        background: c || "transparent",
+                        border: c
+                          ? `2px solid ${active ? "#fff" : "rgba(255,255,255,0.15)"}`
+                          : `2px dashed rgba(255,255,255,${active ? 0.6 : 0.25})`,
+                      }}
+                      onClick={() => onColorChange?.(c)}
+                      disabled={!onColorChange}
+                      title={c ? c : "Default (use status color)"}
+                      aria-label={c ? `Set color ${c}` : "Reset to status color"}
+                    />
+                  );
+                })}
+                <label
+                  className="task-details-swatch-custom"
+                  title="Pick any RGB color"
+                  aria-label="Pick custom RGB color"
+                >
+                  <input
+                    type="color"
+                    value={task.color_hex || "#8b5cf6"}
+                    disabled={!onColorChange}
+                    onChange={(e) => onColorChange?.(e.target.value)}
+                  />
+                  <span className="task-details-swatch-custom-icon">+</span>
+                </label>
+              </div>
+              {task.color_hex && (
+                <div className="task-details-color-current">
+                  <span className="task-details-color-chip" style={{ background: task.color_hex }} />
+                  <code>{task.color_hex.toUpperCase()}</code>
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="task-details-label">Start</div>
-                  <div className="task-details-value">
-                    <Calendar size={12} /> {formatDate(task.start_date)}
-                  </div>
-                </div>
-                <div>
-                  <div className="task-details-label">End</div>
-                  <div className="task-details-value">
-                    <Calendar size={12} /> {formatDate(task.end_date)}
-                  </div>
-                </div>
-                <div>
-                  <div className="task-details-label">Progress</div>
-                  <div className="task-details-progress-track">
-                    <div
-                      className="task-details-progress-fill"
-                      style={{ width: `${task.progress_percent}%` }}
-                    />
-                  </div>
-                  <div className="text-xs text-white/60 mt-1">{task.progress_percent}%</div>
-                </div>
-                <div>
-                  <div className="task-details-label">Assignee</div>
-                  <div className="task-details-value">
-                    <Users size={12} /> {assignee?.full_name || assignee?.email || "Unassigned"}
-                  </div>
-                </div>
-                <div>
-                  <div className="task-details-label">Bar &amp; row color</div>
-                  <div className="task-details-color-row">
-                    {[
-                      // Default: clears override → bar uses status color.
-                      "",
-                      // Status colors (blue/green/amber/red) intentionally
-                      // omitted — they map to in_progress/completed/pending/
-                      // overdue and would confuse users.
-                      "#8b5cf6", // purple
-                      "#ec4899", // pink
-                      "#14b8a6", // teal
-                      "#6366f1", // indigo
-                      "#d946ef", // fuchsia
-                      "#a855f7", // violet
-                      "#64748b", // slate
-                    ].map((c) => {
-                      const active = (task.color_hex ?? "") === c;
-                      return (
-                        <button
-                          key={c || "default"}
-                          type="button"
-                          className={`task-details-swatch ${active ? "active" : ""}`}
-                          style={{
-                            background: c || "transparent",
-                            border: c
-                              ? `2px solid ${active ? "#fff" : "rgba(255,255,255,0.15)"}`
-                              : `2px dashed rgba(255,255,255,${active ? 0.6 : 0.25})`,
-                          }}
-                          onClick={() => onColorChange?.(c)}
-                          disabled={!onColorChange}
-                          title={c ? c : "Default (use status color)"}
-                          aria-label={c ? `Set color ${c}` : "Reset to status color"}
-                        />
-                      );
-                    })}
-                    <label
-                      className="task-details-swatch-custom"
-                      title="Pick any RGB color"
-                      aria-label="Pick custom RGB color"
-                    >
-                      <input
-                        type="color"
-                        value={task.color_hex || "#3b82f6"}
-                        disabled={!onColorChange}
-                        onChange={(e) => onColorChange?.(e.target.value)}
-                      />
-                      <span className="task-details-swatch-custom-icon">+</span>
-                    </label>
-                  </div>
-                  {task.color_hex && (
-                    <div className="task-details-color-current">
-                      <span className="task-details-color-chip" style={{ background: task.color_hex }} />
-                      <code>{task.color_hex.toUpperCase()}</code>
-                    </div>
-                  )}
-                </div>
-                {budgetTotal > 0 && (
-                  <>
-                    <div>
-                      <div className="task-details-label">Budget</div>
-                      <div className="task-details-value">{money(budgetTotal)}</div>
-                    </div>
-                    <div>
-                      <div className="task-details-label">Spent</div>
-                      <div className="task-details-value" style={{ color: budgetDelta > 100 ? "#ef4444" : "#fff" }}>
-                        {money(budgetSpent)} ({budgetDelta}%)
+            </div>
+
+            {/* Linked tasks (predecessor + successors) */}
+            {(predecessor || successors.length > 0) && (
+              <div>
+                <div className="task-details-section-header">Linked tasks</div>
+                {predecessor && (
+                  <div className="space-y-1 mb-3">
+                    <div className="task-details-label">Depends on (must finish first)</div>
+                    <div className="task-details-row">
+                      <GitBranch size={14} className="text-blue-400" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-white truncate">{predecessor.title}</div>
+                        <div className="text-xs text-white/40">
+                          {formatDate(predecessor.start_date)} → {formatDate(predecessor.end_date)}
+                        </div>
                       </div>
                     </div>
-                  </>
+                  </div>
+                )}
+                {successors.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="task-details-label">Blocks (waits for this one)</div>
+                    {successors.map((s) => (
+                      <div key={s.id} className="task-details-row">
+                        <GitBranch size={14} className="text-blue-400" style={{ transform: "scaleX(-1)" }} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold text-white truncate">{s.title}</div>
+                          <div className="text-xs text-white/40">
+                            {formatDate(s.start_date)} → {formatDate(s.end_date)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
-            </div>
-          )}
+            )}
 
-          {tab === "deliverables" && (
-            <div className="space-y-2">
-              {taskDeliverables.length === 0 ? (
-                <div className="text-sm text-white/40 text-center py-8">No deliverables for this task.</div>
-              ) : (
-                taskDeliverables.map((d) => (
-                  <div key={d.id} className="task-details-row">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold text-white truncate">{d.title}</div>
-                      <div className="text-xs text-white/40">Due {formatDate(d.due_date)}</div>
-                    </div>
-                    <span
-                      className="task-details-pill"
-                      style={{
-                        background: d.status === "approved" ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)",
-                        color: d.status === "approved" ? "#10b981" : "#f59e0b",
-                      }}
-                    >
-                      {d.status}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-
-          {tab === "evidences" && (
-            <div className="grid grid-cols-3 gap-2">
-              {taskEvidences.length === 0 ? (
-                <div className="col-span-3 text-sm text-white/40 text-center py-8">No evidences uploaded.</div>
-              ) : (
-                taskEvidences.map((e) => (
-                  <div key={e.id} className="task-details-evidence">
-                    <img
-                      src={withAccessToken(e.url_archivo, accessToken)}
-                      alt={e.file_name}
-                      onError={(ev) => {
-                        (ev.currentTarget as HTMLImageElement).style.display = "none";
-                      }}
-                    />
-                    <div className="task-details-evidence-meta">
-                      {e.quality_score > 0 && (
-                        <span className="task-details-evidence-score">
-                          <Star size={10} /> {e.quality_score}
-                        </span>
-                      )}
-                      <span className="text-[10px] text-white/60 truncate">{e.file_name}</span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-
-          {tab === "dependencies" && (
-            <div className="space-y-3">
-              {predecessor && (
-                <div>
-                  <div className="task-details-label">Predecessor (must complete before this task)</div>
-                  <div className="task-details-row">
-                    <GitBranch size={14} className="text-blue-400" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold text-white truncate">{predecessor.title}</div>
-                      <div className="text-xs text-white/40">
-                        {formatDate(predecessor.start_date)} → {formatDate(predecessor.end_date)}
-                      </div>
-                    </div>
-                  </div>
+            {/* Deliverables */}
+            {taskDeliverables.length > 0 && (
+              <div>
+                <div className="task-details-section-header">
+                  Deliverables <span className="task-details-section-count">{taskDeliverables.length}</span>
                 </div>
-              )}
-              {successors.length > 0 && (
-                <div>
-                  <div className="task-details-label">Successors (blocked by this task)</div>
-                  {successors.map((s) => (
-                    <div key={s.id} className="task-details-row">
-                      <GitBranch size={14} className="text-blue-400" style={{ transform: "scaleX(-1)" }} />
+                <div className="space-y-2">
+                  {taskDeliverables.map((d) => (
+                    <div key={d.id} className="task-details-row">
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-white truncate">{s.title}</div>
-                        <div className="text-xs text-white/40">
-                          {formatDate(s.start_date)} → {formatDate(s.end_date)}
-                        </div>
+                        <div className="text-sm font-semibold text-white truncate">{d.title}</div>
+                        <div className="text-xs text-white/40">Due {formatDate(d.due_date)}</div>
+                      </div>
+                      <span
+                        className="task-details-pill"
+                        style={{
+                          background: d.status === "approved" ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)",
+                          color: d.status === "approved" ? "#10b981" : "#f59e0b",
+                        }}
+                      >
+                        {d.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Evidences */}
+            {taskEvidences.length > 0 && (
+              <div>
+                <div className="task-details-section-header">
+                  Evidences <span className="task-details-section-count">{taskEvidences.length}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {taskEvidences.map((e) => (
+                    <div key={e.id} className="task-details-evidence">
+                      <img
+                        src={withAccessToken(e.url_archivo, accessToken)}
+                        alt={e.file_name}
+                        onError={(ev) => {
+                          (ev.currentTarget as HTMLImageElement).style.display = "none";
+                        }}
+                      />
+                      <div className="task-details-evidence-meta">
+                        {e.quality_score > 0 && (
+                          <span className="task-details-evidence-score">
+                            <Star size={10} /> {e.quality_score}
+                          </span>
+                        )}
+                        <span className="text-[10px] text-white/60 truncate">{e.file_name}</span>
                       </div>
                     </div>
                   ))}
                 </div>
-              )}
-              {!predecessor && successors.length === 0 && (
-                <div className="text-sm text-white/40 text-center py-8">No dependencies.</div>
-              )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="modal-footer">

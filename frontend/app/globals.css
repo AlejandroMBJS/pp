@@ -898,6 +898,33 @@ body::before {
   color: #fbbf24;
 }
 
+.task-details-color-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.task-details-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.12s, border-color 0.12s;
+}
+
+.task-details-swatch:hover:not(:disabled) {
+  transform: scale(1.15);
+}
+
+.task-details-swatch:disabled {
+  cursor: default;
+}
+
+.task-details-swatch.active {
+  transform: scale(1.1);
+}
+
 .task-details-edit-btn {
   display: inline-flex;
   align-items: center;

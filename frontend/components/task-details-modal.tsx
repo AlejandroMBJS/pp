@@ -16,6 +16,7 @@ type Task = {
   spent_cents?: number;
   predecessor_task_id?: string;
   assigned_to_user_id?: string;
+  color_hex?: string;
 };
 
 type Deliverable = {
@@ -52,6 +53,7 @@ type TaskDetailsModalProps = {
   users?: UserLite[];
   accessToken?: string;
   onStatusChange?: (status: string) => void;
+  onColorChange?: (color: string) => void;
   onOpenEditor?: () => void;
 };
 
@@ -88,6 +90,7 @@ export function TaskDetailsModal({
   users = [],
   accessToken,
   onStatusChange,
+  onColorChange,
   onOpenEditor,
 }: TaskDetailsModalProps) {
   const [tab, setTab] = useState<Tab>("info");
@@ -208,6 +211,40 @@ export function TaskDetailsModal({
                   <div className="task-details-label">Assignee</div>
                   <div className="task-details-value">
                     <Users size={12} /> {assignee?.full_name || assignee?.email || "Unassigned"}
+                  </div>
+                </div>
+                <div>
+                  <div className="task-details-label">Bar color</div>
+                  <div className="task-details-color-row">
+                    {[
+                      "",
+                      "#3b82f6",
+                      "#10b981",
+                      "#f59e0b",
+                      "#ef4444",
+                      "#8b5cf6",
+                      "#ec4899",
+                      "#0ea5e9",
+                    ].map((c) => {
+                      const active = (task.color_hex ?? "") === c;
+                      return (
+                        <button
+                          key={c || "default"}
+                          type="button"
+                          className={`task-details-swatch ${active ? "active" : ""}`}
+                          style={{
+                            background: c || "transparent",
+                            border: c
+                              ? `2px solid ${active ? "#fff" : "rgba(255,255,255,0.15)"}`
+                              : `2px dashed rgba(255,255,255,${active ? 0.6 : 0.25})`,
+                          }}
+                          onClick={() => onColorChange?.(c)}
+                          disabled={!onColorChange}
+                          title={c ? c : "Default (use status color)"}
+                          aria-label={c ? `Set color ${c}` : "Reset to status color"}
+                        />
+                      );
+                    })}
                   </div>
                 </div>
                 {budgetTotal > 0 && (

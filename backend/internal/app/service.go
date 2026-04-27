@@ -1785,8 +1785,8 @@ func (s *Service) projectByID(ctx context.Context, projectID string) (Project, e
 
 func (s *Service) taskByID(ctx context.Context, taskID string) (Task, error) {
 	var task Task
-	err := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent, comparison_photo_url FROM tasks WHERE id = $1`, taskID).
-		Scan(&task.ID, &task.TenantID, &task.ProjectID, &task.Title, &task.Description, &task.AssignedToUserID, &task.Status, &task.StartDate, &task.EndDate, &task.PredecessorTaskID, &task.ExpectedFinishQuality, &task.TechnicalSpecText, &task.BudgetCents, &task.SpentCents, &task.ProgressPercent, &task.ComparisonPhotoURL)
+	err := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent, comparison_photo_url, color_hex FROM tasks WHERE id = $1`, taskID).
+		Scan(&task.ID, &task.TenantID, &task.ProjectID, &task.Title, &task.Description, &task.AssignedToUserID, &task.Status, &task.StartDate, &task.EndDate, &task.PredecessorTaskID, &task.ExpectedFinishQuality, &task.TechnicalSpecText, &task.BudgetCents, &task.SpentCents, &task.ProgressPercent, &task.ComparisonPhotoURL, &task.ColorHex)
 	return task, err
 }
 
@@ -1850,8 +1850,11 @@ func (s *Service) UpdateTask(ctx context.Context, actor Claims, taskID string, p
 	if patch.ComparisonPhotoURL != "" {
 		task.ComparisonPhotoURL = patch.ComparisonPhotoURL
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE tasks SET title = $1, description = $2, assigned_to_user_id = $3, status = $4, start_date = $5, end_date = $6, expected_finish_quality = $7, technical_spec_text = $8, budget_cents = $9, spent_cents = $10, progress_percent = $11, predecessor_task_id = $12, comparison_photo_url = $13, updated_at = $14 WHERE id = $15`,
-		task.Title, task.Description, task.AssignedToUserID, task.Status, task.StartDate, task.EndDate, task.ExpectedFinishQuality, task.TechnicalSpecText, task.BudgetCents, task.SpentCents, task.ProgressPercent, task.PredecessorTaskID, task.ComparisonPhotoURL, nowText(), taskID)
+	// Empty string clears the override; non-empty replaces. Caller can send
+	// "" to reset to status-derived color.
+	task.ColorHex = patch.ColorHex
+	_, err = s.db.ExecContext(ctx, `UPDATE tasks SET title = $1, description = $2, assigned_to_user_id = $3, status = $4, start_date = $5, end_date = $6, expected_finish_quality = $7, technical_spec_text = $8, budget_cents = $9, spent_cents = $10, progress_percent = $11, predecessor_task_id = $12, comparison_photo_url = $13, color_hex = $14, updated_at = $15 WHERE id = $16`,
+		task.Title, task.Description, task.AssignedToUserID, task.Status, task.StartDate, task.EndDate, task.ExpectedFinishQuality, task.TechnicalSpecText, task.BudgetCents, task.SpentCents, task.ProgressPercent, task.PredecessorTaskID, task.ComparisonPhotoURL, task.ColorHex, nowText(), taskID)
 	if err != nil {
 		return Task{}, err
 	}
@@ -1954,8 +1957,8 @@ func (s *Service) CreateTask(ctx context.Context, actor Claims, projectID string
 		return Task{}, Deliverable{}, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO tasks (id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent, comparison_photo_url, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`, task.ID, task.TenantID, task.ProjectID, task.Title, task.Description, task.AssignedToUserID, task.Status, task.StartDate, task.EndDate, task.PredecessorTaskID, task.ExpectedFinishQuality, task.TechnicalSpecText, task.BudgetCents, task.SpentCents, task.ProgressPercent, task.ComparisonPhotoURL, now, now); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO tasks (id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent, comparison_photo_url, color_hex, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`, task.ID, task.TenantID, task.ProjectID, task.Title, task.Description, task.AssignedToUserID, task.Status, task.StartDate, task.EndDate, task.PredecessorTaskID, task.ExpectedFinishQuality, task.TechnicalSpecText, task.BudgetCents, task.SpentCents, task.ProgressPercent, task.ComparisonPhotoURL, task.ColorHex, now, now); err != nil {
 		return Task{}, Deliverable{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO deliverables (id, tenant_id, project_id, task_id, title, description, due_date, status, client_visible, created_at, updated_at)
@@ -2005,7 +2008,9 @@ func (s *Service) detectPredecessorCycle(ctx context.Context, taskID, predID str
 	return nil
 }
 
-func (s *Service) UpdateTaskTimeline(ctx context.Context, actor Claims, taskID string, startDate, endDate, status, predecessorTaskID string, progressPercent int) (Task, error) {
+// colorHex sentinel: "" = keep current, "null" = clear (set ''), else the
+// new value. Same convention as predecessorTaskID.
+func (s *Service) UpdateTaskTimeline(ctx context.Context, actor Claims, taskID string, startDate, endDate, status, predecessorTaskID, colorHex string, progressPercent int) (Task, error) {
 	if effect := s.permissionEffect(ctx, actor.Role, "timeline.edit"); effect == "deny" {
 		return Task{}, errors.New("forbidden")
 	}
@@ -2047,9 +2052,16 @@ func (s *Service) UpdateTaskTimeline(ctx context.Context, actor Claims, taskID s
 			return Task{}, err
 		}
 	}
+	// colorHex follows the same sentinel rules as predecessorTaskID.
+	newColor := task.ColorHex
+	if colorHex == "null" {
+		newColor = ""
+	} else if colorHex != "" {
+		newColor = colorHex
+	}
 	// Schema is TEXT NOT NULL DEFAULT '' — empty string is the sentinel for
 	// "no predecessor", never NULL.
-	_, err = s.db.ExecContext(ctx, `UPDATE tasks SET start_date = $1, end_date = $2, status = $3, progress_percent = $4, predecessor_task_id = $5, updated_at = $6 WHERE id = $7`, startDate, endDate, status, progressPercent, newPredecessor, nowText(), taskID)
+	_, err = s.db.ExecContext(ctx, `UPDATE tasks SET start_date = $1, end_date = $2, status = $3, progress_percent = $4, predecessor_task_id = $5, color_hex = $6, updated_at = $7 WHERE id = $8`, startDate, endDate, status, progressPercent, newPredecessor, newColor, nowText(), taskID)
 	if err != nil {
 		return Task{}, err
 	}
@@ -2088,7 +2100,7 @@ func (s *Service) ListAssignedTasks(ctx context.Context, actor Claims) ([]Task, 
 	if actor.Role != RoleHelper {
 		return []Task{}, nil
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent, comparison_photo_url FROM tasks WHERE assigned_to_user_id = $1 ORDER BY end_date`, actor.UserID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent, comparison_photo_url, color_hex FROM tasks WHERE assigned_to_user_id = $1 ORDER BY end_date`, actor.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -2096,7 +2108,7 @@ func (s *Service) ListAssignedTasks(ctx context.Context, actor Claims) ([]Task, 
 	tasks := make([]Task, 0)
 	for rows.Next() {
 		var task Task
-		if err := rows.Scan(&task.ID, &task.TenantID, &task.ProjectID, &task.Title, &task.Description, &task.AssignedToUserID, &task.Status, &task.StartDate, &task.EndDate, &task.PredecessorTaskID, &task.ExpectedFinishQuality, &task.TechnicalSpecText, &task.BudgetCents, &task.SpentCents, &task.ProgressPercent, &task.ComparisonPhotoURL); err != nil {
+		if err := rows.Scan(&task.ID, &task.TenantID, &task.ProjectID, &task.Title, &task.Description, &task.AssignedToUserID, &task.Status, &task.StartDate, &task.EndDate, &task.PredecessorTaskID, &task.ExpectedFinishQuality, &task.TechnicalSpecText, &task.BudgetCents, &task.SpentCents, &task.ProgressPercent, &task.ComparisonPhotoURL, &task.ColorHex); err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, task)
@@ -3418,7 +3430,7 @@ func (s *Service) ListProjectTasks(ctx context.Context, actor Claims, projectID 
 	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent, comparison_photo_url FROM tasks WHERE project_id = $1 ORDER BY created_at`, projectID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent, comparison_photo_url, color_hex FROM tasks WHERE project_id = $1 ORDER BY created_at`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -3426,7 +3438,7 @@ func (s *Service) ListProjectTasks(ctx context.Context, actor Claims, projectID 
 	tasks := make([]Task, 0)
 	for rows.Next() {
 		var task Task
-		if err := rows.Scan(&task.ID, &task.TenantID, &task.ProjectID, &task.Title, &task.Description, &task.AssignedToUserID, &task.Status, &task.StartDate, &task.EndDate, &task.PredecessorTaskID, &task.ExpectedFinishQuality, &task.TechnicalSpecText, &task.BudgetCents, &task.SpentCents, &task.ProgressPercent, &task.ComparisonPhotoURL); err != nil {
+		if err := rows.Scan(&task.ID, &task.TenantID, &task.ProjectID, &task.Title, &task.Description, &task.AssignedToUserID, &task.Status, &task.StartDate, &task.EndDate, &task.PredecessorTaskID, &task.ExpectedFinishQuality, &task.TechnicalSpecText, &task.BudgetCents, &task.SpentCents, &task.ProgressPercent, &task.ComparisonPhotoURL, &task.ColorHex); err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, task)

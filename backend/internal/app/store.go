@@ -291,6 +291,7 @@ func (s *Service) initSchema(ctx context.Context) error {
 			spent_cents BIGINT NOT NULL DEFAULT 0,
 			progress_percent INTEGER NOT NULL DEFAULT 0,
 			predecessor_task_id TEXT NOT NULL DEFAULT '',
+			color_hex TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		);`,
@@ -686,6 +687,7 @@ func (s *Service) runMigrations(ctx context.Context) error {
 		{43, "idx_daily_log_photos_log", `
 			CREATE INDEX IF NOT EXISTS idx_daily_log_photos_log ON daily_log_photos(log_id)
 		`},
+		{44, "alter_tasks_color_hex", `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS color_hex TEXT NOT NULL DEFAULT ''`},
 	}
 
 	for _, m := range steps {

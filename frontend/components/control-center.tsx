@@ -1023,7 +1023,7 @@ export function ControlCenter() {
   // → revert + toast on failure. Same pattern as evidence status changes.
   async function handleTaskTimelinePatch(
     taskId: string,
-    patch: { start_date?: string; end_date?: string; status?: string; progress_percent?: number; predecessor_task_id?: string | null }
+    patch: { start_date?: string; end_date?: string; status?: string; progress_percent?: number; predecessor_task_id?: string | null; color_hex?: string }
   ) {
     if (!session) return;
     const snapshot = tasks;
@@ -2237,6 +2237,9 @@ export function ControlCenter() {
         accessToken={session?.access_token}
         onStatusChange={(status) => {
           if (currentTask) handleTaskTimelinePatch(currentTask.id, { status });
+        }}
+        onColorChange={(color) => {
+          if (currentTask) handleTaskTimelinePatch(currentTask.id, { color_hex: color });
         }}
         onOpenEditor={() => {
           setTaskDetailsOpen(false);

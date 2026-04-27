@@ -996,6 +996,7 @@ func (s *Server) handleTaskTimeline(w http.ResponseWriter, r *http.Request) {
 		Status            string  `json:"status"`
 		ProgressPercent   int     `json:"progress_percent"`
 		PredecessorTaskID *string `json:"predecessor_task_id,omitempty"`
+		ColorHex          *string `json:"color_hex,omitempty"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -1010,7 +1011,15 @@ func (s *Server) handleTaskTimeline(w http.ResponseWriter, r *http.Request) {
 			pred = *req.PredecessorTaskID
 		}
 	}
-	task, err := s.service.UpdateTaskTimeline(r.Context(), s.actor(r), chi.URLParam(r, "taskID"), req.StartDate, req.EndDate, req.Status, pred, req.ProgressPercent)
+	color := ""
+	if req.ColorHex != nil {
+		if *req.ColorHex == "" {
+			color = "null"
+		} else {
+			color = *req.ColorHex
+		}
+	}
+	task, err := s.service.UpdateTaskTimeline(r.Context(), s.actor(r), chi.URLParam(r, "taskID"), req.StartDate, req.EndDate, req.Status, pred, color, req.ProgressPercent)
 	if err != nil {
 		status := http.StatusBadRequest
 		if errors.Is(err, app.ErrDependencyCycle) {

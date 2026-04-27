@@ -28,6 +28,7 @@ type Task = {
   budget_cents: number;
   spent_cents: number;
   predecessor_task_id?: string;
+  color_hex?: string;
 };
 
 type Deliverable = {
@@ -54,6 +55,7 @@ type TaskTimelinePatch = {
   status?: string;
   progress_percent?: number;
   predecessor_task_id?: string | null;
+  color_hex?: string;
 };
 
 type GanttTimelineProps = {
@@ -804,7 +806,7 @@ export function GanttTimeline({
                           style={{
                             position: "absolute",
                             inset: 0,
-                            background: barColor(task.status),
+                            background: task.color_hex || barColor(task.status),
                             border: isTaskCritical ? "1px solid #ef4444" : "none",
                             padding: 0,
                           }}

@@ -1049,6 +1049,49 @@ body::before {
   border-color: rgba(59, 130, 246, 0.7);
 }
 
+/* Fullscreen wrapper — promotes the Gantt out of its normal box so short
+   tasks become clickable in Month zoom. ESC or the toolbar button exits. */
+.gantt-fullscreen-wrap {
+  position: fixed;
+  inset: 16px;
+  z-index: 1100;
+  background: rgba(2, 4, 10, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.gantt-fullscreen-wrap .gantt-root {
+  max-height: none !important;
+  height: 100% !important;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.gantt-fullscreen-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.gantt-fullscreen-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
 .gantt-empty {
   padding: 40px;
   text-align: center;

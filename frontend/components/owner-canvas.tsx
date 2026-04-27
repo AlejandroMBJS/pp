@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { TrendingUp, AlertTriangle, Activity, DollarSign, Plus, LayoutGrid, ClipboardList, Users, UserPlus, Mail, FolderKanban, ChevronRight, Cog } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { TrendingUp, AlertTriangle, Activity, DollarSign, Plus, LayoutGrid, ClipboardList, Users, UserPlus, Mail, FolderKanban, ChevronRight, Cog, Maximize2, Minimize2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   Toolbar,
@@ -176,6 +176,16 @@ export function OwnerCanvas({
   const [teamRoleFilter, setTeamRoleFilter] = useState<"all" | "owner" | "supervisor" | "helper" | "client">("all");
 
   const taskColorByTaskId = useMemo(() => buildTaskColorMap(tasks), [tasks]);
+
+  const [ganttFullscreen, setGanttFullscreen] = useState(false);
+  useEffect(() => {
+    if (!ganttFullscreen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setGanttFullscreen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [ganttFullscreen]);
 
   const filteredTasks = useMemo(() => {
     const q = taskSearch.trim().toLowerCase();
@@ -544,12 +554,21 @@ export function OwnerCanvas({
                 })}
               </div>
             ) : filteredTasks.length > 0 ? (
-              <>
-                {onGanttZoomChange && (
-                  <div className="flex items-center justify-end mb-3">
+              <div className={ganttFullscreen ? "gantt-fullscreen-wrap" : ""}>
+                <div className="flex items-center justify-end mb-3 gap-2">
+                  {onGanttZoomChange && (
                     <GanttZoomControl value={ganttZoom} onChange={onGanttZoomChange} />
-                  </div>
-                )}
+                  )}
+                  <button
+                    type="button"
+                    className="gantt-fullscreen-btn"
+                    onClick={() => setGanttFullscreen((v) => !v)}
+                    title={ganttFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen — easier to click short tasks"}
+                    aria-label={ganttFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                  >
+                    {ganttFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                  </button>
+                </div>
                 <GanttTimeline
                   tasks={filteredTasks}
                   deliverables={deliverables}
@@ -562,7 +581,7 @@ export function OwnerCanvas({
                   accessToken={accessToken}
                   onTaskTimelinePatch={onTaskTimelinePatch}
                 />
-              </>
+              </div>
             ) : null}
           </div>
         ) : (

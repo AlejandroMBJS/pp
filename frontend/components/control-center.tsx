@@ -304,11 +304,10 @@ function BrandStyleTag({ tenant }: { tenant: { primary_color?: string; secondary
   if (!p && !s) return null;
   const css = `
     ${p ? `
-      .app-shell .bg-blue-500 { background-color: ${p} !important; }
-      .app-shell .bg-blue-600 { background-color: ${p} !important; }
-      .app-shell .bg-blue-500\\/10 { background-color: ${p}1a !important; }
+      .app-shell .bg-blue-500, .app-shell .bg-blue-600 { background-color: ${p} !important; }
+      .app-shell .bg-blue-500\\/10, .app-shell .bg-blue-600\\/10 { background-color: ${p}1a !important; }
       .app-shell .bg-blue-500\\/15 { background-color: ${p}26 !important; }
-      .app-shell .bg-blue-500\\/20 { background-color: ${p}33 !important; }
+      .app-shell .bg-blue-500\\/20, .app-shell .bg-blue-600\\/20 { background-color: ${p}33 !important; }
       .app-shell .bg-blue-500\\/30 { background-color: ${p}4d !important; }
       .app-shell .text-blue-300, .app-shell .text-blue-400, .app-shell .text-blue-500 { color: ${p} !important; }
       .app-shell .border-blue-400, .app-shell .border-blue-500 { border-color: ${p} !important; }
@@ -316,13 +315,19 @@ function BrandStyleTag({ tenant }: { tenant: { primary_color?: string; secondary
       .app-shell .border-blue-500\\/40 { border-color: ${p}66 !important; }
       .app-shell .ring-blue-400 { --tw-ring-color: ${p} !important; }
       .app-shell .ring-blue-400\\/30 { --tw-ring-color: ${p}4d !important; }
-      .app-shell .from-blue-500 { --tw-gradient-from: ${p} !important; }
-      .app-shell .to-blue-500 { --tw-gradient-to: ${p} !important; }
+      .app-shell .from-blue-500, .app-shell .from-blue-600 { --tw-gradient-from: ${p} !important; }
+      .app-shell .from-blue-500\\/5, .app-shell .from-blue-500\\/10, .app-shell .from-blue-600\\/10 { --tw-gradient-from: ${p}1a !important; }
+      .app-shell .to-blue-500, .app-shell .to-blue-600 { --tw-gradient-to: ${p} !important; }
+      .app-shell .via-blue-400, .app-shell .via-blue-500 { --tw-gradient-via: ${p} !important; }
       .app-shell .accent-blue-500 { accent-color: ${p} !important; }
+      .app-shell .hover\\:border-blue-500\\/30:hover { border-color: ${p}4d !important; }
     ` : ""}
     ${s ? `
-      .app-shell .from-cyan-500, .app-shell .from-sky-500 { --tw-gradient-from: ${s} !important; }
-      .app-shell .to-cyan-500, .app-shell .to-sky-500 { --tw-gradient-to: ${s} !important; }
+      .app-shell .from-cyan-500, .app-shell .from-sky-500, .app-shell .from-cyan-600 { --tw-gradient-from: ${s} !important; }
+      .app-shell .from-cyan-500\\/5, .app-shell .from-cyan-500\\/10, .app-shell .from-cyan-600\\/10 { --tw-gradient-from: ${s}1a !important; }
+      .app-shell .to-cyan-500, .app-shell .to-sky-500, .app-shell .to-cyan-600 { --tw-gradient-to: ${s} !important; }
+      .app-shell .to-cyan-500\\/5, .app-shell .to-cyan-500\\/10 { --tw-gradient-to: ${s}1a !important; }
+      .app-shell .via-sky-400, .app-shell .via-cyan-400 { --tw-gradient-via: ${s} !important; }
       .app-shell .text-cyan-400, .app-shell .text-sky-400 { color: ${s} !important; }
       .app-shell .bg-cyan-500, .app-shell .bg-sky-500 { background-color: ${s} !important; }
     ` : ""}

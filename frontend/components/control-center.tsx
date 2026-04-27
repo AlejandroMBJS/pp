@@ -627,7 +627,7 @@ export function ControlCenter() {
     if (!session) return null;
     const role = session.user.role;
     if (["owner", "supervisor"].includes(role) &&
-        ["review", "timeline", "ownergallery", "gallery"].includes(activeView)) {
+        ["review", "timeline", "ownergallery", "gallery", "projects"].includes(activeView)) {
       return selectedProjectId ? "project" : null;
     }
     if (["owner", "supervisor", "helper"].includes(role) && selectedTaskId) {

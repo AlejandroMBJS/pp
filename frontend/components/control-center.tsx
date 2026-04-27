@@ -571,7 +571,13 @@ export function ControlCenter() {
       setRbac([]);
       return;
     }
-    setActiveView(defaultViewForRole(session.user.role));
+    // Honour `#view` from the URL on first session load so reload sticks
+    // to the page the user was on. Without this the default-for-role
+    // overrides the hash before the user sees anything.
+    const hashView = typeof window !== "undefined" ? window.location.hash.slice(1) : "";
+    if (!hashView) {
+      setActiveView(defaultViewForRole(session.user.role));
+    }
     refreshRoleData(session).catch((err) => {
       toast.error(messageOf(err));
     });

@@ -40,7 +40,7 @@ export function FabActions({ actions }: Props) {
         style={{
           background: open
             ? "linear-gradient(135deg, #ef4444, #dc2626)"
-            : "linear-gradient(135deg, #3b82f6, #2563eb)",
+            : "var(--accent-gradient)",
           boxShadow: open
             ? "0 6px 30px rgba(239,68,68,0.4)"
             : "0 6px 30px rgba(59,130,246,0.4)",

@@ -1807,7 +1807,7 @@ export function ControlCenter() {
                   type="button"
                   onClick={() => setNewProjectModalOpen(true)}
                   className="px-6 py-3 rounded-xl font-bold text-sm text-white transition-all"
-                  style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: "0 4px 20px rgba(59,130,246,0.3)" }}
+                  style={{ background: "var(--accent-gradient)", boxShadow: "var(--accent-glow)" }}
                 >
                   Create your first project
                 </button>
@@ -1816,7 +1816,7 @@ export function ControlCenter() {
                   type="button"
                   onClick={() => { setSelectedTaskId(""); setTaskEditOpen(true); }}
                   className="px-6 py-3 rounded-xl font-bold text-sm text-white transition-all"
-                  style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: "0 4px 20px rgba(59,130,246,0.3)" }}
+                  style={{ background: "var(--accent-gradient)", boxShadow: "var(--accent-glow)" }}
                 >
                   Add a task
                 </button>
@@ -1855,7 +1855,7 @@ export function ControlCenter() {
                   type="button"
                   onClick={() => { setSelectedProjectId(projects[0].id); }}
                   className="px-6 py-3 rounded-xl font-bold text-sm text-white transition-all"
-                  style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: "0 4px 20px rgba(59,130,246,0.3)" }}
+                  style={{ background: "var(--accent-gradient)", boxShadow: "var(--accent-glow)" }}
                 >
                   Open "{projects[0].name}"
                 </button>
@@ -1864,7 +1864,7 @@ export function ControlCenter() {
                   type="button"
                   onClick={() => setNewProjectModalOpen(true)}
                   className="px-6 py-3 rounded-xl font-bold text-sm text-white transition-all"
-                  style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: "0 4px 20px rgba(59,130,246,0.3)" }}
+                  style={{ background: "var(--accent-gradient)", boxShadow: "var(--accent-glow)" }}
                 >
                   Create your first project
                 </button>
@@ -1966,7 +1966,7 @@ export function ControlCenter() {
                   type="button"
                   onClick={() => { setSelectedProjectId(projects[0].id); }}
                   className="px-6 py-3 rounded-xl font-bold text-sm text-white transition-all"
-                  style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: "0 4px 20px rgba(59,130,246,0.3)" }}
+                  style={{ background: "var(--accent-gradient)", boxShadow: "var(--accent-glow)" }}
                 >
                   Open "{projects[0].name}"
                 </button>
@@ -1997,7 +1997,7 @@ export function ControlCenter() {
                 type="button"
                 onClick={() => { setSelectedProjectId(projects[0].id); }}
                 className="px-6 py-3 rounded-xl font-bold text-sm text-white transition-all"
-                style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: "0 4px 20px rgba(59,130,246,0.3)" }}
+                style={{ background: "var(--accent-gradient)", boxShadow: "var(--accent-glow)" }}
               >
                 Open "{projects[0].name}"
               </button>
@@ -2077,7 +2077,7 @@ export function ControlCenter() {
                   type="button"
                   onClick={() => { setSelectedProjectId(projects[0].id); }}
                   className="px-6 py-3 rounded-xl font-bold text-sm text-white transition-all"
-                  style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: "0 4px 20px rgba(59,130,246,0.3)" }}
+                  style={{ background: "var(--accent-gradient)", boxShadow: "var(--accent-glow)" }}
                 >
                   Open &quot;{projects[0].name}&quot;
                 </button>
@@ -2161,7 +2161,7 @@ export function ControlCenter() {
           type="button"
           onClick={() => setActiveView(defaultViewForRole(session.user.role))}
           className="px-6 py-3 rounded-xl font-bold text-sm text-white transition-all"
-          style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: "0 4px 20px rgba(59,130,246,0.3)" }}
+          style={{ background: "var(--accent-gradient)", boxShadow: "var(--accent-glow)" }}
         >
           Back to home
         </button>
@@ -2180,14 +2180,19 @@ export function ControlCenter() {
       // primary-coloured surfaces (buttons, focus rings, progress bar,
       // role-owner accent) actually pick up the tenant brand.
       style["--accent-blue"] = p;
+      // Glow used by primary CTAs and FAB. ${p}66 = 40% alpha.
+      style["--accent-glow"] = `0 4px 20px ${p}66`;
     }
     if (s) {
       style["--brand-secondary"] = s;
       style["--accent-secondary"] = s;
       style["--accent-purple"] = s;
     }
-    if (p && s) {
-      style["--accent-gradient"] = `linear-gradient(135deg, ${p} 0%, ${s} 100%)`;
+    // Always set --accent-gradient so single-color brands still get an
+    // override (fallback secondary = primary darkened).
+    if (p) {
+      const sec = s || p;
+      style["--accent-gradient"] = `linear-gradient(135deg, ${p} 0%, ${sec} 100%)`;
     }
     return style as React.CSSProperties;
   })();

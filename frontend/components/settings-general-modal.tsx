@@ -311,7 +311,7 @@ export function SettingsGeneralModal({
           <div className="flex items-center gap-3">
             <div
               className="flex h-10 w-10 items-center justify-center rounded-xl"
-              style={{ background: "linear-gradient(135deg, #3b82f6, #0ea5e9)" }}
+              style={{ background: "var(--accent-gradient)" }}
             >
               <Globe size={18} className="text-white" />
             </div>
@@ -388,7 +388,7 @@ export function SettingsGeneralModal({
                       ) : (
                         <div
                           className="flex h-16 w-16 items-center justify-center rounded-2xl text-white font-bold text-xl"
-                          style={{ background: "linear-gradient(135deg, #3b82f6, #0ea5e9)" }}
+                          style={{ background: "var(--accent-gradient)" }}
                         >
                           {tenantDraft.name[0] ?? "?"}
                         </div>

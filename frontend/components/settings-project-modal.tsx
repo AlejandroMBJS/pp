@@ -585,11 +585,15 @@ export function SettingsProjectModal({
               {/* Mini map placeholder */}
               <div
                 className="rounded-xl overflow-hidden flex items-center justify-center"
-                style={{ height: 140, background: "linear-gradient(135deg, #e0f2fe, #dbeafe)", border: "1px solid rgba(59,130,246,0.2)" }}
+                style={{
+                  height: 140,
+                  background: "color-mix(in srgb, var(--accent-blue) 10%, transparent)",
+                  border: "1px solid color-mix(in srgb, var(--accent-blue) 20%, transparent)",
+                }}
               >
                 <div className="text-center space-y-1">
-                  <MapPin size={28} style={{ color: "#3b82f6", margin: "0 auto" }} />
-                  <div className="text-xs font-semibold" style={{ color: "#3b82f6" }}>
+                  <MapPin size={28} style={{ color: "var(--accent-blue)", margin: "0 auto" }} />
+                  <div className="text-xs font-semibold" style={{ color: "var(--accent-blue)" }}>
                     {Number(form.latitude_center).toFixed(4)}, {Number(form.longitude_center).toFixed(4)}
                   </div>
                   <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>Radius: {form.geofence_radius_m}m</div>

@@ -569,24 +569,38 @@ export function GanttTimeline({
         <div className="gantt-label-header" style={{ height: headerStackHeight }}>
           Task
         </div>
-        {tasks.map((task) => (
-          <div key={task.id} className="gantt-label-row">
+        {tasks.map((task) => {
+          const tint = task.color_hex ? hexToRgba(task.color_hex, 0.08) : "";
+          return (
             <div
-              className="gantt-label-title"
-              style={{ color: criticalPathIds.has(task.id) ? "#ef4444" : "white" }}
+              key={task.id}
+              className="gantt-label-row"
+              style={
+                task.color_hex
+                  ? {
+                      background: tint || undefined,
+                      borderLeft: `3px solid ${task.color_hex}`,
+                    }
+                  : undefined
+              }
             >
-              {task.title}
-              {criticalPathIds.has(task.id) && (
-                <span className="text-[9px] border border-red-500/30 text-red-400 px-1 rounded ml-1">
-                  CRITICAL PATH
-                </span>
-              )}
+              <div
+                className="gantt-label-title"
+                style={{ color: criticalPathIds.has(task.id) ? "#ef4444" : "white" }}
+              >
+                {task.title}
+                {criticalPathIds.has(task.id) && (
+                  <span className="text-[9px] border border-red-500/30 text-red-400 px-1 rounded ml-1">
+                    CRITICAL PATH
+                  </span>
+                )}
+              </div>
+              <div className="gantt-label-meta">
+                {task.progress_percent}% · {task.status}
+              </div>
             </div>
-            <div className="gantt-label-meta">
-              {task.progress_percent}% · {task.status}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Scrollable chart */}

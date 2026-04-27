@@ -230,9 +230,10 @@ export function SupervisorCanvas({
             </p>
           </div>
           {!isMobile && (
-            <button 
+            <button
               onClick={onNewTask}
-              className="px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)] transition-all flex items-center gap-3 group active:scale-95"
+              className="px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white transition-all flex items-center gap-3 group active:scale-95"
+              style={{ boxShadow: "0 0 20px color-mix(in srgb, var(--accent-blue) 30%, transparent)" }}
             >
               <Plus size={18} className="group-hover:rotate-90 transition-transform duration-300" />
               <span className="text-[10px] font-black uppercase tracking-widest">New Task</span>

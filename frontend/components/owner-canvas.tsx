@@ -241,9 +241,18 @@ export function OwnerCanvas({
                 <LayoutGrid size={18} className="group-hover:scale-110 transition-transform" />
                 <span className="text-[10px] font-black uppercase tracking-widest">View full portfolio</span>
               </button>
-              <button 
+              <button
                 onClick={onNewProject}
-                className="px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_30px_rgba(37,99,235,0.5)] transition-all flex items-center gap-3 group active:scale-95"
+                className="px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white transition-all flex items-center gap-3 group active:scale-95"
+                style={{
+                  boxShadow: "0 0 20px color-mix(in srgb, var(--accent-blue) 30%, transparent)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.boxShadow = "0 0 30px color-mix(in srgb, var(--accent-blue) 50%, transparent)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.boxShadow = "0 0 20px color-mix(in srgb, var(--accent-blue) 30%, transparent)";
+                }}
               >
                 <Plus size={18} className="group-hover:rotate-90 transition-transform duration-300" />
                 <span className="text-[10px] font-black uppercase tracking-widest">New project</span>
@@ -361,7 +370,10 @@ export function OwnerCanvas({
         <div className="space-y-5 mt-12">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-black text-white/90 uppercase tracking-tighter flex items-center gap-3">
-              <div className="h-6 w-1 bg-blue-600 rounded-full shadow-[0_0_8px_rgba(37,99,235,0.8)]" />
+              <div
+                className="h-6 w-1 bg-blue-600 rounded-full"
+                style={{ boxShadow: "0 0 8px color-mix(in srgb, var(--accent-blue) 80%, transparent)" }}
+              />
                Operational Portfolio
             </h2>
             <div className="flex gap-2">

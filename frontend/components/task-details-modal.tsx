@@ -214,7 +214,7 @@ export function TaskDetailsModal({
                   </div>
                 </div>
                 <div>
-                  <div className="task-details-label">Bar color</div>
+                  <div className="task-details-label">Bar &amp; row color</div>
                   <div className="task-details-color-row">
                     {[
                       "",
@@ -245,7 +245,26 @@ export function TaskDetailsModal({
                         />
                       );
                     })}
+                    <label
+                      className="task-details-swatch-custom"
+                      title="Pick any RGB color"
+                      aria-label="Pick custom RGB color"
+                    >
+                      <input
+                        type="color"
+                        value={task.color_hex || "#3b82f6"}
+                        disabled={!onColorChange}
+                        onChange={(e) => onColorChange?.(e.target.value)}
+                      />
+                      <span className="task-details-swatch-custom-icon">+</span>
+                    </label>
                   </div>
+                  {task.color_hex && (
+                    <div className="task-details-color-current">
+                      <span className="task-details-color-chip" style={{ background: task.color_hex }} />
+                      <code>{task.color_hex.toUpperCase()}</code>
+                    </div>
+                  )}
                 </div>
                 {budgetTotal > 0 && (
                   <>

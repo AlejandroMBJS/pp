@@ -124,6 +124,18 @@ const BUDGET_TOP = BAR_TOP + BAR_HEIGHT + 4;
 const BUDGET_HEIGHT = 5;
 const PHOTO_TOP = BUDGET_TOP + BUDGET_HEIGHT + 6;
 
+// hexToRgba — used for the row tint so a custom bar color also gently
+// colors the entire row background. Returns "" for invalid input so the
+// caller can fall back to the default striped CSS.
+function hexToRgba(hex: string | undefined, alpha: number): string {
+  if (!hex || hex.length < 7 || hex[0] !== "#") return "";
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  if ([r, g, b].some((n) => Number.isNaN(n))) return "";
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function barColor(status: string) {
   switch (status) {
     case "completed":  return "#10b981";
@@ -773,6 +785,11 @@ export function GanttTimeline({
                 >
                   <div
                     className={`gantt-row-bg ${rowIndex % 2 === 0 ? "even" : "odd"}`}
+                    style={
+                      task.color_hex
+                        ? { background: hexToRgba(task.color_hex, 0.08) || undefined }
+                        : undefined
+                    }
                   />
 
                   {/* Task bar */}

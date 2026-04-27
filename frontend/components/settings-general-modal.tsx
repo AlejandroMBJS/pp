@@ -344,9 +344,9 @@ export function SettingsGeneralModal({
                 onClick={() => setActiveTab(tab.id)}
                 className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-xl transition-all"
                 style={{
-                  color: active ? "#3b82f6" : "var(--text-secondary)",
-                  borderBottom: active ? "2px solid #3b82f6" : "2px solid transparent",
-                  background: active ? "rgba(59,130,246,0.06)" : "transparent",
+                  color: active ? "var(--accent-blue)" : "var(--text-secondary)",
+                  borderBottom: active ? "2px solid var(--accent-blue)" : "2px solid transparent",
+                  background: active ? "color-mix(in srgb, var(--accent-blue) 6%, transparent)" : "transparent",
                 }}
               >
                 <Icon size={14} />
@@ -1082,7 +1082,7 @@ function SettingToggle({
       <div
         className="relative flex-shrink-0 w-11 h-6 rounded-full transition-all duration-200 cursor-pointer"
         style={{
-          background: on ? "linear-gradient(90deg, #3b82f6, #0ea5e9)" : "#e5e7eb",
+          background: on ? "var(--accent-gradient)" : "#e5e7eb",
         }}
       >
         <div

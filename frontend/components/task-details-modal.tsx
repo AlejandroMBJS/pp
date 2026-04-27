@@ -113,7 +113,7 @@ export function TaskDetailsModal({
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <div
               className="flex h-10 w-10 items-center justify-center rounded-xl flex-shrink-0"
-              style={{ background: "linear-gradient(135deg, #3b82f6, #0ea5e9)" }}
+              style={{ background: "var(--accent-gradient)" }}
             >
               <ChevronRight size={18} className="text-white" />
             </div>

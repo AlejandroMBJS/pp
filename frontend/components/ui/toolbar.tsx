@@ -280,7 +280,11 @@ export function BulkBar({ count, actions, onClear }: BulkBarProps) {
       <div className="flex-1" />
       {actions.map((a) => {
         const colors = {
-          blue: { bg: "rgba(59,130,246,0.2)", fg: "#60a5fa", border: "rgba(59,130,246,0.4)" },
+          blue: {
+            bg: "color-mix(in srgb, var(--accent-blue) 20%, transparent)",
+            fg: "var(--accent-blue)",
+            border: "color-mix(in srgb, var(--accent-blue) 40%, transparent)",
+          },
           green: { bg: "rgba(16,185,129,0.2)", fg: "#34d399", border: "rgba(16,185,129,0.4)" },
           red: { bg: "rgba(239,68,68,0.2)", fg: "#f87171", border: "rgba(239,68,68,0.4)" },
           amber: { bg: "rgba(245,158,11,0.2)", fg: "#fbbf24", border: "rgba(245,158,11,0.4)" },

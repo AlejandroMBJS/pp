@@ -775,7 +775,7 @@ export function GanttTimeline({
                   y1={depGhost.y1}
                   x2={depGhost.x2}
                   y2={depGhost.y2}
-                  stroke="#3b82f6"
+                  stroke="var(--accent-blue)"
                   strokeWidth={2}
                   strokeDasharray="6 3"
                   markerEnd="url(#arrowhead)"

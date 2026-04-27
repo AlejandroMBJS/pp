@@ -322,6 +322,8 @@ function BrandStyleTag({ tenant }: { tenant: { primary_color?: string; secondary
       .app-shell .via-blue-400, .app-shell .via-blue-500 { --tw-gradient-via: ${p} !important; }
       .app-shell .accent-blue-500 { accent-color: ${p} !important; }
       .app-shell .shadow-blue-500\\/20 { --tw-shadow-color: ${p}33 !important; --tw-shadow: var(--tw-shadow-colored) !important; }
+      .app-shell .shadow-blue-500 { --tw-shadow-color: ${p} !important; --tw-shadow: var(--tw-shadow-colored) !important; }
+      .app-shell .focus\\:ring-blue-500:focus { --tw-ring-color: ${p} !important; }
       .app-shell .hover\\:border-blue-500\\/30:hover { border-color: ${p}4d !important; }
       .app-shell .focus\\:border-blue-500\\/50:focus, .app-shell .focus\\:border-blue-500:focus { border-color: ${p}80 !important; }
       .app-shell .hover\\:bg-blue-400:hover, .app-shell .hover\\:bg-blue-500:hover, .app-shell .hover\\:bg-blue-600:hover { background-color: ${p} !important; }

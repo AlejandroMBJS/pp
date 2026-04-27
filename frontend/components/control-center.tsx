@@ -339,7 +339,13 @@ export function ControlCenter() {
   // UI state
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState("");
-  const [activeView, setActiveView] = useState("overview");
+  // Initial view comes from URL hash (e.g. /app#timeline) so a reload keeps
+  // the user on the same page. Falls back to "overview".
+  const [activeView, setActiveView] = useState<string>(() => {
+    if (typeof window === "undefined") return "overview";
+    const h = window.location.hash.slice(1);
+    return h || "overview";
+  });
   const [highlightedDeliverableId, setHighlightedDeliverableId] = useState<string | null>(null);
   // PR-A: Gantt zoom level lifted here so it survives view re-mounts within
   // the same session. Owner + supervisor canvases share the same control.
@@ -585,6 +591,28 @@ export function ControlCenter() {
       setClientGalleryTaskId(null);
     }
   }, [activeView]);
+
+  // Persist activeView to URL hash so browser reload + bookmarks keep the
+  // user on the same page. Uses replaceState so we don't pollute history
+  // every time a sidebar item is clicked.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.location.hash.slice(1) !== activeView) {
+      window.history.replaceState(null, "", `#${activeView}`);
+    }
+  }, [activeView]);
+
+  // Sync the other direction: browser back/forward fires hashchange — pull
+  // the view from there.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    function onHashChange() {
+      const h = window.location.hash.slice(1);
+      if (h) setActiveView(h);
+    }
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
 
   // Single source of truth for "should the evidence list be project-scoped or
   // task-scoped right now". Used by the load effect, the poll loop and the

@@ -293,6 +293,43 @@ async function api<T = unknown>(
   return response.json() as Promise<T>;
 }
 
+// BrandStyleTag injects a runtime <style> block that overrides the most
+// common hardcoded Tailwind blue tokens with the tenant's primary/secondary
+// colours. Without this most of the UI keeps looking #3b82f6 even when the
+// CSS variables are overridden because lots of components use `bg-blue-500`
+// directly.
+function BrandStyleTag({ tenant }: { tenant: { primary_color?: string; secondary_color?: string } | null }) {
+  const p = tenant?.primary_color?.trim() || "";
+  const s = tenant?.secondary_color?.trim() || "";
+  if (!p && !s) return null;
+  const css = `
+    ${p ? `
+      .app-shell .bg-blue-500 { background-color: ${p} !important; }
+      .app-shell .bg-blue-600 { background-color: ${p} !important; }
+      .app-shell .bg-blue-500\\/10 { background-color: ${p}1a !important; }
+      .app-shell .bg-blue-500\\/15 { background-color: ${p}26 !important; }
+      .app-shell .bg-blue-500\\/20 { background-color: ${p}33 !important; }
+      .app-shell .bg-blue-500\\/30 { background-color: ${p}4d !important; }
+      .app-shell .text-blue-300, .app-shell .text-blue-400, .app-shell .text-blue-500 { color: ${p} !important; }
+      .app-shell .border-blue-400, .app-shell .border-blue-500 { border-color: ${p} !important; }
+      .app-shell .border-blue-400\\/30, .app-shell .border-blue-500\\/30 { border-color: ${p}4d !important; }
+      .app-shell .border-blue-500\\/40 { border-color: ${p}66 !important; }
+      .app-shell .ring-blue-400 { --tw-ring-color: ${p} !important; }
+      .app-shell .ring-blue-400\\/30 { --tw-ring-color: ${p}4d !important; }
+      .app-shell .from-blue-500 { --tw-gradient-from: ${p} !important; }
+      .app-shell .to-blue-500 { --tw-gradient-to: ${p} !important; }
+      .app-shell .accent-blue-500 { accent-color: ${p} !important; }
+    ` : ""}
+    ${s ? `
+      .app-shell .from-cyan-500, .app-shell .from-sky-500 { --tw-gradient-from: ${s} !important; }
+      .app-shell .to-cyan-500, .app-shell .to-sky-500 { --tw-gradient-to: ${s} !important; }
+      .app-shell .text-cyan-400, .app-shell .text-sky-400 { color: ${s} !important; }
+      .app-shell .bg-cyan-500, .app-shell .bg-sky-500 { background-color: ${s} !important; }
+    ` : ""}
+  `;
+  return <style dangerouslySetInnerHTML={{ __html: css }} />;
+}
+
 // ── Component ──────────────────────────────────────────────────────────────
 
 export function ControlCenter() {
@@ -2153,6 +2190,7 @@ export function ControlCenter() {
   return (
     <AuthTokenProvider value={session?.access_token ?? null}>
     <BillingProvider token={session?.access_token ?? null}>
+    <BrandStyleTag tenant={currentTenant} />
     <div className="app-shell" style={brandStyle}>
       <ConfirmDialog
         open={confirmTaskDeleteId !== null}

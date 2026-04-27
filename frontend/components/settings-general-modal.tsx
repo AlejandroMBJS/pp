@@ -376,6 +376,14 @@ export function SettingsGeneralModal({
                           src={tenantDraft.logo_url}
                           alt=""
                           className="h-16 w-16 rounded-2xl object-cover border border-white/10"
+                          onError={(e) => {
+                            // The stored logo_url points to a file that no longer
+                            // exists on disk (e.g. lost during VPS migration).
+                            // Hide the broken img and clear the draft so the
+                            // gradient initial fallback renders instead.
+                            (e.currentTarget as HTMLImageElement).style.display = "none";
+                            setTenantDraft({ ...tenantDraft, logo_url: "" });
+                          }}
                         />
                       ) : (
                         <div

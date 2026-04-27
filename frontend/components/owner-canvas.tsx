@@ -51,7 +51,17 @@ type Task = {
   spent_cents: number;
   description: string;
   assigned_to_user_id: string;
+  color_hex?: string;
 };
+
+function hexToRgba(hex: string | undefined, alpha: number): string {
+  if (!hex || hex.length < 7 || hex[0] !== "#") return "";
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  if ([r, g, b].some((n) => Number.isNaN(n))) return "";
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 type Deliverable = {
   id: string;
@@ -497,24 +507,38 @@ export function OwnerCanvas({
 
             {isMobile ? (
               <div className="space-y-3">
-                {filteredTasks.map((task) => (
-                  <div key={task.id} className="glass-card p-4 border-white/5">
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="font-bold text-white text-sm">{task.title}</div>
-                      <span className={`badge ${statusBadge(task.status)}`}>{task.status}</span>
-                    </div>
-                    <div className="text-xs text-white/40">{task.start_date} → {task.end_date}</div>
-                    <div className="mt-2">
-                      <div className="flex justify-between text-[10px] mb-1">
-                        <span className="text-white/40">Progress</span>
-                        <span className="text-white">{task.progress_percent}%</span>
+                {filteredTasks.map((task) => {
+                  const tint = task.color_hex ? hexToRgba(task.color_hex, 0.08) : "";
+                  return (
+                    <div
+                      key={task.id}
+                      className="glass-card p-4 border-white/5"
+                      style={
+                        task.color_hex
+                          ? {
+                              background: tint,
+                              borderLeft: `3px solid ${task.color_hex}`,
+                            }
+                          : undefined
+                      }
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="font-bold text-white text-sm">{task.title}</div>
+                        <span className={`badge ${statusBadge(task.status)}`}>{task.status}</span>
                       </div>
-                      <div className="progress-track">
-                        <div className="progress-fill bg-blue-500" style={{ width: `${task.progress_percent}%` }} />
+                      <div className="text-xs text-white/40">{task.start_date} → {task.end_date}</div>
+                      <div className="mt-2">
+                        <div className="flex justify-between text-[10px] mb-1">
+                          <span className="text-white/40">Progress</span>
+                          <span className="text-white">{task.progress_percent}%</span>
+                        </div>
+                        <div className="progress-track">
+                          <div className="progress-fill bg-blue-500" style={{ width: `${task.progress_percent}%` }} />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : filteredTasks.length > 0 ? (
               <>

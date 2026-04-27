@@ -386,9 +386,9 @@ export function SupervisorCanvas({
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-colors"
                 style={{
-                  background: bulkMode ? "rgba(59,130,246,0.15)" : "rgba(255,255,255,0.04)",
-                  color: bulkMode ? "#60a5fa" : "rgba(255,255,255,0.5)",
-                  border: `1px solid ${bulkMode ? "rgba(59,130,246,0.3)" : "rgba(255,255,255,0.08)"}`,
+                  background: bulkMode ? "color-mix(in srgb, var(--accent-blue) 15%, transparent)" : "rgba(255,255,255,0.04)",
+                  color: bulkMode ? "var(--accent-blue)" : "rgba(255,255,255,0.5)",
+                  border: `1px solid ${bulkMode ? "color-mix(in srgb, var(--accent-blue) 30%, transparent)" : "rgba(255,255,255,0.08)"}`,
                 }}
               >
                 <ListChecks size={12} />

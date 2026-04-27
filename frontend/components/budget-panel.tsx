@@ -37,7 +37,7 @@ export function BudgetPanel({ project, tasks }: { project: Project; tasks: Task[
     { name: "Spent", value: spent },
     { name: "Remaining", value: remaining },
   ];
-  const COLORS = [pct > 90 ? "#ef4444" : pct > 70 ? "#f59e0b" : "#3b82f6", "rgba(255,255,255,0.05)"];
+  const COLORS = [pct > 90 ? "#ef4444" : pct > 70 ? "#f59e0b" : "var(--accent-blue)", "rgba(255,255,255,0.05)"];
 
   return (
     <div className="glass-card p-6 space-y-6 border-white/5">
@@ -91,7 +91,7 @@ export function BudgetPanel({ project, tasks }: { project: Project; tasks: Task[
           <span>Execution</span>
           <span className="text-white/60">{pct}%</span>
         </div>
-        <ProgressBar value={pct} color={pct > 90 ? "#ef4444" : pct > 70 ? "#f59e0b" : "#3b82f6"} />
+        <ProgressBar value={pct} color={pct > 90 ? "#ef4444" : pct > 70 ? "#f59e0b" : "var(--accent-blue)"} />
       </div>
 
       {tasks.filter((t) => t.budget_cents > 0).length > 0 && (
@@ -114,7 +114,7 @@ export function BudgetPanel({ project, tasks }: { project: Project; tasks: Task[
                         {money(task.spent_cents)} / {money(task.budget_cents)}
                       </span>
                     </div>
-                    <ProgressBar value={taskPct} size="sm" color={taskPct > 90 ? "#ef4444" : taskPct > 70 ? "#f59e0b" : "#3b82f6"} />
+                    <ProgressBar value={taskPct} size="sm" color={taskPct > 90 ? "#ef4444" : taskPct > 70 ? "#f59e0b" : "var(--accent-blue)"} />
                   </div>
                 );
               })}

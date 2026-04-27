@@ -39,6 +39,7 @@ type TopBarProps = {
   onUnreadNotifCountChange: (n: number) => void;
   onOpenSettings?: () => void;
   tenantName?: string;
+  brandPrimary?: string;
 };
 
 export function TopBar({
@@ -55,8 +56,11 @@ export function TopBar({
   onUnreadNotifCountChange,
   onOpenSettings,
   tenantName,
+  brandPrimary,
 }: TopBarProps) {
-  const roleColor = roleColors[session.user.role] ?? "#6b7280";
+  const roleColor = brandPrimary?.trim()
+    || roleColors[session.user.role]
+    || "#6b7280";
   const canExport =
     onExportCsv &&
     currentProject &&

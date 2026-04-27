@@ -131,6 +131,7 @@ type SidebarProps = {
   onOpenSettingsProject?: () => void;
   tenantLogoUrl?: string;
   tenantName?: string;
+  brandPrimary?: string;
 };
 
 export function Sidebar({
@@ -151,10 +152,15 @@ export function Sidebar({
   onOpenSettingsProject,
   tenantLogoUrl,
   tenantName,
+  brandPrimary,
 }: SidebarProps) {
   const [projectOpen, setProjectOpen] = useState(false);
   const menu = menuForRole(session.user.role);
-  const roleColor = roleColors[session.user.role.toLowerCase()] ?? "#6b7280";
+  // Tenant brand override beats the role default. Falls back to role color
+  // for the platform-admin "Admin" theme so multi-tenant ops look distinct.
+  const roleColor = brandPrimary?.trim()
+    || roleColors[session.user.role.toLowerCase()]
+    || "#6b7280";
   const currentProject = projects.find((p) => p.id === selectedProjectId);
   const isOwner = session.user.role.toLowerCase() === "owner";
 

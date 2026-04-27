@@ -382,6 +382,10 @@ export function SettingsProjectModal({
                       src={form.logo_url}
                       alt="Project logo"
                       className="h-14 w-14 rounded-xl object-cover border border-white/10"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = "none";
+                        setForm((prev) => prev ? { ...prev, logo_url: "" } : prev);
+                      }}
                     />
                   ) : (
                     <div

@@ -2351,6 +2351,7 @@ export function ControlCenter() {
           onOpenSettingsProject={() => setSettingsProjectOpen(true)}
           tenantLogoUrl={currentTenant?.logo_url}
           tenantName={currentTenant?.name}
+          brandPrimary={currentTenant?.primary_color}
         />
       )}
 
@@ -2369,6 +2370,7 @@ export function ControlCenter() {
           onUnreadNotifCountChange={setUnreadNotifCount}
           onOpenSettings={() => setSettingsGeneralOpen(true)}
           tenantName={currentTenant?.name}
+          brandPrimary={currentTenant?.primary_color}
         />
 
         <div className="app-content">

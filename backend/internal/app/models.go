@@ -203,6 +203,7 @@ type Task struct {
 	SpentCents            int64  `json:"spent_cents"`
 	ProgressPercent       int    `json:"progress_percent"`
 	ComparisonPhotoURL    string `json:"comparison_photo_url,omitempty"`
+	ColorHex              string `json:"color_hex,omitempty"` // Per-task user override; "" = use status color.
 }
 
 type Deliverable struct {

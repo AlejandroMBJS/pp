@@ -104,7 +104,7 @@ type OwnerCanvasProps = {
   accessToken?: string;
   onTaskTimelinePatch?: (
     taskId: string,
-    patch: { start_date?: string; end_date?: string; status?: string; progress_percent?: number; predecessor_task_id?: string | null }
+    patch: { start_date?: string; end_date?: string; status?: string; progress_percent?: number; predecessor_task_id?: string | null; color_hex?: string }
   ) => void;
 };
 

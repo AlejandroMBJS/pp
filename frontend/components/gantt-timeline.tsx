@@ -596,7 +596,17 @@ export function GanttTimeline({
                 )}
               </div>
               <div className="gantt-label-meta">
-                {task.progress_percent}% · {task.status}
+                <span
+                  className="gantt-status-flag"
+                  style={{
+                    background: barColor(task.status),
+                    color: "#fff",
+                  }}
+                  title={`Status: ${task.status}`}
+                >
+                  {task.status.replace(/_/g, " ")}
+                </span>
+                <span>{task.progress_percent}%</span>
               </div>
             </div>
           );

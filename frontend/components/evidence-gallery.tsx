@@ -492,13 +492,40 @@ export function EvidenceGallery({
                   IA
                 </div>
               )}
-              <div className="relative">
-                <AuthImage
-                  src={evidence.url_archivo}
-                  alt={evidence.file_name}
-                  className="w-full h-44 object-cover pointer-events-none"
-                />
-              </div>
+              {evidence.reference_photo_url ? (
+                // Comparison evidence: reference vs capture side-by-side so it
+                // visually distinguishes from single-photo cards.
+                <div className="relative grid grid-cols-2 gap-px bg-black/40">
+                  <div className="relative">
+                    <AuthImage
+                      src={evidence.reference_photo_url}
+                      alt="Reference"
+                      className="w-full h-44 object-cover pointer-events-none"
+                    />
+                    <span className="absolute top-1 left-1 text-[8px] font-black uppercase tracking-widest bg-blue-500/90 text-white px-1.5 py-0.5 rounded">
+                      Ref
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <AuthImage
+                      src={evidence.url_archivo}
+                      alt={evidence.file_name}
+                      className="w-full h-44 object-cover pointer-events-none"
+                    />
+                    <span className="absolute top-1 left-1 text-[8px] font-black uppercase tracking-widest bg-green-500/90 text-white px-1.5 py-0.5 rounded">
+                      Cap
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="relative">
+                  <AuthImage
+                    src={evidence.url_archivo}
+                    alt={evidence.file_name}
+                    className="w-full h-44 object-cover pointer-events-none"
+                  />
+                </div>
+              )}
               <div className="p-3 space-y-2">
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-sm font-bold text-white truncate flex-1" title={evidence.file_name}>

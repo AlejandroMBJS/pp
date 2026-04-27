@@ -541,6 +541,19 @@ body::before {
   background: var(--card-border);
 }
 
+/* Status flag pill in label-meta — keeps status color visible even when
+   the bar uses a custom color_hex override. */
+.gantt-status-flag {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  margin-right: 6px;
+}
+
 /* PR-A: weekend column shading, only rendered in Day zoom by the component. */
 .gantt-weekend-col {
   position: absolute;

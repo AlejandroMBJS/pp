@@ -628,6 +628,37 @@ func (s *Service) notifyOwners(ctx context.Context, tenantID, subject, body stri
 	s.notifyOwnersWithPref(ctx, tenantID, "", subject, body)
 }
 
+// notifyTaskHelper sends an email to the helper assigned to the given task,
+// if any. No-ops when the task has no assignee. Used by the deliverable
+// approve/reject cascade to keep the helper in the loop on client decisions.
+func (s *Service) notifyTaskHelper(ctx context.Context, taskID, subject, body string) {
+	if taskID == "" {
+		return
+	}
+	var assignedUserID string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(assigned_to_user_id, '') FROM tasks WHERE id = $1`, taskID).
+		Scan(&assignedUserID); err != nil {
+		s.logger.Warn("notifyTaskHelper: lookup failed", "task_id", taskID, "err", err.Error())
+		return
+	}
+	if assignedUserID == "" {
+		return
+	}
+	var email string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT email FROM users WHERE id = $1`, assignedUserID).Scan(&email); err != nil {
+		s.logger.Warn("notifyTaskHelper: user lookup failed", "user_id", assignedUserID, "err", err.Error())
+		return
+	}
+	if email == "" {
+		return
+	}
+	if err := s.mailer.Send(ctx, email, subject, body); err != nil {
+		s.logger.Warn("notifyTaskHelper: send failed", "to", email, "err", err.Error())
+	}
+}
+
 func (s *Service) notifyOwnersWithPref(ctx context.Context, tenantID, prefKey, subject, body string) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, email FROM users WHERE tenant_id = $1 AND role = $2`,

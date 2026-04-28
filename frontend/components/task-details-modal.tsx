@@ -16,6 +16,11 @@ type Task = {
   predecessor_task_id?: string;
   assigned_to_user_id?: string;
   color_hex?: string;
+  client_decision_status?: string;
+  client_decision_reason?: string;
+  client_decision_category?: string;
+  client_decision_at?: string;
+  client_decision_by_name?: string;
 };
 
 type Deliverable = {
@@ -149,6 +154,35 @@ export function TaskDetailsModal({
 
         <div className="modal-body" style={{ maxHeight: "70vh", overflowY: "auto" }}>
           <div className="space-y-5">
+            {task.client_decision_status === "approved" && (
+              <div className="rounded-xl border px-4 py-3 flex items-start gap-2 text-sm" style={{ background: "rgba(16,185,129,0.10)", borderColor: "rgba(16,185,129,0.3)", color: "#10b981" }}>
+                <span className="text-base leading-none">✓</span>
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold">Cliente aprobó la entrega</div>
+                  <div className="text-xs opacity-80 mt-0.5">
+                    {task.client_decision_by_name ? `por ${task.client_decision_by_name}` : ""}
+                    {task.client_decision_at ? ` · ${new Date(task.client_decision_at).toLocaleString("es-MX", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}
+                  </div>
+                </div>
+              </div>
+            )}
+            {task.client_decision_status === "rejected" && (
+              <div className="rounded-xl border px-4 py-3 text-sm" style={{ background: "rgba(245,158,11,0.10)", borderColor: "rgba(245,158,11,0.3)", color: "#f59e0b" }}>
+                <div className="flex items-start gap-2">
+                  <span className="text-base leading-none">↺</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold">Cliente pidió cambios</div>
+                    {task.client_decision_reason && (
+                      <div className="text-xs text-white/85 mt-1 whitespace-pre-wrap">{task.client_decision_reason}</div>
+                    )}
+                    <div className="text-[10px] opacity-70 mt-1.5 uppercase tracking-widest font-bold">
+                      {task.client_decision_category ? task.client_decision_category.replace(/_/g, " ") : ""}
+                      {task.client_decision_at ? ` · ${new Date(task.client_decision_at).toLocaleString("es-MX", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             {task.description && (
               <div>
                 <div className="task-details-label">Description</div>

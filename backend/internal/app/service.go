@@ -1783,10 +1783,52 @@ func (s *Service) projectByID(ctx context.Context, projectID string) (Project, e
 	return project, err
 }
 
+// taskSelectWithClientDecision is the canonical SELECT shape for tasks. It
+// LEFT JOINs the most recent client decision (from deliverables) so the row
+// surfaces the cascade visible in helper/supervisor views. Use $1 = id (or
+// adapt WHERE) and the matching scan pattern in scanTaskWithDecision.
+const taskSelectWithClientDecision = `
+	SELECT t.id, t.tenant_id, t.project_id, t.title, t.description, t.assigned_to_user_id,
+	       t.status, t.start_date, t.end_date, t.predecessor_task_id,
+	       t.expected_finish_quality, t.technical_spec_text,
+	       t.budget_cents, t.spent_cents, t.progress_percent,
+	       t.comparison_photo_url, t.color_hex,
+	       COALESCE(cd.status, ''),
+	       COALESCE(cd.rejection_reason, ''),
+	       COALESCE(cd.rejection_category, ''),
+	       COALESCE(cd.decided_at, ''),
+	       COALESCE(cd_user.full_name, cd_user.email, '')
+	FROM tasks t
+	LEFT JOIN LATERAL (
+		SELECT d.status,
+		       d.rejection_reason,
+		       d.rejection_category,
+		       COALESCE(d.approved_at::text, d.updated_at) AS decided_at,
+		       d.approved_by_user_id
+		FROM deliverables d
+		WHERE d.task_id = t.id AND d.client_visible = 1 AND d.status IN ('approved', 'rejected')
+		ORDER BY COALESCE(d.approved_at::text, d.updated_at) DESC NULLS LAST
+		LIMIT 1
+	) cd ON true
+	LEFT JOIN users cd_user ON cd_user.id = cd.approved_by_user_id
+`
+
+func scanTaskWithDecision(scanner interface{ Scan(...any) error }, t *Task) error {
+	return scanner.Scan(
+		&t.ID, &t.TenantID, &t.ProjectID, &t.Title, &t.Description, &t.AssignedToUserID,
+		&t.Status, &t.StartDate, &t.EndDate, &t.PredecessorTaskID,
+		&t.ExpectedFinishQuality, &t.TechnicalSpecText,
+		&t.BudgetCents, &t.SpentCents, &t.ProgressPercent,
+		&t.ComparisonPhotoURL, &t.ColorHex,
+		&t.ClientDecisionStatus, &t.ClientDecisionReason, &t.ClientDecisionCategory,
+		&t.ClientDecisionAt, &t.ClientDecisionByName,
+	)
+}
+
 func (s *Service) taskByID(ctx context.Context, taskID string) (Task, error) {
 	var task Task
-	err := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent, comparison_photo_url, color_hex FROM tasks WHERE id = $1`, taskID).
-		Scan(&task.ID, &task.TenantID, &task.ProjectID, &task.Title, &task.Description, &task.AssignedToUserID, &task.Status, &task.StartDate, &task.EndDate, &task.PredecessorTaskID, &task.ExpectedFinishQuality, &task.TechnicalSpecText, &task.BudgetCents, &task.SpentCents, &task.ProgressPercent, &task.ComparisonPhotoURL, &task.ColorHex)
+	row := s.db.QueryRowContext(ctx, taskSelectWithClientDecision+` WHERE t.id = $1`, taskID)
+	err := scanTaskWithDecision(row, &task)
 	return task, err
 }
 
@@ -2100,7 +2142,7 @@ func (s *Service) ListAssignedTasks(ctx context.Context, actor Claims) ([]Task, 
 	if actor.Role != RoleHelper {
 		return []Task{}, nil
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent, comparison_photo_url, color_hex FROM tasks WHERE assigned_to_user_id = $1 ORDER BY end_date`, actor.UserID)
+	rows, err := s.db.QueryContext(ctx, taskSelectWithClientDecision+` WHERE t.assigned_to_user_id = $1 ORDER BY t.end_date`, actor.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -2108,7 +2150,7 @@ func (s *Service) ListAssignedTasks(ctx context.Context, actor Claims) ([]Task, 
 	tasks := make([]Task, 0)
 	for rows.Next() {
 		var task Task
-		if err := rows.Scan(&task.ID, &task.TenantID, &task.ProjectID, &task.Title, &task.Description, &task.AssignedToUserID, &task.Status, &task.StartDate, &task.EndDate, &task.PredecessorTaskID, &task.ExpectedFinishQuality, &task.TechnicalSpecText, &task.BudgetCents, &task.SpentCents, &task.ProgressPercent, &task.ComparisonPhotoURL, &task.ColorHex); err != nil {
+		if err := scanTaskWithDecision(rows, &task); err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, task)
@@ -3645,7 +3687,7 @@ func (s *Service) ListProjectTasks(ctx context.Context, actor Claims, projectID 
 	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, project_id, title, description, assigned_to_user_id, status, start_date, end_date, predecessor_task_id, expected_finish_quality, technical_spec_text, budget_cents, spent_cents, progress_percent, comparison_photo_url, color_hex FROM tasks WHERE project_id = $1 ORDER BY created_at`, projectID)
+	rows, err := s.db.QueryContext(ctx, taskSelectWithClientDecision+` WHERE t.project_id = $1 ORDER BY t.created_at`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -3653,7 +3695,7 @@ func (s *Service) ListProjectTasks(ctx context.Context, actor Claims, projectID 
 	tasks := make([]Task, 0)
 	for rows.Next() {
 		var task Task
-		if err := rows.Scan(&task.ID, &task.TenantID, &task.ProjectID, &task.Title, &task.Description, &task.AssignedToUserID, &task.Status, &task.StartDate, &task.EndDate, &task.PredecessorTaskID, &task.ExpectedFinishQuality, &task.TechnicalSpecText, &task.BudgetCents, &task.SpentCents, &task.ProgressPercent, &task.ComparisonPhotoURL, &task.ColorHex); err != nil {
+		if err := scanTaskWithDecision(rows, &task); err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, task)
@@ -3744,6 +3786,15 @@ func (s *Service) ApproveDeliverable(ctx context.Context, actor Claims, delivera
 		actor.UserID, comment, nowText(), deliverableID); err != nil {
 		return Deliverable{}, err
 	}
+	// Cascade: client approval marks the underlying task as completed.
+	// Idempotent — guard prevents re-running when the task is already complete.
+	if d.TaskID != "" {
+		if _, err := s.db.ExecContext(ctx,
+			`UPDATE tasks SET status='completed', progress_percent=100, updated_at=$1 WHERE id=$2 AND status <> 'completed'`,
+			nowText(), d.TaskID); err != nil {
+			s.logger.Warn("deliverable.approved: cascade task update failed", "task_id", d.TaskID, "err", err)
+		}
+	}
 	s.logger.Info("deliverable.approved", "deliverable_id", deliverableID, "actor_id", actor.UserID, "tenant_id", d.TenantID)
 	body := fmt.Sprintf("El entregable \"%s\" fue aprobado en el proyecto %s.", d.Title, project.Name)
 	if comment != "" {
@@ -3752,6 +3803,11 @@ func (s *Service) ApproveDeliverable(ctx context.Context, actor Claims, delivera
 	body += "\n\n— ProjectPulse"
 	go s.notifyOwnersWithPref(context.Background(), d.TenantID, "deliverable_approved",
 		"Entregable aprobado: "+d.Title, body)
+	go s.notifyTaskHelper(context.Background(), d.TaskID,
+		"Tu entrega fue aprobada por el cliente",
+		fmt.Sprintf("El cliente aprobó el entregable \"%s\" en el proyecto %s.\n\nLa tarea se marcó como completada.", d.Title, project.Name)+
+			func() string { if comment != "" { return "\n\nComentario del cliente:\n" + comment } else { return "" } }()+
+			"\n\n— ProjectPulse")
 	d.Status = "approved"
 	d.ApprovedByUserID = actor.UserID
 	d.ApprovalComment = comment
@@ -3791,6 +3847,16 @@ func (s *Service) RejectDeliverable(ctx context.Context, actor Claims, deliverab
 		reason, category, nowText(), deliverableID); err != nil {
 		return Deliverable{}, err
 	}
+	// Cascade: client rejection re-opens the underlying task so the helper sees
+	// it again. Only flips when the task was completed; otherwise leaves status
+	// alone (already in_progress / pending).
+	if d.TaskID != "" {
+		if _, err := s.db.ExecContext(ctx,
+			`UPDATE tasks SET status='in_progress', updated_at=$1 WHERE id=$2 AND status='completed'`,
+			nowText(), d.TaskID); err != nil {
+			s.logger.Warn("deliverable.rejected: cascade task update failed", "task_id", d.TaskID, "err", err)
+		}
+	}
 	s.logger.Info("deliverable.rejected", "deliverable_id", deliverableID, "actor_id", actor.UserID, "category", category, "reason", reason)
 	body := fmt.Sprintf("El entregable \"%s\" en el proyecto %s necesita cambios.", d.Title, project.Name)
 	if category != "" {
@@ -3802,6 +3868,16 @@ func (s *Service) RejectDeliverable(ctx context.Context, actor Claims, deliverab
 	body += "\n\n— ProjectPulse"
 	go s.notifyOwnersWithPref(context.Background(), d.TenantID, "deliverable_rejected",
 		"Cambios solicitados: "+d.Title, body)
+	helperBody := fmt.Sprintf("El cliente pidió cambios en el entregable \"%s\" del proyecto %s.\n\nLa tarea volvió a estado en progreso para que puedas atender el cambio.", d.Title, project.Name)
+	if category != "" {
+		helperBody += "\nCategoría: " + category
+	}
+	if reason != "" {
+		helperBody += "\n\nMotivo:\n" + reason
+	}
+	helperBody += "\n\n— ProjectPulse"
+	go s.notifyTaskHelper(context.Background(), d.TaskID,
+		"El cliente pidió cambios en tu entrega", helperBody)
 	d.Status = "rejected"
 	d.RejectionReason = reason
 	d.RejectionCategory = category

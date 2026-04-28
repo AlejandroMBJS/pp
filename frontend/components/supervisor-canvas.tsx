@@ -25,6 +25,11 @@ type Task = {
   description: string;
   assigned_to_user_id: string;
   color_hex?: string;
+  client_decision_status?: string;
+  client_decision_reason?: string;
+  client_decision_category?: string;
+  client_decision_at?: string;
+  client_decision_by_name?: string;
 };
 
 type Deliverable = {

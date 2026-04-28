@@ -1771,6 +1771,10 @@ func (s *Service) ListProjects(ctx context.Context, actor Claims) ([]Project, er
 		if err := rows.Scan(&project.ID, &project.TenantID, &project.Name, &project.Description, &project.Status, &project.ClientUserID, &project.SupervisorUserID, &project.BudgetTotalCents, &project.SpentTotalCents, &project.StartDate, &project.PlannedEndDate, &project.LatitudeCenter, &project.LongitudeCenter, &project.GeofenceRadiusM, &project.LogoURL, &project.DailyLogPreset); err != nil {
 			return nil, err
 		}
+		// Privacy: clients should not see who the supervisor is.
+		if actor.Role == RoleClient {
+			project.SupervisorUserID = ""
+		}
 		projects = append(projects, project)
 	}
 	return projects, rows.Err()
@@ -2471,6 +2475,12 @@ func (s *Service) ListTaskEvidences(ctx context.Context, actor Claims, taskID st
 		evidence.VisibleToClient = intToBool(visible)
 		if aiFeedback != "" {
 			evidence.AIFeedback = json.RawMessage(aiFeedback)
+		}
+		// Privacy: hide employee identities from clients (see ClientGallery).
+		if actor.Role == RoleClient {
+			evidence.UploaderName = ""
+			evidence.UploadedByUserID = ""
+			evidence.ApprovedByUserID = ""
 		}
 		evidences = append(evidences, evidence)
 	}
@@ -3387,6 +3397,12 @@ func (s *Service) ListClientActivity(ctx context.Context, actor Claims, projectI
 		if occurredAt.Valid {
 			ev.OccurredAt = occurredAt.Time.UTC().Format(time.RFC3339)
 		}
+		// Privacy: clients should not see employee identities. Strip the
+		// uploader's name from evidence-uploaded events. Deliverable approval
+		// events are by the client themselves, so we keep that name.
+		if actor.Role == RoleClient && ev.Type == "evidence_uploaded" {
+			ev.ActorName = ""
+		}
 		out = append(out, ev)
 	}
 	return out, rows.Err()
@@ -3472,6 +3488,14 @@ func (s *Service) ClientGallery(ctx context.Context, actor Claims, projectID str
 		evidence.VisibleToClient = intToBool(visible)
 		if aiFeedback != "" {
 			evidence.AIFeedback = json.RawMessage(aiFeedback)
+		}
+		// Privacy: clients should not see employee identities. Hide uploader
+		// name + uploaded_by_user_id; the client only needs the photo and
+		// the task it belongs to. Owner/supervisor still get full data.
+		if actor.Role == RoleClient {
+			evidence.UploaderName = ""
+			evidence.UploadedByUserID = ""
+			evidence.ApprovedByUserID = ""
 		}
 		evidenceList = append(evidenceList, evidence)
 	}

@@ -6,8 +6,10 @@ import { HealthPill } from "./client/health-pill";
 import { ProgressDonut } from "./client/progress-donut";
 import { DeliverablesTimeline } from "./client/deliverables-timeline";
 import { DeliverableDrawerContent } from "./client/deliverable-drawer";
+import { ActivityFeed } from "./client/activity-feed";
+import { EvidenceShowcase } from "./client/evidence-showcase";
 import { Drawer } from "./ui/drawer";
-import { Calendar, Wallet, Flag, ListChecks } from "lucide-react";
+import { Calendar, Wallet, Flag, ListChecks, Activity } from "lucide-react";
 import { useState } from "react";
 
 type Deliverable = {
@@ -62,6 +64,8 @@ type ClientCanvasProps = {
   clientSummary: ClientSummary | null;
   selectedTaskId?: string | null;
   accessToken?: string;
+  projectId?: string;
+  apiBase?: string;
   onDeliverableClick: (deliverableId: string, taskId?: string) => void;
   onClearTaskFilter?: () => void;
   onApproveDeliverable?: (deliverableId: string, comment: string) => Promise<void>;
@@ -94,6 +98,8 @@ export function ClientCanvas({
   clientSummary,
   selectedTaskId,
   accessToken,
+  projectId,
+  apiBase = "",
   onDeliverableClick,
   onClearTaskFilter,
   onApproveDeliverable,
@@ -207,6 +213,19 @@ export function ClientCanvas({
           )}
         </div>
 
+        {/* ACTIVITY FEED */}
+        {projectId && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold uppercase tracking-widest text-white/40 inline-flex items-center gap-2">
+                <Activity size={14} /> Recent activity
+              </h2>
+              <div className="h-px flex-1 bg-white/5 mx-4" />
+            </div>
+            <ActivityFeed projectId={projectId} apiBase={apiBase} accessToken={accessToken} />
+          </div>
+        )}
+
         {/* DRAWER */}
         <Drawer
           open={!!drawerId}
@@ -243,8 +262,8 @@ export function ClientCanvas({
             Curated photo memory of completed milestones in your project.
           </p>
         </div>
-        <div className="glass-card p-8 border-white/5">
-          {selectedTaskId && (
+        {selectedTaskId ? (
+          <div className="glass-card p-8 border-white/5">
             <div className="mb-5 flex items-center justify-between gap-4 rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3">
               <div className="text-xs font-bold uppercase tracking-widest text-blue-200">
                 Showing approved evidence for the selected deliverable
@@ -257,12 +276,19 @@ export function ClientCanvas({
                 Show all
               </button>
             </div>
-          )}
-          <EvidenceGallery
-            evidences={filteredGallery}
-            emptyText="There is no approved evidence to display yet."
+            <EvidenceGallery
+              evidences={filteredGallery}
+              emptyText="There is no approved evidence to display yet."
+            />
+          </div>
+        ) : (
+          <EvidenceShowcase
+            deliverables={clientSummary?.deliverables ?? []}
+            evidences={gallery}
+            accessToken={accessToken}
+            onEvidenceClick={(taskId) => onDeliverableClick("", taskId)}
           />
-        </div>
+        )}
       </div>
     );
   }

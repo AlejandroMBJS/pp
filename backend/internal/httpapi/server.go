@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -137,6 +138,7 @@ func (s *Server) Routes() http.Handler {
 		protected.Get("/api/v1/projects/{projectID}/export.csv", s.handleExportCSV)
 		protected.Get("/api/v1/projects/{projectID}/export-detailed.csv", s.handleExportCSVDetailed)
 		protected.Get("/api/v1/client/projects/{projectID}/summary", s.handleClientSummary)
+		protected.Get("/api/v1/client/projects/{projectID}/activity", s.handleClientActivity)
 
 		protected.Post("/api/v1/projects/{projectID}/tasks", s.handleCreateTask)
 		protected.Patch("/api/v1/tasks/{taskID}", s.handleTaskUpdate)
@@ -953,6 +955,21 @@ func (s *Server) handleClientSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleClientActivity(w http.ResponseWriter, r *http.Request) {
+	limit := 30
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+	events, err := s.service.ListClientActivity(r.Context(), s.actor(r), chi.URLParam(r, "projectID"), limit)
+	if err != nil {
+		classifyAndWriteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, events)
 }
 
 func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {

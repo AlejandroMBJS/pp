@@ -1913,6 +1913,7 @@ export function ControlCenter() {
             clientSummary={clientSummary}
             selectedTaskId={clientGalleryTaskId}
             accessToken={session.access_token}
+            projectId={selectedProjectId ?? undefined}
             onDeliverableClick={(id, taskId) => handleDeliverableNavigate(id, taskId)}
             onClearTaskFilter={() => setClientGalleryTaskId(null)}
             onApproveDeliverable={handleDeliverableApprove}
@@ -2138,6 +2139,7 @@ export function ControlCenter() {
           clientSummary={clientSummary}
           selectedTaskId={clientGalleryTaskId}
           accessToken={session.access_token}
+          projectId={selectedProjectId ?? undefined}
           onDeliverableClick={(id, taskId) => handleDeliverableNavigate(id, taskId)}
           onClearTaskFilter={() => setClientGalleryTaskId(null)}
           onApproveDeliverable={handleDeliverableApprove}

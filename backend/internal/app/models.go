@@ -425,6 +425,18 @@ type DeliverablesBreakdown struct {
 	Total    int `json:"total"`
 }
 
+// ClientActivityEvent is a single entry in the client-facing activity feed.
+// Types: "deliverable_approved", "deliverable_rejected", "evidence_uploaded".
+type ClientActivityEvent struct {
+	ID         string `json:"id"`
+	Type       string `json:"type"`
+	OccurredAt string `json:"occurred_at"`
+	ActorName  string `json:"actor_name,omitempty"`
+	Title      string `json:"title"`
+	Subtitle   string `json:"subtitle,omitempty"`
+	TaskID     string `json:"task_id,omitempty"`
+}
+
 type AuditFeedback struct {
 	IsValidEvidence bool     `json:"is_valid_evidence"`
 	QualityScore    int      `json:"quality_score"`

@@ -1,9 +1,20 @@
 "use client";
 
-import { useState } from "react";
-import { CheckCircle2, Clock3, AlertCircle, ThumbsUp, ThumbsDown, FileText, Image as ImageIcon } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  CheckCircle2,
+  Clock3,
+  AlertCircle,
+  ThumbsUp,
+  ThumbsDown,
+  FileText,
+  Image as ImageIcon,
+  Sparkles,
+  Star,
+  ChevronDown,
+} from "lucide-react";
 import { withAccessToken } from "../../lib/files";
-import { ConfirmDialog } from "../ui/confirm-dialog";
+import { BeforeAfterSlider } from "./before-after-slider";
 import { toast } from "sonner";
 
 type Deliverable = {
@@ -15,7 +26,9 @@ type Deliverable = {
   status: string;
   approved_by_name?: string;
   approved_at?: string;
+  approval_comment?: string;
   rejection_reason?: string;
+  rejection_category?: string;
   task_title?: string;
 };
 
@@ -24,8 +37,11 @@ type Evidence = {
   task_id: string;
   file_name: string;
   url_archivo: string;
+  reference_photo_url?: string;
   quality_score: number;
   status: string;
+  ai_feedback?: unknown;
+  uploader_name?: string;
   created_at?: string;
 };
 
@@ -34,10 +50,52 @@ type Props = {
   evidences: Evidence[];
   accessToken?: string;
   canAct: boolean;
-  onApprove?: (id: string) => Promise<void>;
-  onReject?: (id: string, reason: string) => Promise<void>;
+  onApprove?: (id: string, comment: string) => Promise<void>;
+  onReject?: (id: string, reason: string, category: string) => Promise<void>;
   onEvidenceClick?: (taskId: string) => void;
 };
+
+const CATEGORY_OPTIONS: { value: string; label: string; suggestions: string[] }[] = [
+  {
+    value: "missing_photos",
+    label: "Faltan fotos",
+    suggestions: [
+      "Falta una foto desde otro ángulo",
+      "No se ve el detalle del extremo",
+      "Faltan fotos del proceso intermedio",
+    ],
+  },
+  {
+    value: "wrong_phase",
+    label: "Fase incorrecta",
+    suggestions: [
+      "Esta fase aún no está completa",
+      "Las fotos corresponden a otra etapa",
+      "Falta terminar la fase anterior",
+    ],
+  },
+  {
+    value: "quality_issue",
+    label: "Problema de calidad",
+    suggestions: [
+      "El acabado no cumple lo acordado",
+      "Hay fisuras visibles",
+      "Las medidas no coinciden con el plano",
+    ],
+  },
+  {
+    value: "scope_mismatch",
+    label: "No coincide con lo pactado",
+    suggestions: [
+      "Esto no corresponde al alcance original",
+      "Falta el material acordado",
+      "El diseño difiere del aprobado",
+    ],
+  },
+  { value: "other", label: "Otro", suggestions: [] },
+];
+
+const MAX_REASON = 2000;
 
 function fmtDate(iso?: string): string {
   if (!iso) return "—";
@@ -59,6 +117,27 @@ function statusBadge(status: string) {
   return { label: "Pending your review", color: "#f59e0b", bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.3)" };
 }
 
+function categoryLabel(value?: string): string {
+  if (!value) return "";
+  return CATEGORY_OPTIONS.find((o) => o.value === value)?.label ?? value;
+}
+
+type AIFeedbackShape = {
+  analysis_summary?: string;
+  detected_issues?: string[];
+  recommendations?: string;
+};
+
+function parseAIFeedback(raw: unknown): AIFeedbackShape | null {
+  if (!raw) return null;
+  try {
+    if (typeof raw === "string") return JSON.parse(raw) as AIFeedbackShape;
+    return raw as AIFeedbackShape;
+  } catch {
+    return null;
+  }
+}
+
 export function DeliverableDrawerContent({
   deliverable,
   evidences,
@@ -69,26 +148,34 @@ export function DeliverableDrawerContent({
   onEvidenceClick,
 }: Props) {
   const [pending, setPending] = useState(false);
-  const [confirmApprove, setConfirmApprove] = useState(false);
-  const [rejecting, setRejecting] = useState(false);
+  const [approveOpen, setApproveOpen] = useState(false);
+  const [approveComment, setApproveComment] = useState("");
+  const [rejectOpen, setRejectOpen] = useState(false);
   const [reason, setReason] = useState("");
+  const [category, setCategory] = useState<string>("");
+
+  const linkedEvidences = useMemo(
+    () => (deliverable ? evidences.filter((e) => e.task_id === deliverable.task_id) : []),
+    [evidences, deliverable],
+  );
 
   if (!deliverable) return null;
   const badge = statusBadge(deliverable.status);
   const overdue = deliverable.status !== "approved" && new Date(deliverable.due_date).getTime() < Date.now();
-  const linkedEvidences = evidences.filter((e) => e.task_id === deliverable.task_id);
+  const selectedCategory = CATEGORY_OPTIONS.find((c) => c.value === category);
 
   async function doApprove() {
     if (!onApprove || !deliverable) return;
     setPending(true);
     try {
-      await onApprove(deliverable.id);
+      await onApprove(deliverable.id, approveComment.trim());
       toast.success("Deliverable approved");
     } catch (e) {
       toast.error((e as Error).message || "Could not approve");
     } finally {
       setPending(false);
-      setConfirmApprove(false);
+      setApproveOpen(false);
+      setApproveComment("");
     }
   }
 
@@ -96,14 +183,15 @@ export function DeliverableDrawerContent({
     if (!onReject || !deliverable) return;
     setPending(true);
     try {
-      await onReject(deliverable.id, reason);
+      await onReject(deliverable.id, reason.trim(), category);
       toast.success("Changes requested");
     } catch (e) {
       toast.error((e as Error).message || "Could not submit");
     } finally {
       setPending(false);
-      setRejecting(false);
+      setRejectOpen(false);
       setReason("");
+      setCategory("");
     }
   }
 
@@ -139,24 +227,34 @@ export function DeliverableDrawerContent({
       {/* Approval history */}
       {(deliverable.approved_at || deliverable.rejection_reason) && (
         <Section icon={<Clock3 size={14} />} label="History">
-          <div className="space-y-2">
+          <div className="space-y-3">
             {deliverable.approved_at && (
-              <div className="flex items-start gap-2 text-sm text-white/80">
-                <CheckCircle2 size={14} className="mt-0.5" style={{ color: "#10b981" }} />
-                <div>
+              <div className="flex items-start gap-2 text-sm text-white/85">
+                <CheckCircle2 size={14} className="mt-0.5 flex-shrink-0" style={{ color: "#10b981" }} />
+                <div className="min-w-0">
                   <div>
                     <span className="font-semibold text-white">Approved</span>
                     {deliverable.approved_by_name && <span className="text-white/60"> by {deliverable.approved_by_name}</span>}
                   </div>
                   <div className="text-xs text-white/50">{fmtDateTime(deliverable.approved_at)}</div>
+                  {deliverable.approval_comment && (
+                    <div className="mt-2 rounded-lg bg-emerald-500/5 border border-emerald-500/15 p-2 text-xs text-white/80 whitespace-pre-wrap">
+                      “{deliverable.approval_comment}”
+                    </div>
+                  )}
                 </div>
               </div>
             )}
             {deliverable.rejection_reason && deliverable.status === "rejected" && (
               <div className="flex items-start gap-2 text-sm">
-                <AlertCircle size={14} className="mt-0.5" style={{ color: "#ef4444" }} />
-                <div>
+                <AlertCircle size={14} className="mt-0.5 flex-shrink-0" style={{ color: "#ef4444" }} />
+                <div className="min-w-0">
                   <div className="font-semibold text-white">Changes requested</div>
+                  {deliverable.rejection_category && (
+                    <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                      {categoryLabel(deliverable.rejection_category)}
+                    </span>
+                  )}
                   <div className="text-xs text-white/70 mt-1 whitespace-pre-wrap">{deliverable.rejection_reason}</div>
                 </div>
               </div>
@@ -170,26 +268,9 @@ export function DeliverableDrawerContent({
         {linkedEvidences.length === 0 ? (
           <p className="text-sm text-white/40 italic">No evidence uploaded yet.</p>
         ) : (
-          <div className="grid grid-cols-3 gap-2">
+          <div className="space-y-4">
             {linkedEvidences.map((e) => (
-              <button
-                key={e.id}
-                type="button"
-                className="drawer-evidence-thumb"
-                onClick={() => onEvidenceClick?.(deliverable.task_id)}
-                title={e.file_name}
-              >
-                <img
-                  src={withAccessToken(e.url_archivo, accessToken)}
-                  alt={e.file_name}
-                  onError={(ev) => {
-                    (ev.currentTarget as HTMLImageElement).style.display = "none";
-                  }}
-                />
-                {e.quality_score > 0 && (
-                  <span className="drawer-evidence-score">{e.quality_score}</span>
-                )}
-              </button>
+              <EvidenceCard key={e.id} evidence={e} accessToken={accessToken} onClick={() => onEvidenceClick?.(deliverable.task_id)} />
             ))}
           </div>
         )}
@@ -204,14 +285,14 @@ export function DeliverableDrawerContent({
         )}
       </Section>
 
-      {/* Actions (only when can act and not yet approved) */}
+      {/* Actions */}
       {canAct && deliverable.status !== "approved" && (
         <div className="drawer-actions">
           <button
             type="button"
             className="drawer-action-approve"
             disabled={pending}
-            onClick={() => setConfirmApprove(true)}
+            onClick={() => setApproveOpen(true)}
           >
             <ThumbsUp size={14} /> Approve
           </button>
@@ -219,56 +300,213 @@ export function DeliverableDrawerContent({
             type="button"
             className="drawer-action-reject"
             disabled={pending}
-            onClick={() => setRejecting(true)}
+            onClick={() => setRejectOpen(true)}
           >
             <ThumbsDown size={14} /> Request changes
           </button>
         </div>
       )}
 
-      <ConfirmDialog
-        open={confirmApprove}
-        title="Approve deliverable?"
-        body="Once approved, the deliverable will be marked as completed and the project owner will be notified."
-        confirmLabel="Approve"
-        onConfirm={doApprove}
-        onCancel={() => setConfirmApprove(false)}
-      />
-
-      {rejecting && (
+      {/* APPROVE MODAL — with optional comment */}
+      {approveOpen && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) { setRejecting(false); setReason(""); } }}
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4"
+          onClick={(ev) => { if (ev.target === ev.currentTarget) { setApproveOpen(false); setApproveComment(""); } }}
         >
           <div className="glass-card border-white/10 p-6 max-w-md w-full">
+            <h3 className="text-xl font-black text-white mb-2">Approve deliverable</h3>
+            <p className="text-sm text-white/60 mb-4">
+              The team will be notified. Add a short note if you want to share what you liked
+              or what to keep in mind for next milestones.
+            </p>
+            <textarea
+              value={approveComment}
+              onChange={(ev) => setApproveComment(ev.target.value.slice(0, MAX_REASON))}
+              placeholder="Optional comment (visible to the team)..."
+              className="w-full rounded-xl bg-white/5 border border-white/10 p-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-emerald-500/40"
+              rows={3}
+              autoFocus
+            />
+            <div className="mt-4 flex items-center justify-between gap-2">
+              <span className="text-[10px] text-white/35 font-bold uppercase tracking-widest">
+                {approveComment.length}/{MAX_REASON}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setApproveOpen(false); setApproveComment(""); }}
+                  className="rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-2 text-sm text-white/70 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={doApprove}
+                  className="rounded-xl px-4 py-2 text-sm font-bold text-white transition-all disabled:opacity-40"
+                  style={{ background: "linear-gradient(135deg, #10b981, #059669)" }}
+                >
+                  Approve
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* REQUEST CHANGES MODAL */}
+      {rejectOpen && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4"
+          onClick={(ev) => { if (ev.target === ev.currentTarget) { setRejectOpen(false); setReason(""); setCategory(""); } }}
+        >
+          <div className="glass-card border-white/10 p-6 max-w-lg w-full">
             <h3 className="text-xl font-black text-white mb-2">Request changes</h3>
-            <p className="text-sm text-white/60 mb-4">Tell the team what needs to change. The owner will see this reason.</p>
+            <p className="text-sm text-white/60 mb-4">
+              Tell the team what needs to change. The owner will see this reason and can re-submit
+              once the issue is resolved.
+            </p>
+
+            <label className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-1 block">
+              Category
+            </label>
+            <select
+              value={category}
+              onChange={(ev) => setCategory(ev.target.value)}
+              className="w-full rounded-xl bg-white/5 border border-white/10 p-3 text-sm text-white focus:outline-none focus:border-amber-500/40 mb-3"
+            >
+              <option value="">Choose a category…</option>
+              {CATEGORY_OPTIONS.map((c) => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+
+            {selectedCategory && selectedCategory.suggestions.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {selectedCategory.suggestions.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setReason((prev) => (prev ? prev + "\n" + s : s).slice(0, MAX_REASON))}
+                    className="rounded-full bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 text-xs text-white/70 transition-all"
+                  >
+                    + {s}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <label className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-1 block">
+              What needs to change
+            </label>
             <textarea
               value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Reason for requesting changes..."
+              onChange={(ev) => setReason(ev.target.value.slice(0, MAX_REASON))}
+              placeholder="Ejemplo: Falta una foto del extremo norte de la viga..."
               className="w-full rounded-xl bg-white/5 border border-white/10 p-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-amber-500/40"
               rows={4}
               autoFocus
             />
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => { setRejecting(false); setReason(""); }}
-                className="rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-2 text-sm text-white/70 transition-all"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={!reason.trim() || pending}
-                onClick={doReject}
-                className="rounded-xl bg-amber-600 hover:bg-amber-500 px-4 py-2 text-sm font-bold text-white transition-all disabled:opacity-40"
-              >
-                Submit request
-              </button>
+
+            <div className="mt-4 flex items-center justify-between gap-2">
+              <span className="text-[10px] text-white/35 font-bold uppercase tracking-widest">
+                {reason.length}/{MAX_REASON}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setRejectOpen(false); setReason(""); setCategory(""); }}
+                  className="rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-2 text-sm text-white/70 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!reason.trim() || pending}
+                  onClick={doReject}
+                  className="rounded-xl bg-amber-600 hover:bg-amber-500 px-4 py-2 text-sm font-bold text-white transition-all disabled:opacity-40"
+                >
+                  Submit request
+                </button>
+              </div>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EvidenceCard({ evidence, accessToken, onClick }: { evidence: Evidence; accessToken?: string; onClick?: () => void }) {
+  const [aiOpen, setAiOpen] = useState(false);
+  const ai = parseAIFeedback(evidence.ai_feedback);
+  const hasReference = !!evidence.reference_photo_url;
+  const afterUrl = withAccessToken(evidence.url_archivo, accessToken);
+  const beforeUrl = hasReference ? withAccessToken(evidence.reference_photo_url!, accessToken) : "";
+
+  return (
+    <div className="evidence-card">
+      <div className="evidence-card-media">
+        {hasReference ? (
+          <BeforeAfterSlider
+            beforeUrl={beforeUrl}
+            afterUrl={afterUrl}
+            beforeAlt="Reference"
+            afterAlt={evidence.file_name}
+          />
+        ) : (
+          <button type="button" className="evidence-card-image" onClick={onClick} title={evidence.file_name}>
+            <img
+              src={afterUrl}
+              alt={evidence.file_name}
+              onError={(ev) => ((ev.currentTarget as HTMLImageElement).style.display = "none")}
+            />
+          </button>
+        )}
+        {evidence.quality_score > 0 && (
+          <div className="evidence-card-score">
+            <Star size={11} /> {evidence.quality_score}
+          </div>
+        )}
+      </div>
+      <div className="evidence-card-meta">
+        <span className="evidence-card-name" title={evidence.file_name}>{evidence.file_name}</span>
+        {evidence.uploader_name && (
+          <span className="evidence-card-uploader">by {evidence.uploader_name}</span>
+        )}
+      </div>
+      {ai && (ai.analysis_summary || (ai.detected_issues && ai.detected_issues.length > 0)) && (
+        <div className={`evidence-card-ai ${aiOpen ? "open" : ""}`}>
+          <button
+            type="button"
+            className="evidence-card-ai-toggle"
+            onClick={() => setAiOpen((v) => !v)}
+          >
+            <Sparkles size={13} />
+            <span>AI quality summary</span>
+            <ChevronDown size={14} className={`evidence-card-ai-chevron ${aiOpen ? "open" : ""}`} />
+          </button>
+          {aiOpen && (
+            <div className="evidence-card-ai-body">
+              {ai.analysis_summary && <p className="text-sm text-white/80 leading-relaxed">{ai.analysis_summary}</p>}
+              {ai.detected_issues && ai.detected_issues.length > 0 && (
+                <div className="mt-2">
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-amber-300/80 mb-1">Detected issues</div>
+                  <ul className="text-xs text-white/70 list-disc list-inside space-y-0.5">
+                    {ai.detected_issues.map((it, i) => (
+                      <li key={i}>{it}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {ai.recommendations && (
+                <div className="mt-2">
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-emerald-300/80 mb-1">Recommendations</div>
+                  <p className="text-xs text-white/70 whitespace-pre-wrap">{ai.recommendations}</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

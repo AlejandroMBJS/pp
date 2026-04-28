@@ -688,6 +688,11 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			CREATE INDEX IF NOT EXISTS idx_daily_log_photos_log ON daily_log_photos(log_id)
 		`},
 		{44, "alter_tasks_color_hex", `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS color_hex TEXT NOT NULL DEFAULT ''`},
+		{45, "alter_deliverables_review_metadata", `
+			ALTER TABLE deliverables
+				ADD COLUMN IF NOT EXISTS approval_comment TEXT NOT NULL DEFAULT '',
+				ADD COLUMN IF NOT EXISTS rejection_category TEXT NOT NULL DEFAULT ''
+		`},
 	}
 
 	for _, m := range steps {

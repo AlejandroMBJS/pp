@@ -862,7 +862,16 @@ func (s *Server) handleProjectDeliverables(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleApproveDeliverable(w http.ResponseWriter, r *http.Request) {
-	deliverable, err := s.service.ApproveDeliverable(r.Context(), s.actor(r), chi.URLParam(r, "deliverableID"))
+	var req struct {
+		Comment string `json:"comment"`
+	}
+	// Body is optional — empty body means no comment.
+	if r.ContentLength > 0 {
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+	}
+	deliverable, err := s.service.ApproveDeliverable(r.Context(), s.actor(r), chi.URLParam(r, "deliverableID"), req.Comment)
 	if err != nil {
 		classifyAndWriteError(w, err)
 		return
@@ -872,12 +881,13 @@ func (s *Server) handleApproveDeliverable(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleRejectDeliverable(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Reason string `json:"reason"`
+		Reason   string `json:"reason"`
+		Category string `json:"category"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	deliverable, err := s.service.RejectDeliverable(r.Context(), s.actor(r), chi.URLParam(r, "deliverableID"), req.Reason)
+	deliverable, err := s.service.RejectDeliverable(r.Context(), s.actor(r), chi.URLParam(r, "deliverableID"), req.Reason, req.Category)
 	if err != nil {
 		classifyAndWriteError(w, err)
 		return

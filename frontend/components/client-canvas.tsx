@@ -1,7 +1,7 @@
 "use client";
 
 import { EmptyState } from "./ui/empty-state";
-import { EvidenceGallery } from "./evidence-gallery";
+import { EvidenceGallery, type AIFeedback } from "./evidence-gallery";
 import { HealthPill } from "./client/health-pill";
 import { ProgressDonut } from "./client/progress-donut";
 import { DeliverablesTimeline } from "./client/deliverables-timeline";
@@ -21,10 +21,25 @@ type Deliverable = {
   approved_by_user_id?: string;
   approved_by_name?: string;
   approved_at?: string;
+  approval_comment?: string;
   rejection_reason?: string;
+  rejection_category?: string;
   task_title?: string;
 };
-type Evidence = { id: string; task_id: string; file_name: string; url_archivo: string; quality_score: number; status: string; ai_processing_status: string; is_visible_to_client: boolean; created_at?: string };
+type Evidence = {
+  id: string;
+  task_id: string;
+  file_name: string;
+  url_archivo: string;
+  reference_photo_url?: string;
+  quality_score: number;
+  status: string;
+  ai_processing_status: string;
+  ai_feedback?: AIFeedback;
+  is_visible_to_client: boolean;
+  created_at?: string;
+  uploader_name?: string;
+};
 type NextMilestone = { id: string; title: string; due_date: string; days_until: number };
 type DeliverablesBreakdown = { approved: number; pending: number; rejected: number; total: number };
 type ClientSummary = {
@@ -49,8 +64,8 @@ type ClientCanvasProps = {
   accessToken?: string;
   onDeliverableClick: (deliverableId: string, taskId?: string) => void;
   onClearTaskFilter?: () => void;
-  onApproveDeliverable?: (deliverableId: string) => Promise<void>;
-  onRejectDeliverable?: (deliverableId: string, reason: string) => Promise<void>;
+  onApproveDeliverable?: (deliverableId: string, comment: string) => Promise<void>;
+  onRejectDeliverable?: (deliverableId: string, reason: string, category: string) => Promise<void>;
   isMobile?: boolean;
 };
 
@@ -205,8 +220,8 @@ export function ClientCanvas({
             evidences={gallery}
             accessToken={accessToken}
             canAct={!!onApproveDeliverable}
-            onApprove={onApproveDeliverable ? async (id) => { await onApproveDeliverable(id); setDrawerId(null); } : undefined}
-            onReject={onRejectDeliverable ? async (id, reason) => { await onRejectDeliverable(id, reason); setDrawerId(null); } : undefined}
+            onApprove={onApproveDeliverable ? async (id, comment) => { await onApproveDeliverable(id, comment); setDrawerId(null); } : undefined}
+            onReject={onRejectDeliverable ? async (id, r, cat) => { await onRejectDeliverable(id, r, cat); setDrawerId(null); } : undefined}
             onEvidenceClick={(taskId) => {
               if (drawerDeliverable) {
                 onDeliverableClick(drawerDeliverable.id, taskId);

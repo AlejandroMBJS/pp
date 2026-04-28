@@ -3163,6 +3163,7 @@ func (s *Service) ClientSummaryView(ctx context.Context, actor Claims, projectID
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT d.id, d.tenant_id, d.project_id, d.task_id, d.title, d.description, d.due_date, d.status, d.client_visible,
 		       COALESCE(d.approved_by_user_id, ''), COALESCE(d.approved_at::text, ''), COALESCE(d.rejection_reason, ''),
+		       COALESCE(d.approval_comment, ''), COALESCE(d.rejection_category, ''),
 		       COALESCE(t.title, ''), COALESCE(u.full_name, u.email, '')
 		FROM deliverables d
 		LEFT JOIN tasks t ON t.id = d.task_id
@@ -3179,6 +3180,7 @@ func (s *Service) ClientSummaryView(ctx context.Context, actor Claims, projectID
 			&deliverable.ID, &deliverable.TenantID, &deliverable.ProjectID, &deliverable.TaskID,
 			&deliverable.Title, &deliverable.Description, &deliverable.DueDate, &deliverable.Status, &visible,
 			&deliverable.ApprovedByUserID, &deliverable.ApprovedAt, &deliverable.RejectionReason,
+			&deliverable.ApprovalComment, &deliverable.RejectionCategory,
 			&deliverable.TaskTitle, &deliverable.ApprovedByName,
 		); err != nil {
 			rows.Close()
@@ -3303,7 +3305,23 @@ func (s *Service) ClientGallery(ctx context.Context, actor Claims, projectID str
 			return nil, err
 		}
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, project_id, task_id, uploaded_by_user_id, approved_by_user_id, file_name, mime_type, file_size_bytes, url_archivo, status, latitude, longitude, metadata_exif, approval_comment, rejection_reason, is_visible_to_client, ai_processing_status, quality_score, created_at FROM evidences WHERE project_id = $1 AND status IN ('committed', 'approved') AND is_visible_to_client = 1 ORDER BY created_at DESC`, projectID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT e.id, e.tenant_id, e.project_id, e.task_id, e.uploaded_by_user_id, e.approved_by_user_id,
+		       e.file_name, e.mime_type, e.file_size_bytes, e.url_archivo, e.status,
+		       e.latitude, e.longitude, e.metadata_exif, e.approval_comment, e.rejection_reason,
+		       e.is_visible_to_client, e.ai_processing_status, e.quality_score, e.created_at,
+		       COALESCE(u.full_name, u.email, '') AS uploader_name,
+		       COALESCE(t.title, '') AS task_title,
+		       COALESCE(t.comparison_photo_url, '') AS reference_photo_url,
+		       COALESCE(ia.json_feedback, '') AS ai_feedback
+		FROM evidences e
+		LEFT JOIN users u ON u.id = e.uploaded_by_user_id
+		LEFT JOIN tasks t ON t.id = e.task_id
+		LEFT JOIN LATERAL (
+			SELECT json_feedback FROM ia_audits WHERE evidence_id = e.id ORDER BY created_at DESC LIMIT 1
+		) ia ON true
+		WHERE e.project_id = $1 AND e.status IN ('committed', 'approved') AND e.is_visible_to_client = 1
+		ORDER BY e.created_at DESC`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -3312,10 +3330,19 @@ func (s *Service) ClientGallery(ctx context.Context, actor Claims, projectID str
 	for rows.Next() {
 		var evidence Evidence
 		var visible int
-		if err := rows.Scan(&evidence.ID, &evidence.TenantID, &evidence.ProjectID, &evidence.TaskID, &evidence.UploadedByUserID, &evidence.ApprovedByUserID, &evidence.FileName, &evidence.MimeType, &evidence.FileSizeBytes, &evidence.URLArchivo, &evidence.Status, &evidence.Latitude, &evidence.Longitude, &evidence.MetadataEXIF, &evidence.ApprovalComment, &evidence.RejectionReason, &visible, &evidence.AIProcessingStatus, &evidence.QualityScore, &evidence.CreatedAt); err != nil {
+		var aiFeedback string
+		if err := rows.Scan(&evidence.ID, &evidence.TenantID, &evidence.ProjectID, &evidence.TaskID,
+			&evidence.UploadedByUserID, &evidence.ApprovedByUserID,
+			&evidence.FileName, &evidence.MimeType, &evidence.FileSizeBytes, &evidence.URLArchivo, &evidence.Status,
+			&evidence.Latitude, &evidence.Longitude, &evidence.MetadataEXIF, &evidence.ApprovalComment, &evidence.RejectionReason,
+			&visible, &evidence.AIProcessingStatus, &evidence.QualityScore, &evidence.CreatedAt,
+			&evidence.UploaderName, &evidence.TaskTitle, &evidence.ReferencePhotoURL, &aiFeedback); err != nil {
 			return nil, err
 		}
 		evidence.VisibleToClient = intToBool(visible)
+		if aiFeedback != "" {
+			evidence.AIFeedback = json.RawMessage(aiFeedback)
+		}
 		evidenceList = append(evidenceList, evidence)
 	}
 	return evidenceList, rows.Err()
@@ -3601,7 +3628,7 @@ func (s *Service) deliverableByID(ctx context.Context, deliverableID string) (De
 // owner/supervisor of the tenant or the client assigned to the project.
 // Only deliverables that are client_visible and in pending/in_review status
 // can be approved.
-func (s *Service) ApproveDeliverable(ctx context.Context, actor Claims, deliverableID string) (Deliverable, error) {
+func (s *Service) ApproveDeliverable(ctx context.Context, actor Claims, deliverableID, comment string) (Deliverable, error) {
 	d, _, err := s.deliverableByID(ctx, deliverableID)
 	if err != nil {
 		return Deliverable{}, err
@@ -3625,24 +3652,32 @@ func (s *Service) ApproveDeliverable(ctx context.Context, actor Claims, delivera
 	if d.Status != "pending" && d.Status != "in_review" && d.Status != "rejected" {
 		return Deliverable{}, fmt.Errorf("cannot approve deliverable in status %q", d.Status)
 	}
+	comment = strings.TrimSpace(comment)
+	if len(comment) > 2000 {
+		comment = comment[:2000]
+	}
 	if _, err := s.db.ExecContext(ctx,
-		`UPDATE deliverables SET status='approved', approved_at=NOW(), approved_by_user_id=$1, rejection_reason='', updated_at=$2 WHERE id = $3`,
-		actor.UserID, nowText(), deliverableID); err != nil {
+		`UPDATE deliverables SET status='approved', approved_at=NOW(), approved_by_user_id=$1, approval_comment=$2, rejection_reason='', rejection_category='', updated_at=$3 WHERE id = $4`,
+		actor.UserID, comment, nowText(), deliverableID); err != nil {
 		return Deliverable{}, err
 	}
 	s.logger.Info("deliverable.approved", "deliverable_id", deliverableID, "actor_id", actor.UserID, "tenant_id", d.TenantID)
-	// Notify owners (respects pref).
+	body := fmt.Sprintf("El entregable \"%s\" fue aprobado en el proyecto %s.", d.Title, project.Name)
+	if comment != "" {
+		body += "\n\nComentario del cliente:\n" + comment
+	}
+	body += "\n\n— ProjectPulse"
 	go s.notifyOwnersWithPref(context.Background(), d.TenantID, "deliverable_approved",
-		"Entregable aprobado: "+d.Title,
-		fmt.Sprintf("El entregable \"%s\" fue aprobado en el proyecto %s.\n\n— ProjectPulse", d.Title, project.Name))
+		"Entregable aprobado: "+d.Title, body)
 	d.Status = "approved"
 	d.ApprovedByUserID = actor.UserID
+	d.ApprovalComment = comment
 	return d, nil
 }
 
-// RejectDeliverable flips status to rejected with an optional reason.
+// RejectDeliverable flips status to rejected with an optional reason and category.
 // Same RBAC as Approve.
-func (s *Service) RejectDeliverable(ctx context.Context, actor Claims, deliverableID, reason string) (Deliverable, error) {
+func (s *Service) RejectDeliverable(ctx context.Context, actor Claims, deliverableID, reason, category string) (Deliverable, error) {
 	d, _, err := s.deliverableByID(ctx, deliverableID)
 	if err != nil {
 		return Deliverable{}, err
@@ -3667,14 +3702,36 @@ func (s *Service) RejectDeliverable(ctx context.Context, actor Claims, deliverab
 	if len(reason) > 2000 {
 		reason = reason[:2000]
 	}
+	category = sanitizeRejectionCategory(category)
 	if _, err := s.db.ExecContext(ctx,
-		`UPDATE deliverables SET status='rejected', rejection_reason=$1, updated_at=$2 WHERE id = $3`,
-		reason, nowText(), deliverableID); err != nil {
+		`UPDATE deliverables SET status='rejected', rejection_reason=$1, rejection_category=$2, updated_at=$3 WHERE id = $4`,
+		reason, category, nowText(), deliverableID); err != nil {
 		return Deliverable{}, err
 	}
-	s.logger.Info("deliverable.rejected", "deliverable_id", deliverableID, "actor_id", actor.UserID, "reason", reason)
+	s.logger.Info("deliverable.rejected", "deliverable_id", deliverableID, "actor_id", actor.UserID, "category", category, "reason", reason)
+	body := fmt.Sprintf("El entregable \"%s\" en el proyecto %s necesita cambios.", d.Title, project.Name)
+	if category != "" {
+		body += "\nCategoría: " + category
+	}
+	if reason != "" {
+		body += "\n\nMotivo:\n" + reason
+	}
+	body += "\n\n— ProjectPulse"
+	go s.notifyOwnersWithPref(context.Background(), d.TenantID, "deliverable_rejected",
+		"Cambios solicitados: "+d.Title, body)
 	d.Status = "rejected"
+	d.RejectionReason = reason
+	d.RejectionCategory = category
 	return d, nil
+}
+
+func sanitizeRejectionCategory(c string) string {
+	c = strings.TrimSpace(strings.ToLower(c))
+	switch c {
+	case "missing_photos", "wrong_phase", "quality_issue", "scope_mismatch", "other":
+		return c
+	}
+	return ""
 }
 
 func (s *Service) ListExpenses(ctx context.Context, actor Claims, projectID string) ([]Expense, error) {

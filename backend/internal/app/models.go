@@ -230,6 +230,7 @@ type Deliverable struct {
 	ApprovalComment   string `json:"approval_comment,omitempty"`
 	RejectionReason   string `json:"rejection_reason,omitempty"`
 	RejectionCategory string `json:"rejection_category,omitempty"`
+	ResubmissionNote  string `json:"resubmission_note,omitempty"`
 	TaskTitle         string `json:"task_title,omitempty"`
 }
 

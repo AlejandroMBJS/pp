@@ -1690,6 +1690,27 @@ export function ControlCenter() {
     }
   }
 
+  async function handleDeliverableResubmit(deliverableId: string, note: string) {
+    if (!session) return;
+    await api(`/api/v1/deliverables/${deliverableId}/resubmit`, {
+      token: session.access_token,
+      method: "POST",
+      body: { note },
+    });
+    // Reload project context so the rejected → pending flip is visible
+    // immediately in the supervisor banner + helper task list.
+    if (selectedProjectId) {
+      try {
+        await loadProjectContext(selectedProjectId);
+        const summary = await api<ClientSummary>(
+          `/api/v1/client/projects/${selectedProjectId}/summary`,
+          { token: session.access_token }
+        );
+        setClientSummary(summary);
+      } catch { /* ignore */ }
+    }
+  }
+
   function handleDeliverableNavigate(deliverableId: string, taskId?: string) {
     setHighlightedDeliverableId(deliverableId);
     if (taskId) {
@@ -1865,6 +1886,7 @@ export function ControlCenter() {
             onGanttZoomChange={setGanttZoom}
             accessToken={session.access_token}
             onTaskTimelinePatch={handleTaskTimelinePatch}
+            onResubmitDeliverable={handleDeliverableResubmit}
           />
         );
       }
@@ -2143,6 +2165,7 @@ export function ControlCenter() {
           onGanttZoomChange={setGanttZoom}
           accessToken={session.access_token}
           onTaskTimelinePatch={handleTaskTimelinePatch}
+          onResubmitDeliverable={handleDeliverableResubmit}
         />
       );
     }

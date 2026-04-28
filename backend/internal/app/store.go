@@ -693,6 +693,10 @@ func (s *Service) runMigrations(ctx context.Context) error {
 				ADD COLUMN IF NOT EXISTS approval_comment TEXT NOT NULL DEFAULT '',
 				ADD COLUMN IF NOT EXISTS rejection_category TEXT NOT NULL DEFAULT ''
 		`},
+		{46, "alter_deliverables_resubmission_note", `
+			ALTER TABLE deliverables
+				ADD COLUMN IF NOT EXISTS resubmission_note TEXT NOT NULL DEFAULT ''
+		`},
 	}
 
 	for _, m := range steps {

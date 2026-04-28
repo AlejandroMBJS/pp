@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   CheckCircle2,
   AlertCircle,
@@ -13,6 +13,10 @@ import {
   User,
   Calendar,
   MapPin,
+  Upload,
+  Send,
+  Pencil,
+  RotateCcw,
 } from "lucide-react";
 import { withAccessToken } from "../../lib/files";
 import { BeforeAfterSlider } from "../client/before-after-slider";
@@ -36,12 +40,30 @@ type Evidence = {
   longitude?: number;
 };
 
+type RejectedDeliverable = {
+  id: string;
+  title: string;
+  rejection_reason?: string;
+  rejection_category?: string;
+};
+
 type Props = {
   evidence: Evidence | null;
+  /** Rejected deliverable for this evidence's task (if any). When present,
+   *  surfaces the "Resolve client request" action panel. */
+  rejectedDeliverable?: RejectedDeliverable | null;
   accessToken?: string;
   onApprove?: (id: string) => void | Promise<void>;
   onReject?: (id: string, reason: string) => void | Promise<void>;
   onReAudit?: (id: string) => void | Promise<void>;
+  /** Upload a new evidence file for this task (separate from the resubmit
+   *  step). Returns once the upload + confirm round-trip completed. */
+  onUploadEvidence?: (taskId: string, file: File) => Promise<void>;
+  /** Open the resubmit-deliverable modal (with its "what changed" textarea). */
+  onResubmitOpen?: () => void;
+  /** Open the basic task edit modal (title/dates/assignee/etc). Always shown
+   *  as a quiet secondary action, separated from the resolve flow. */
+  onEditTask?: () => void;
 };
 
 function fmtDateTime(iso?: string): string {
@@ -58,11 +80,24 @@ function statusBadge(status: string) {
   return { label: status, color: "#9ca3af", bg: "rgba(156,163,175,0.12)", border: "rgba(156,163,175,0.3)" };
 }
 
-export function EvidenceReviewDrawerContent({ evidence, accessToken, onApprove, onReject, onReAudit }: Props) {
+export function EvidenceReviewDrawerContent({
+  evidence,
+  rejectedDeliverable,
+  accessToken,
+  onApprove,
+  onReject,
+  onReAudit,
+  onUploadEvidence,
+  onResubmitOpen,
+  onEditTask,
+}: Props) {
   const [pending, setPending] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [aiOpen, setAiOpen] = useState(true);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   if (!evidence) return null;
   const badge = statusBadge(evidence.status);
@@ -111,6 +146,24 @@ export function EvidenceReviewDrawerContent({ evidence, accessToken, onApprove, 
       toast.error((e as Error).message || "Could not re-audit");
     } finally {
       setPending(false);
+    }
+  }
+
+  async function doUpload() {
+    if (!onUploadEvidence || !uploadFile || !evidence) return;
+    setUploading(true);
+    const toastId = toast.loading("Uploading new evidence…");
+    try {
+      await onUploadEvidence(evidence.task_id, uploadFile);
+      toast.dismiss(toastId);
+      toast.success("Evidence uploaded. Now re-submit when you're ready.");
+      setUploadFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (e) {
+      toast.dismiss(toastId);
+      toast.error((e as Error).message || "Upload failed");
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -214,6 +267,87 @@ export function EvidenceReviewDrawerContent({ evidence, accessToken, onApprove, 
           onClick={doReAudit}
         >
           <RefreshCw size={12} /> Re-run AI audit
+        </button>
+      )}
+
+      {/* Resolve client request — only when this task has a deliverable the client rejected */}
+      {rejectedDeliverable && (onUploadEvidence || onResubmitOpen) && (
+        <div className="rounded-2xl border px-4 py-4 space-y-3" style={{ background: "color-mix(in srgb, #f59e0b 8%, transparent)", borderColor: "color-mix(in srgb, #f59e0b 30%, transparent)" }}>
+          <div className="flex items-start gap-2">
+            <RotateCcw size={14} className="mt-0.5 flex-shrink-0" style={{ color: "#f59e0b" }} />
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-black uppercase tracking-widest" style={{ color: "#f59e0b" }}>
+                Cliente pidió cambios
+              </div>
+              {rejectedDeliverable.rejection_reason && (
+                <p className="text-xs text-white/80 mt-1.5 whitespace-pre-wrap leading-relaxed">
+                  {rejectedDeliverable.rejection_reason}
+                </p>
+              )}
+              {rejectedDeliverable.rejection_category && (
+                <span className="inline-block mt-2 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest" style={{ background: "rgba(245,158,11,0.18)", color: "#f59e0b" }}>
+                  {rejectedDeliverable.rejection_category.replace(/_/g, " ")}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Step 1: upload new evidence */}
+          {onUploadEvidence && (
+            <div className="rounded-xl bg-black/20 border border-white/8 p-3 space-y-2">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-white/55">
+                Paso 1 · Subir nueva evidencia
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,application/pdf,video/*"
+                disabled={uploading}
+                onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                className="block w-full text-xs text-white/80 file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-[11px] file:font-bold file:uppercase file:tracking-widest file:text-white hover:file:bg-white/15"
+              />
+              <button
+                type="button"
+                disabled={!uploadFile || uploading}
+                onClick={doUpload}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-[11px] font-bold uppercase tracking-widest transition disabled:opacity-40"
+                style={{ background: "color-mix(in srgb, var(--accent-blue) 22%, transparent)", color: "var(--accent-blue)", border: "1px solid color-mix(in srgb, var(--accent-blue) 40%, transparent)" }}
+              >
+                <Upload size={12} /> {uploading ? "Subiendo…" : "Subir evidencia"}
+              </button>
+            </div>
+          )}
+
+          {/* Step 2: resubmit deliverable */}
+          {onResubmitOpen && (
+            <div className="rounded-xl bg-black/20 border border-white/8 p-3 space-y-2">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-white/55">
+                Paso 2 · Reenviar a aprobación
+              </div>
+              <p className="text-[11px] text-white/55 leading-relaxed">
+                Cuando hayas resuelto los cambios y subido nueva evidencia, reenvía al cliente para que la revise.
+              </p>
+              <button
+                type="button"
+                onClick={onResubmitOpen}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-[11px] font-bold uppercase tracking-widest transition"
+                style={{ background: "color-mix(in srgb, #10b981 22%, transparent)", color: "#10b981", border: "1px solid color-mix(in srgb, #10b981 40%, transparent)" }}
+              >
+                <Send size={12} /> Reenviar a aprobación
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Basic edit — always available, kept separate from the resolve flow */}
+      {onEditTask && (
+        <button
+          type="button"
+          onClick={onEditTask}
+          className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-2 text-xs font-bold uppercase tracking-widest text-white/70 transition"
+        >
+          <Pencil size={12} /> Editar detalles del task
         </button>
       )}
 

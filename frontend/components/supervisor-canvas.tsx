@@ -107,6 +107,11 @@ type SupervisorCanvasProps = {
     patch: { start_date?: string; end_date?: string; status?: string; progress_percent?: number; predecessor_task_id?: string | null; color_hex?: string }
   ) => void;
   onResubmitDeliverable?: (deliverableId: string, note: string) => Promise<void>;
+  /** Open the basic task edit modal (separated from the resolve flow). */
+  onEditTaskOpen?: (taskId: string) => void;
+  /** Upload a new evidence file for a specific task (used inside the
+   *  Processed History review drawer when the client requested changes). */
+  onUploadEvidenceForTask?: (taskId: string, file: File) => Promise<void>;
 };
 
 export function SupervisorCanvas({
@@ -136,6 +141,8 @@ export function SupervisorCanvas({
   accessToken,
   onTaskTimelinePatch,
   onResubmitDeliverable,
+  onEditTaskOpen,
+  onUploadEvidenceForTask,
 }: SupervisorCanvasProps) {
   const [reviewStatusFilter, setReviewStatusFilter] = useState<"all" | "pending_approval" | "approved" | "rejected">("all");
   const [reviewTaskFilter, setReviewTaskFilter] = useState<string>("");
@@ -161,6 +168,17 @@ export function SupervisorCanvas({
   }, [ganttFullscreen]);
 
   const taskColorByTaskId = useMemo(() => buildTaskColorMap(tasks), [tasks]);
+
+  // Most recent rejected deliverable per task — surfaced inside the
+  // evidence review drawer so the supervisor can resolve the client's
+  // request without leaving the drawer.
+  const rejectedDeliverableByTaskId = useMemo(() => {
+    const m = new Map<string, Deliverable>();
+    for (const d of deliverables) {
+      if (d.status === "rejected" && d.task_id) m.set(d.task_id, d);
+    }
+    return m;
+  }, [deliverables]);
 
   // Per-task client decision summary, used to render a pill on each evidence
   // card in Processed History. Only includes tasks where the client has acted.
@@ -731,13 +749,39 @@ export function SupervisorCanvas({
           subtitle="Review evidence"
           width={isMobile ? 9999 : 520}
         >
-          <EvidenceReviewDrawerContent
-            evidence={evidences.find((e) => e.id === reviewDrawerId) ?? null}
-            accessToken={accessToken}
-            onApprove={async (id) => { await onEvidenceDecision(id, "approve"); setReviewDrawerId(null); }}
-            onReject={async (id, reason) => { await onEvidenceDecision(id, "reject", { reason }); setReviewDrawerId(null); }}
-            onReAudit={onReAudit ? async (id) => { await onReAudit(id); } : undefined}
-          />
+          {(() => {
+            const ev = evidences.find((e) => e.id === reviewDrawerId) ?? null;
+            const rejDel = ev ? rejectedDeliverableByTaskId.get(ev.task_id) ?? null : null;
+            return (
+              <EvidenceReviewDrawerContent
+                evidence={ev}
+                rejectedDeliverable={
+                  rejDel
+                    ? {
+                        id: rejDel.id,
+                        title: rejDel.title,
+                        rejection_reason: rejDel.rejection_reason,
+                        rejection_category: rejDel.rejection_category,
+                      }
+                    : null
+                }
+                accessToken={accessToken}
+                onApprove={async (id) => { await onEvidenceDecision(id, "approve"); setReviewDrawerId(null); }}
+                onReject={async (id, reason) => { await onEvidenceDecision(id, "reject", { reason }); setReviewDrawerId(null); }}
+                onReAudit={onReAudit ? async (id) => { await onReAudit(id); } : undefined}
+                onUploadEvidence={onUploadEvidenceForTask}
+                onResubmitOpen={rejDel ? () => setResubmitDeliverable(rejDel) : undefined}
+                onEditTask={
+                  ev && onEditTaskOpen
+                    ? () => {
+                        setReviewDrawerId(null);
+                        onEditTaskOpen(ev.task_id);
+                      }
+                    : undefined
+                }
+              />
+            );
+          })()}
         </Drawer>
 
         <ResubmitDeliverableModal

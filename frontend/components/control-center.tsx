@@ -1289,6 +1289,64 @@ export function ControlCenter() {
     }
   }
 
+  // Supervisor variant of helper-upload: uploads a new evidence file for an
+  // arbitrary task (not just the currently-selected one). Used inside the
+  // Processed History review drawer's "Resolver cambios" panel — the
+  // supervisor stays on the review queue while addressing the client's
+  // rejection. After confirm, refreshes the task's evidences map so the new
+  // file shows up immediately.
+  async function handleUploadEvidenceForTask(taskId: string, file: File): Promise<void> {
+    if (!session) throw new Error("No session");
+    if (!taskId) throw new Error("No task selected");
+    const mimeError = validateEvidenceFile(file);
+    if (mimeError) throw new Error(mimeError);
+    const uploadSession = await api<{ id: string; upload_url: string }>(
+      `/api/v1/tasks/${taskId}/evidence/upload-url`,
+      {
+        method: "POST",
+        token: session.access_token,
+        body: {
+          file_name: file.name,
+          content_type: file.type || "image/png",
+          file_size_bytes: file.size,
+          latitude: 0,
+          longitude: 0,
+        },
+      }
+    );
+    const uploadResponse = await fetch(browserSafeURL(uploadSession.upload_url), {
+      method: "PUT",
+      headers: { "Content-Type": file.type || "image/png" },
+      body: file,
+    });
+    if (!uploadResponse.ok) throw new Error("Direct file upload failed.");
+    await api(`/api/v1/evidence/confirm-upload`, {
+      method: "POST",
+      token: session.access_token,
+      body: {
+        upload_session_id: uploadSession.id,
+        metadata_exif: JSON.stringify({ device: "browser-supervisor" }),
+      },
+    });
+    // Refresh the in-memory evidences for that task so the drawer + gallery
+    // reflect the new upload without a full reload.
+    try {
+      const evidenceData = await api<Evidence[]>(
+        `/api/v1/tasks/${taskId}/evidences`,
+        { token: session.access_token }
+      );
+      setAllEvidences((prev) => {
+        const next = new Map(prev);
+        next.set(taskId, evidenceData);
+        return next;
+      });
+      if (taskId === selectedTaskId) setEvidences(evidenceData);
+    } catch {
+      // The upload already succeeded; surfacing the refresh error would be
+      // noise. The next interaction will re-fetch.
+    }
+  }
+
   async function uploadComparisonPhoto(file: File, projectId: string): Promise<string> {
     if (!session) throw new Error("No session");
     const mimeError = validateEvidenceFile(file);
@@ -2168,6 +2226,8 @@ export function ControlCenter() {
           accessToken={session.access_token}
           onTaskTimelinePatch={handleTaskTimelinePatch}
           onResubmitDeliverable={handleDeliverableResubmit}
+          onEditTaskOpen={handleOpenTaskEdit}
+          onUploadEvidenceForTask={handleUploadEvidenceForTask}
         />
       );
     }

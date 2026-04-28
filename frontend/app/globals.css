@@ -2334,3 +2334,207 @@ button[title] {
 .hamburger-item.active .hamburger-label {
   color: var(--accent-blue);
 }
+
+/* ============================================================
+   CLIENT PORTAL — hero zone, health pill, progress donut
+   ============================================================ */
+
+.client-hero {
+  position: relative;
+  border-radius: 28px;
+  background:
+    radial-gradient(ellipse at top left, color-mix(in srgb, var(--accent-blue) 14%, transparent) 0%, transparent 55%),
+    radial-gradient(ellipse at bottom right, color-mix(in srgb, var(--accent-purple) 12%, transparent) 0%, transparent 60%),
+    var(--glass-bg, rgba(20, 20, 28, 0.6));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 32px;
+  overflow: hidden;
+  backdrop-filter: blur(18px);
+}
+
+.client-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, transparent 50%);
+}
+
+.client-hero-header {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.client-hero-eyebrow {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.client-hero-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 32px;
+  align-items: center;
+}
+
+@media (max-width: 768px) {
+  .client-hero { padding: 20px; border-radius: 20px; }
+  .client-hero-grid { grid-template-columns: 1fr; gap: 20px; justify-items: center; }
+  .client-hero-header { flex-direction: column; align-items: flex-start; }
+}
+
+.client-hero-donut { display: flex; align-items: center; justify-content: center; }
+
+.client-hero-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+@media (max-width: 1024px) {
+  .client-hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 480px) {
+  .client-hero-stats { grid-template-columns: 1fr; }
+}
+
+.client-hero-stat {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  padding: 14px 16px;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.client-hero-stat:hover { background: rgba(255, 255, 255, 0.05); border-color: rgba(255, 255, 255, 0.1); }
+
+.client-hero-stat-warn {
+  background: color-mix(in srgb, #f59e0b 6%, rgba(255, 255, 255, 0.03));
+  border-color: color-mix(in srgb, #f59e0b 20%, transparent);
+}
+
+.client-hero-stat-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  margin-bottom: 6px;
+}
+
+.client-hero-stat-icon { display: inline-flex; color: rgba(255, 255, 255, 0.55); }
+.client-hero-stat-warn .client-hero-stat-icon { color: #f59e0b; }
+
+.client-hero-stat-value {
+  font-size: 18px;
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.client-hero-stat-hint {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 2px;
+  font-weight: 500;
+}
+
+/* Health pill */
+.health-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.health-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  animation: healthPulse 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.health-pill[data-status="completed"] .health-pill-dot,
+.health-pill[data-status="on_track"] .health-pill-dot {
+  animation-duration: 3s;
+}
+
+.health-pill[data-status="delayed"] .health-pill-dot {
+  animation-duration: 1.4s;
+}
+
+.health-pill-label { white-space: nowrap; }
+
+@keyframes healthPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.4); }
+}
+
+/* Progress donut */
+.progress-donut {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.progress-donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  pointer-events: none;
+}
+
+.progress-donut-value {
+  font-size: 36px;
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.progress-donut-label {
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.progress-donut-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 500;
+}

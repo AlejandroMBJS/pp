@@ -1,17 +1,45 @@
 "use client";
 
-import { MetricCard } from "./ui/metric-card";
 import { EmptyState } from "./ui/empty-state";
-import { ProgressBar } from "./ui/progress-bar";
 import { EvidenceGallery } from "./evidence-gallery";
-import { CheckCircle2, Clock3, ThumbsUp, ThumbsDown } from "lucide-react";
+import { HealthPill } from "./client/health-pill";
+import { ProgressDonut } from "./client/progress-donut";
+import { CheckCircle2, Clock3, ThumbsUp, ThumbsDown, Calendar, Wallet, Flag, ListChecks } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 
-type Deliverable = { id: string; task_id: string; title: string; due_date: string; status: string; client_visible: boolean };
+type Deliverable = {
+  id: string;
+  task_id: string;
+  title: string;
+  description?: string;
+  due_date: string;
+  status: string;
+  client_visible: boolean;
+  approved_by_user_id?: string;
+  approved_by_name?: string;
+  approved_at?: string;
+  rejection_reason?: string;
+  task_title?: string;
+};
 type Evidence = { id: string; task_id: string; file_name: string; url_archivo: string; quality_score: number; status: string; ai_processing_status: string; is_visible_to_client: boolean; created_at?: string };
-type ClientSummary = { project_name: string; timeline_progress: number; budget_spent_percent: number; deliverables: Deliverable[]; gallery: Evidence[] };
+type NextMilestone = { id: string; title: string; due_date: string; days_until: number };
+type DeliverablesBreakdown = { approved: number; pending: number; rejected: number; total: number };
+type ClientSummary = {
+  project_name: string;
+  timeline_progress: number;
+  budget_spent_percent: number;
+  budget_total_cents?: number;
+  budget_spent_cents?: number;
+  budget_remaining_cents?: number;
+  health_status?: "on_track" | "at_risk" | "delayed" | "completed";
+  eta_date?: string;
+  next_milestone?: NextMilestone | null;
+  deliverables_breakdown?: DeliverablesBreakdown;
+  deliverables: Deliverable[];
+  gallery: Evidence[];
+};
 
 type ClientCanvasProps = {
   activeView: string;
@@ -23,6 +51,26 @@ type ClientCanvasProps = {
   onRejectDeliverable?: (deliverableId: string, reason: string) => Promise<void>;
   isMobile?: boolean;
 };
+
+function formatMoney(cents?: number) {
+  if (cents === undefined || cents === null) return "—";
+  return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 }).format(cents / 100);
+}
+
+function formatDate(iso?: string) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function relativeDays(days: number): string {
+  if (days === 0) return "Today";
+  if (days === 1) return "Tomorrow";
+  if (days === -1) return "Yesterday";
+  if (days > 0) return `In ${days} days`;
+  return `${Math.abs(days)} days overdue`;
+}
 
 export function ClientCanvas({
   activeView,
@@ -74,86 +122,86 @@ export function ClientCanvas({
     : gallery;
 
   if (activeView === "summary") {
+    const breakdown = clientSummary?.deliverables_breakdown ?? { approved: 0, pending: 0, rejected: 0, total: clientSummary?.deliverables.length ?? 0 };
+    const next = clientSummary?.next_milestone ?? null;
+    const progress = clientSummary?.timeline_progress ?? 0;
+
     return (
-      <div className={`space-y-8 animate-fade-in ${isMobile ? 'pb-20' : ''}`}>
-        <div className="executive-header">
-          <h1 className={`${isMobile ? 'text-2xl' : 'text-4xl'} font-black text-white tracking-tight leading-none`}>
-            {clientSummary?.project_name ?? "Project Summary"}
-          </h1>
-          <p className="mt-2 text-sm text-white/50 font-medium">
-            {isMobile ? 'Project progress overview' : 'Curated technical and financial view for tracking your project.'}
-          </p>
+      <div className={`space-y-8 animate-fade-in ${isMobile ? "pb-20" : ""}`}>
+        {/* HERO ZONE */}
+        <div className="client-hero">
+          <div className="client-hero-header">
+            <div className="min-w-0">
+              <div className="client-hero-eyebrow">Project portal</div>
+              <h1 className={`${isMobile ? "text-2xl" : "text-4xl"} font-black text-white tracking-tight leading-none mt-1`}>
+                {clientSummary?.project_name ?? "Project Summary"}
+              </h1>
+            </div>
+            <HealthPill status={clientSummary?.health_status} />
+          </div>
+
+          <div className="client-hero-grid">
+            <div className="client-hero-donut">
+              <ProgressDonut
+                value={progress}
+                size={isMobile ? 140 : 184}
+                strokeWidth={isMobile ? 12 : 14}
+                label="Overall progress"
+                sublabel={`${breakdown.approved} of ${breakdown.total} deliverables`}
+              />
+            </div>
+
+            <div className="client-hero-stats">
+              <HeroStat
+                icon={<Flag size={16} />}
+                label="Next milestone"
+                value={next?.title ?? "All approved"}
+                hint={next ? relativeDays(next.days_until) : "No pending milestones"}
+                tone={next && next.days_until < 0 ? "warn" : "default"}
+              />
+              <HeroStat
+                icon={<Calendar size={16} />}
+                label="Estimated completion"
+                value={formatDate(clientSummary?.eta_date)}
+                hint={
+                  clientSummary?.health_status === "completed"
+                    ? "Project completed"
+                    : clientSummary?.health_status === "delayed"
+                    ? "Past planned end"
+                    : "Based on remaining tasks"
+                }
+              />
+              <HeroStat
+                icon={<Wallet size={16} />}
+                label="Budget remaining"
+                value={formatMoney(clientSummary?.budget_remaining_cents)}
+                hint={`${clientSummary?.budget_spent_percent ?? 0}% spent`}
+                tone={(clientSummary?.budget_spent_percent ?? 0) > 100 ? "warn" : "default"}
+              />
+              <HeroStat
+                icon={<ListChecks size={16} />}
+                label="Deliverables"
+                value={`${breakdown.approved} / ${breakdown.total}`}
+                hint={
+                  breakdown.rejected > 0
+                    ? `${breakdown.pending} pending · ${breakdown.rejected} need changes`
+                    : `${breakdown.pending} pending`
+                }
+                tone={breakdown.rejected > 0 ? "warn" : "default"}
+              />
+            </div>
+          </div>
         </div>
 
-        {isMobile ? (
-          <div className="space-y-4">
-            <div className="glass-card p-4 border-blue-500/10">
-              <div className="metric-label text-white/40 text-xs uppercase">Overall Progress</div>
-              <div className="metric-value text-blue-400 font-black text-3xl">{clientSummary?.timeline_progress ?? 0}%</div>
-              <div className="mt-3 h-2 w-full bg-white/5 rounded-full overflow-hidden">
-                <div
-                className="h-full transition-all duration-1000"
-                style={{
-                  width: `${clientSummary?.timeline_progress ?? 0}%`,
-                  background: "var(--accent-blue)",
-                  boxShadow: "0 0 12px color-mix(in srgb, var(--accent-blue) 50%, transparent)",
-                }}
-              />
-              </div>
-            </div>
-            <div className="glass-card p-4 border-white/5">
-              <div className="metric-label text-white/40 text-xs uppercase">Budget Spent</div>
-              <div className="metric-value text-white font-black text-3xl">{clientSummary?.budget_spent_percent ?? 0}%</div>
-              <div className="mt-3 h-2 w-full bg-white/5 rounded-full overflow-hidden">
-                <div className="h-full bg-white/40 transition-all duration-1000" style={{ width: `${clientSummary?.budget_spent_percent ?? 0}%` }} />
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="glass-card metric-card-premium border-blue-500/10">
-            <div className="metric-label text-white/40">Overall Progress</div>
-            <div className="metric-value text-blue-400 font-black">{clientSummary?.timeline_progress ?? 0}%</div>
-            <div className="mt-3 h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-              <div
-                className="h-full transition-all duration-1000"
-                style={{
-                  width: `${clientSummary?.timeline_progress ?? 0}%`,
-                  background: "var(--accent-blue)",
-                  boxShadow: "0 0 12px color-mix(in srgb, var(--accent-blue) 50%, transparent)",
-                }}
-              />
-            </div>
-          </div>
-          <div className="glass-card metric-card-premium border-white/5">
-            <div className="metric-label text-white/40">Budget Spent</div>
-            <div className="metric-value text-white">{clientSummary?.budget_spent_percent ?? 0}%</div>
-            <div className="mt-3 h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-              <div className="h-full bg-white/40 transition-all duration-1000" style={{ width: `${clientSummary?.budget_spent_percent ?? 0}%` }} />
-            </div>
-          </div>
-          <div className="glass-card metric-card-premium border-green-500/10">
-            <div className="metric-label text-white/40">Deliverables</div>
-            <div className="metric-value text-green-400 font-black">{clientSummary?.deliverables.length ?? 0}</div>
-            <div className="text-[10px] text-white/20 font-bold uppercase tracking-widest mt-1">Contract Milestones</div>
-          </div>
-          <div className="glass-card metric-card-premium border-amber-500/10">
-            <div className="metric-label text-white/40">Final Gallery</div>
-            <div className="metric-value text-amber-400 font-black">{clientSummary?.gallery.length ?? 0}</div>
-            <div className="text-[10px] text-white/20 font-bold uppercase tracking-widest mt-1">Approved Photos</div>
-          </div>
-        </div>
-        )}
-        
-        {/* Deliverables */}
+        {/* DELIVERABLES LIST (PR-B will replace with timeline) */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold uppercase tracking-widest text-white/40">
-               Deliverables and Milestones
+              Deliverables and Milestones
             </h2>
             <div className="h-px flex-1 bg-white/5 mx-4" />
           </div>
-          
+
           {(clientSummary?.deliverables ?? []).length === 0 ? (
             <div className="glass-card p-12 text-center border-dashed border-white/10">
               <EmptyState text="No visible deliverables at this time." />
@@ -178,12 +226,27 @@ export function ClientCanvas({
                       }`}>
                         {d.status === "approved" ? <CheckCircle2 size={24} /> : <Clock3 size={24} />}
                       </div>
-                      <div>
-                        <div className="text-base font-bold text-white group-hover:text-blue-400 transition-colors tracking-tight">{d.title}</div>
-                        <div className="text-xs text-white/40 font-medium">Due: {d.due_date}</div>
+                      <div className="min-w-0">
+                        <div className="text-base font-bold text-white group-hover:text-blue-400 transition-colors tracking-tight truncate">{d.title}</div>
+                        <div className="text-xs text-white/40 font-medium flex items-center gap-2">
+                          <span>Due: {formatDate(d.due_date)}</span>
+                          {d.task_title && <span className="text-white/25">·</span>}
+                          {d.task_title && <span className="truncate">{d.task_title}</span>}
+                        </div>
+                        {d.status === "approved" && d.approved_by_name && (
+                          <div className="text-[11px] text-green-400/80 mt-1">
+                            Approved by {d.approved_by_name}
+                            {d.approved_at && ` on ${formatDate(d.approved_at)}`}
+                          </div>
+                        )}
+                        {d.status === "rejected" && d.rejection_reason && (
+                          <div className="text-[11px] text-red-400/80 mt-1 line-clamp-1">
+                            Changes requested: {d.rejection_reason}
+                          </div>
+                        )}
                       </div>
                     </button>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-shrink-0">
                       <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
                         d.status === "approved" ? "bg-green-500/10 text-green-400 border-green-500/20" : d.status === "rejected" ? "bg-red-500/10 text-red-400 border-red-500/20" : "bg-amber-500/10 text-amber-400 border-amber-500/20"
                       }`}>
@@ -299,4 +362,29 @@ export function ClientCanvas({
   }
 
   return null;
+}
+
+function HeroStat({
+  icon,
+  label,
+  value,
+  hint,
+  tone = "default",
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  hint?: string;
+  tone?: "default" | "warn";
+}) {
+  return (
+    <div className={`client-hero-stat ${tone === "warn" ? "client-hero-stat-warn" : ""}`}>
+      <div className="client-hero-stat-label">
+        <span className="client-hero-stat-icon">{icon}</span>
+        {label}
+      </div>
+      <div className="client-hero-stat-value" title={value}>{value}</div>
+      {hint && <div className="client-hero-stat-hint">{hint}</div>}
+    </div>
+  );
 }

@@ -217,8 +217,10 @@ type Deliverable struct {
 	Status           string `json:"status"`
 	ClientVisible    bool   `json:"client_visible"`
 	ApprovedByUserID string `json:"approved_by_user_id,omitempty"`
+	ApprovedByName   string `json:"approved_by_name,omitempty"`
 	ApprovedAt       string `json:"approved_at,omitempty"`
 	RejectionReason  string `json:"rejection_reason,omitempty"`
+	TaskTitle        string `json:"task_title,omitempty"`
 }
 
 type Evidence struct {
@@ -392,12 +394,33 @@ type ProjectCard struct {
 }
 
 type ClientSummary struct {
-	ProjectID          string        `json:"project_id"`
-	ProjectName        string        `json:"project_name"`
-	TimelineProgress   int           `json:"timeline_progress"`
-	BudgetSpentPercent int           `json:"budget_spent_percent"`
-	Deliverables       []Deliverable `json:"deliverables"`
-	Gallery            []Evidence    `json:"gallery"`
+	ProjectID             string                 `json:"project_id"`
+	ProjectName           string                 `json:"project_name"`
+	TimelineProgress      int                    `json:"timeline_progress"`
+	BudgetSpentPercent    int                    `json:"budget_spent_percent"`
+	BudgetTotalCents      int64                  `json:"budget_total_cents"`
+	BudgetSpentCents      int64                  `json:"budget_spent_cents"`
+	BudgetRemainingCents  int64                  `json:"budget_remaining_cents"`
+	HealthStatus          string                 `json:"health_status"` // "on_track" | "at_risk" | "delayed" | "completed"
+	ETADate               string                 `json:"eta_date,omitempty"`
+	NextMilestone         *NextMilestone         `json:"next_milestone,omitempty"`
+	DeliverablesBreakdown DeliverablesBreakdown  `json:"deliverables_breakdown"`
+	Deliverables          []Deliverable          `json:"deliverables"`
+	Gallery               []Evidence             `json:"gallery"`
+}
+
+type NextMilestone struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	DueDate   string `json:"due_date"`
+	DaysUntil int    `json:"days_until"`
+}
+
+type DeliverablesBreakdown struct {
+	Approved int `json:"approved"`
+	Pending  int `json:"pending"`
+	Rejected int `json:"rejected"`
+	Total    int `json:"total"`
 }
 
 type AuditFeedback struct {

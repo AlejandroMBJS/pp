@@ -66,6 +66,7 @@ type ClientCanvasProps = {
   accessToken?: string;
   projectId?: string;
   apiBase?: string;
+  currentUserId?: string;
   onDeliverableClick: (deliverableId: string, taskId?: string) => void;
   onClearTaskFilter?: () => void;
   onApproveDeliverable?: (deliverableId: string, comment: string) => Promise<void>;
@@ -100,6 +101,7 @@ export function ClientCanvas({
   accessToken,
   projectId,
   apiBase = "",
+  currentUserId,
   onDeliverableClick,
   onClearTaskFilter,
   onApproveDeliverable,
@@ -239,6 +241,7 @@ export function ClientCanvas({
             deliverable={drawerDeliverable}
             evidences={gallery}
             accessToken={accessToken}
+            currentUserId={currentUserId}
             canAct={!!onApproveDeliverable}
             onApprove={onApproveDeliverable ? async (id, comment) => { await onApproveDeliverable(id, comment); setDrawerId(null); setActivityRefreshKey((k) => k + 1); } : undefined}
             onReject={onRejectDeliverable ? async (id, r, cat) => { await onRejectDeliverable(id, r, cat); setDrawerId(null); setActivityRefreshKey((k) => k + 1); } : undefined}

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { withAccessToken } from "../../lib/files";
 import { BeforeAfterSlider } from "./before-after-slider";
+import { TaskChat } from "../ui/task-chat";
 import { toast } from "sonner";
 
 type Deliverable = {
@@ -50,6 +51,7 @@ type Props = {
   evidences: Evidence[];
   accessToken?: string;
   canAct: boolean;
+  currentUserId?: string;
   onApprove?: (id: string, comment: string) => Promise<void>;
   onReject?: (id: string, reason: string, category: string) => Promise<void>;
   onEvidenceClick?: (taskId: string) => void;
@@ -143,6 +145,7 @@ export function DeliverableDrawerContent({
   evidences,
   accessToken,
   canAct,
+  currentUserId,
   onApprove,
   onReject,
   onEvidenceClick,
@@ -284,6 +287,18 @@ export function DeliverableDrawerContent({
           </button>
         )}
       </Section>
+
+      {/* Direct chat with project owner */}
+      {accessToken && currentUserId && deliverable.task_id && (
+        <Section icon={<FileText size={14} />} label="Chat">
+          <TaskChat
+            taskId={deliverable.task_id}
+            accessToken={accessToken}
+            currentUserId={currentUserId}
+            selfRole="client"
+          />
+        </Section>
+      )}
 
       {/* Actions */}
       {canAct && deliverable.status !== "approved" && (

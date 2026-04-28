@@ -3408,6 +3408,110 @@ func (s *Service) ListClientActivity(ctx context.Context, actor Claims, projectI
 	return out, rows.Err()
 }
 
+// ListTaskChat returns the chat thread for a task. Only the tenant owner and
+// the project's client can read. Helpers and supervisors get 403.
+func (s *Service) ListTaskChat(ctx context.Context, actor Claims, taskID string) ([]TaskChatMessage, error) {
+	t, err := s.taskByID(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	project, err := s.projectByID(ctx, t.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	if !canAccessTaskChat(actor, project) {
+		return nil, errors.New("forbidden")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT m.id, m.tenant_id, m.project_id, m.task_id, m.sender_user_id, m.sender_role, m.body,
+		       m.created_at::text, COALESCE(u.full_name, u.email, '')
+		FROM task_chat_messages m
+		LEFT JOIN users u ON u.id = m.sender_user_id
+		WHERE m.task_id = $1
+		ORDER BY m.created_at ASC`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]TaskChatMessage, 0)
+	for rows.Next() {
+		var m TaskChatMessage
+		if err := rows.Scan(&m.ID, &m.TenantID, &m.ProjectID, &m.TaskID, &m.SenderUserID, &m.SenderRole, &m.Body, &m.CreatedAt, &m.SenderName); err != nil {
+			return nil, err
+		}
+		// Privacy: client sees the role label only (not personal names) for
+		// owner messages — owners are referenced as "Equipo / Owner" so the
+		// client doesn't get a personal contact route. Owner sees full names.
+		if actor.Role == RoleClient && m.SenderRole == "owner" {
+			m.SenderName = "Owner"
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// SendTaskChatMessage posts a new message in the task chat. Same RBAC as
+// ListTaskChat. Trims + caps body at 4000 chars to deter abuse.
+func (s *Service) SendTaskChatMessage(ctx context.Context, actor Claims, taskID, body string) (TaskChatMessage, error) {
+	t, err := s.taskByID(ctx, taskID)
+	if err != nil {
+		return TaskChatMessage{}, err
+	}
+	project, err := s.projectByID(ctx, t.ProjectID)
+	if err != nil {
+		return TaskChatMessage{}, err
+	}
+	if !canAccessTaskChat(actor, project) {
+		return TaskChatMessage{}, errors.New("forbidden")
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return TaskChatMessage{}, errors.New("body is required")
+	}
+	if len(body) > 4000 {
+		body = body[:4000]
+	}
+	role := "client"
+	if actor.Role == RoleOwner {
+		role = "owner"
+	}
+	id := newID("tcm")
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO task_chat_messages (id, tenant_id, project_id, task_id, sender_user_id, sender_role, body) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		id, t.TenantID, t.ProjectID, t.ID, actor.UserID, role, body); err != nil {
+		return TaskChatMessage{}, err
+	}
+	s.logger.Info("task_chat.sent", "task_id", t.ID, "actor_id", actor.UserID, "role", role, "body_len", len(body))
+	// Read back with sender name for the response.
+	var msg TaskChatMessage
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT m.id, m.tenant_id, m.project_id, m.task_id, m.sender_user_id, m.sender_role, m.body,
+		       m.created_at::text, COALESCE(u.full_name, u.email, '')
+		FROM task_chat_messages m
+		LEFT JOIN users u ON u.id = m.sender_user_id
+		WHERE m.id = $1`, id).
+		Scan(&msg.ID, &msg.TenantID, &msg.ProjectID, &msg.TaskID, &msg.SenderUserID, &msg.SenderRole, &msg.Body, &msg.CreatedAt, &msg.SenderName); err != nil {
+		return TaskChatMessage{}, err
+	}
+	if actor.Role == RoleClient && msg.SenderRole == "owner" {
+		msg.SenderName = "Owner"
+	}
+	return msg, nil
+}
+
+// canAccessTaskChat returns true for tenant owners and the project's client.
+// Supervisors and helpers are intentionally excluded — the chat is the
+// owner's private channel with the client.
+func canAccessTaskChat(actor Claims, project Project) bool {
+	if actor.Role == RoleOwner && actor.TenantID == project.TenantID {
+		return true
+	}
+	if actor.Role == RoleClient && actor.UserID == project.ClientUserID {
+		return true
+	}
+	return false
+}
+
 func parseFlexibleDate(s string) (time.Time, error) {
 	if s == "" {
 		return time.Time{}, errors.New("empty date")

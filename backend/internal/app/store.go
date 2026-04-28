@@ -697,6 +697,19 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			ALTER TABLE deliverables
 				ADD COLUMN IF NOT EXISTS resubmission_note TEXT NOT NULL DEFAULT ''
 		`},
+		{47, "create_task_chat_messages", `
+			CREATE TABLE IF NOT EXISTS task_chat_messages (
+				id TEXT PRIMARY KEY,
+				tenant_id TEXT NOT NULL,
+				project_id TEXT NOT NULL,
+				task_id TEXT NOT NULL,
+				sender_user_id TEXT NOT NULL,
+				sender_role TEXT NOT NULL,
+				body TEXT NOT NULL,
+				created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			);
+			CREATE INDEX IF NOT EXISTS idx_task_chat_task ON task_chat_messages (task_id, created_at);
+		`},
 	}
 
 	for _, m := range steps {

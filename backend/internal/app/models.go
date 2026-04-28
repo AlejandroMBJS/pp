@@ -436,6 +436,22 @@ type DeliverablesBreakdown struct {
 	Total    int `json:"total"`
 }
 
+// TaskChatMessage is one message in the client ↔ owner chat scoped to a task.
+// Only the project's client and tenant owners can read or write. Supervisors
+// and helpers do not have access — keeps employee identities hidden from the
+// client and gives the owner a private channel.
+type TaskChatMessage struct {
+	ID           string `json:"id"`
+	TenantID     string `json:"tenant_id"`
+	ProjectID    string `json:"project_id"`
+	TaskID       string `json:"task_id"`
+	SenderUserID string `json:"sender_user_id"`
+	SenderRole   string `json:"sender_role"` // "owner" | "client"
+	SenderName   string `json:"sender_name,omitempty"`
+	Body         string `json:"body"`
+	CreatedAt    string `json:"created_at"`
+}
+
 // ClientActivityEvent is a single entry in the client-facing activity feed.
 // Types: "deliverable_approved", "deliverable_rejected", "evidence_uploaded".
 type ClientActivityEvent struct {

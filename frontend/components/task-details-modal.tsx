@@ -2,6 +2,7 @@
 
 import { X, Pencil, ChevronRight, GitBranch, Calendar, Users, Star } from "lucide-react";
 import { withAccessToken } from "../lib/files";
+import { TaskChat } from "./ui/task-chat";
 
 type Task = {
   id: string;
@@ -56,6 +57,9 @@ type TaskDetailsModalProps = {
   evidences: Evidence[];
   users?: UserLite[];
   accessToken?: string;
+  currentUserId?: string;
+  /** Pass "owner" to surface the client-chat panel; other roles hide it. */
+  viewerRole?: "owner" | string;
   onStatusChange?: (status: string) => void;
   onColorChange?: (color: string) => void;
   onOpenEditor?: () => void;
@@ -91,6 +95,8 @@ export function TaskDetailsModal({
   evidences,
   users = [],
   accessToken,
+  currentUserId,
+  viewerRole,
   onStatusChange,
   onColorChange,
   onOpenEditor,
@@ -387,6 +393,19 @@ export function TaskDetailsModal({
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Direct chat with the client (owner only) */}
+            {viewerRole === "owner" && accessToken && currentUserId && (
+              <div>
+                <div className="task-details-section-header">Chat with client</div>
+                <TaskChat
+                  taskId={task.id}
+                  accessToken={accessToken}
+                  currentUserId={currentUserId}
+                  selfRole="owner"
+                />
               </div>
             )}
           </div>

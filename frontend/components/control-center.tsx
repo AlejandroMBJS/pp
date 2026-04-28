@@ -1908,6 +1908,7 @@ export function ControlCenter() {
             activeView={activeView}
             clientSummary={clientSummary}
             selectedTaskId={clientGalleryTaskId}
+            accessToken={session.access_token}
             onDeliverableClick={(id, taskId) => handleDeliverableNavigate(id, taskId)}
             onClearTaskFilter={() => setClientGalleryTaskId(null)}
             onApproveDeliverable={handleDeliverableApprove}
@@ -2132,8 +2133,11 @@ export function ControlCenter() {
           activeView={activeView}
           clientSummary={clientSummary}
           selectedTaskId={clientGalleryTaskId}
+          accessToken={session.access_token}
           onDeliverableClick={(id, taskId) => handleDeliverableNavigate(id, taskId)}
           onClearTaskFilter={() => setClientGalleryTaskId(null)}
+          onApproveDeliverable={handleDeliverableApprove}
+          onRejectDeliverable={handleDeliverableReject}
         />
       );
     }

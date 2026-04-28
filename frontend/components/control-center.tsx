@@ -2011,6 +2011,7 @@ export function ControlCenter() {
             selectedTaskId={clientGalleryTaskId}
             accessToken={session.access_token}
             projectId={selectedProjectId ?? undefined}
+            currentUserId={session.user.id}
             onDeliverableClick={(id, taskId) => handleDeliverableNavigate(id, taskId)}
             onClearTaskFilter={() => setClientGalleryTaskId(null)}
             onApproveDeliverable={handleDeliverableApprove}
@@ -2242,6 +2243,7 @@ export function ControlCenter() {
           selectedTaskId={clientGalleryTaskId}
           accessToken={session.access_token}
           projectId={selectedProjectId ?? undefined}
+          currentUserId={session.user.id}
           onDeliverableClick={(id, taskId) => handleDeliverableNavigate(id, taskId)}
           onClearTaskFilter={() => setClientGalleryTaskId(null)}
           onApproveDeliverable={handleDeliverableApprove}
@@ -2448,6 +2450,8 @@ export function ControlCenter() {
         evidences={evidences}
         users={users}
         accessToken={session?.access_token}
+        currentUserId={session?.user.id}
+        viewerRole={session?.user.role}
         onStatusChange={(status) => {
           if (currentTask) handleTaskTimelinePatch(currentTask.id, { status });
         }}

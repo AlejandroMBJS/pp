@@ -125,6 +125,8 @@ func (s *Server) Routes() http.Handler {
 		protected.Post("/api/v1/deliverables/{deliverableID}/approve", s.handleApproveDeliverable)
 		protected.Post("/api/v1/deliverables/{deliverableID}/reject", s.handleRejectDeliverable)
 		protected.Post("/api/v1/deliverables/{deliverableID}/resubmit", s.handleResubmitDeliverable)
+		protected.Get("/api/v1/tasks/{taskID}/chat", s.handleListTaskChat)
+		protected.Post("/api/v1/tasks/{taskID}/chat", s.handleSendTaskChat)
 		protected.Post("/api/v1/projects", s.handleCreateProject)
 		protected.Get("/api/v1/blueprints/{blueprintID}/file", s.handleBlueprintFile)
 		protected.Get("/api/v1/blueprints/{blueprintID}/preview", s.handleBlueprintPreview)
@@ -896,6 +898,30 @@ func (s *Server) handleRejectDeliverable(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, deliverable)
+}
+
+func (s *Server) handleListTaskChat(w http.ResponseWriter, r *http.Request) {
+	msgs, err := s.service.ListTaskChat(r.Context(), s.actor(r), chi.URLParam(r, "taskID"))
+	if err != nil {
+		classifyAndWriteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, msgs)
+}
+
+func (s *Server) handleSendTaskChat(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Body string `json:"body"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	msg, err := s.service.SendTaskChatMessage(r.Context(), s.actor(r), chi.URLParam(r, "taskID"), req.Body)
+	if err != nil {
+		classifyAndWriteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, msg)
 }
 
 func (s *Server) handleResubmitDeliverable(w http.ResponseWriter, r *http.Request) {

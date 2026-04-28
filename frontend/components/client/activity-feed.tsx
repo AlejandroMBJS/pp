@@ -111,7 +111,7 @@ export function ActivityFeed({ projectId, apiBase = "", accessToken, refreshKey 
             <div className="activity-feed-body">
               <div className="activity-feed-title">
                 <span className="text-white/85">
-                  {ev.actor_name ? <strong className="text-white">{ev.actor_name}</strong> : <span className="text-white/60">Someone</span>}
+                  {ev.actor_name ? <strong className="text-white">{ev.actor_name}</strong> : <span className="text-white/70">El equipo</span>}
                 </span>
                 <span className="text-white/50"> · {m.verb} </span>
                 <span className="text-white">{ev.title}</span>

@@ -124,6 +124,7 @@ func (s *Server) Routes() http.Handler {
 		protected.Get("/api/v1/projects/{projectID}/deliverables", s.handleProjectDeliverables)
 		protected.Post("/api/v1/deliverables/{deliverableID}/approve", s.handleApproveDeliverable)
 		protected.Post("/api/v1/deliverables/{deliverableID}/reject", s.handleRejectDeliverable)
+		protected.Post("/api/v1/deliverables/{deliverableID}/resubmit", s.handleResubmitDeliverable)
 		protected.Post("/api/v1/projects", s.handleCreateProject)
 		protected.Get("/api/v1/blueprints/{blueprintID}/file", s.handleBlueprintFile)
 		protected.Get("/api/v1/blueprints/{blueprintID}/preview", s.handleBlueprintPreview)
@@ -890,6 +891,23 @@ func (s *Server) handleRejectDeliverable(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	deliverable, err := s.service.RejectDeliverable(r.Context(), s.actor(r), chi.URLParam(r, "deliverableID"), req.Reason, req.Category)
+	if err != nil {
+		classifyAndWriteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, deliverable)
+}
+
+func (s *Server) handleResubmitDeliverable(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Note string `json:"note"`
+	}
+	if r.ContentLength > 0 {
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+	}
+	deliverable, err := s.service.ResubmitDeliverable(r.Context(), s.actor(r), chi.URLParam(r, "deliverableID"), req.Note)
 	if err != nil {
 		classifyAndWriteError(w, err)
 		return

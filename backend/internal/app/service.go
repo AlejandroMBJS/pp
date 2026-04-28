@@ -3901,6 +3901,85 @@ func (s *Service) RejectDeliverable(ctx context.Context, actor Claims, deliverab
 	return d, nil
 }
 
+// ResubmitDeliverable transitions a 'rejected' deliverable back to 'pending'
+// after the team has addressed the client's feedback. Permitted to owner,
+// supervisor, or the helper assigned to the underlying task. Stores an
+// optional note describing what was changed; clears the rejection metadata.
+// Notifies the client by email so they know to come back and review.
+func (s *Service) ResubmitDeliverable(ctx context.Context, actor Claims, deliverableID, note string) (Deliverable, error) {
+	d, _, err := s.deliverableByID(ctx, deliverableID)
+	if err != nil {
+		return Deliverable{}, err
+	}
+	project, err := s.projectByID(ctx, d.ProjectID)
+	if err != nil {
+		return Deliverable{}, err
+	}
+	if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
+		return Deliverable{}, err
+	}
+	// Permission: owner / supervisor always; helper only if the task is
+	// assigned to them.
+	if actor.Role != RoleOwner && actor.Role != RoleSupervisor {
+		if actor.Role != RoleHelper {
+			return Deliverable{}, errors.New("forbidden")
+		}
+		var assignedID string
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT COALESCE(assigned_to_user_id,'') FROM tasks WHERE id = $1`, d.TaskID).
+			Scan(&assignedID); err != nil {
+			return Deliverable{}, errors.New("forbidden")
+		}
+		if assignedID != actor.UserID {
+			return Deliverable{}, errors.New("forbidden")
+		}
+	}
+	if d.Status != "rejected" {
+		return Deliverable{}, fmt.Errorf("cannot resubmit deliverable in status %q", d.Status)
+	}
+	note = strings.TrimSpace(note)
+	if len(note) > 2000 {
+		note = note[:2000]
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE deliverables SET status='pending', rejection_reason='', rejection_category='', resubmission_note=$1, updated_at=$2 WHERE id = $3`,
+		note, nowText(), deliverableID); err != nil {
+		return Deliverable{}, err
+	}
+	s.logger.Info("deliverable.resubmitted", "deliverable_id", deliverableID, "actor_id", actor.UserID, "note_len", len(note))
+
+	// Email the client on this project so they come back to review.
+	clientUserID := project.ClientUserID
+	go func(clientID, projectName, deliverableTitle string) {
+		if clientID == "" {
+			return
+		}
+		bg := context.Background()
+		var email string
+		if err := s.db.QueryRowContext(bg, `SELECT COALESCE(email,'') FROM users WHERE id = $1`, clientID).Scan(&email); err != nil {
+			s.logger.Warn("resubmit notify: client lookup failed", "user_id", clientID, "err", err.Error())
+			return
+		}
+		if email == "" {
+			return
+		}
+		body := fmt.Sprintf("El equipo respondió a tu solicitud de cambios en el entregable \"%s\" del proyecto %s.\n\nLa entrega está lista para tu nueva revisión.", deliverableTitle, projectName)
+		if note != "" {
+			body += "\n\nNota del equipo:\n" + note
+		}
+		body += "\n\n— ProjectPulse"
+		if err := s.mailer.Send(bg, email, "Entrega lista para revisar nuevamente: "+deliverableTitle, body); err != nil {
+			s.logger.Warn("resubmit notify: send failed", "to", email, "err", err.Error())
+		}
+	}(clientUserID, project.Name, d.Title)
+
+	d.Status = "pending"
+	d.RejectionReason = ""
+	d.RejectionCategory = ""
+	d.ResubmissionNote = note
+	return d, nil
+}
+
 func sanitizeRejectionCategory(c string) string {
 	c = strings.TrimSpace(strings.ToLower(c))
 	switch c {

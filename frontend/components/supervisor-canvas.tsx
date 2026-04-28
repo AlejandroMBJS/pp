@@ -10,6 +10,7 @@ import { GanttZoomControl, type GanttZoomLevel } from "./ui/gantt-zoom-control";
 import { BudgetPanel } from "./budget-panel";
 import { Drawer } from "./ui/drawer";
 import { EvidenceReviewDrawerContent } from "./supervisor/evidence-review-drawer";
+import { ResubmitDeliverableModal } from "./supervisor/resubmit-deliverable-modal";
 import { Loader2, TrendingUp, AlignLeft, Plus, ListChecks, Maximize2, Minimize2, X } from "lucide-react";
 import { Toolbar, FilterChips, BulkBar, BulkApproveIcon, BulkRejectIcon, runBulk, type FilterChipOption } from "./ui/toolbar";
 import { buildTaskColorMap } from "../lib/colors";
@@ -105,6 +106,7 @@ type SupervisorCanvasProps = {
     taskId: string,
     patch: { start_date?: string; end_date?: string; status?: string; progress_percent?: number; predecessor_task_id?: string | null; color_hex?: string }
   ) => void;
+  onResubmitDeliverable?: (deliverableId: string, note: string) => Promise<void>;
 };
 
 export function SupervisorCanvas({
@@ -133,6 +135,7 @@ export function SupervisorCanvas({
   onGanttZoomChange,
   accessToken,
   onTaskTimelinePatch,
+  onResubmitDeliverable,
 }: SupervisorCanvasProps) {
   const [reviewStatusFilter, setReviewStatusFilter] = useState<"all" | "pending_approval" | "approved" | "rejected">("all");
   const [reviewTaskFilter, setReviewTaskFilter] = useState<string>("");
@@ -144,6 +147,7 @@ export function SupervisorCanvas({
   const [bulkApproveOpen, setBulkApproveOpen] = useState(false);
   const [bulkApproveVisible, setBulkApproveVisible] = useState(true);
   const [reviewDrawerId, setReviewDrawerId] = useState<string | null>(null);
+  const [resubmitDeliverable, setResubmitDeliverable] = useState<Deliverable | null>(null);
   const [ganttFullscreen, setGanttFullscreen] = useState(false);
 
   // Exit fullscreen with Escape.
@@ -279,29 +283,50 @@ export function SupervisorCanvas({
                   </div>
                   <div className="space-y-2">
                     {clientRejected.map((d) => (
-                      <button
+                      <div
                         key={d.id}
-                        type="button"
-                        className="w-full text-left rounded-xl bg-white/3 hover:bg-white/5 border border-white/8 px-4 py-3 transition"
-                        onClick={() => { if (d.task_id) onTaskClick?.(d.task_id); }}
+                        className="rounded-xl bg-white/3 border border-white/8 px-4 py-3"
                       >
-                        <div className="flex items-baseline justify-between gap-3">
-                          <div className="font-bold text-white truncate">{d.title}</div>
-                          {d.task_title && (
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-white/40 flex-shrink-0">
-                              {d.task_title}
+                        <button
+                          type="button"
+                          className="w-full text-left"
+                          onClick={() => { if (d.task_id) onTaskClick?.(d.task_id); }}
+                        >
+                          <div className="flex items-baseline justify-between gap-3">
+                            <div className="font-bold text-white truncate">{d.title}</div>
+                            {d.task_title && (
+                              <span className="text-[10px] font-bold uppercase tracking-widest text-white/40 flex-shrink-0">
+                                {d.task_title}
+                              </span>
+                            )}
+                          </div>
+                          {d.rejection_reason && (
+                            <div className="text-xs text-white/75 mt-1 whitespace-pre-wrap">{d.rejection_reason}</div>
+                          )}
+                          {d.rejection_category && (
+                            <span className="inline-block mt-2 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest" style={{ background: "rgba(245,158,11,0.15)", color: "#f59e0b" }}>
+                              {d.rejection_category.replace(/_/g, " ")}
                             </span>
                           )}
+                        </button>
+                        <div className="mt-3 flex items-center gap-2">
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-bold uppercase tracking-widest transition"
+                            style={{ background: "color-mix(in srgb, #10b981 22%, transparent)", color: "#10b981", border: "1px solid color-mix(in srgb, #10b981 40%, transparent)" }}
+                            onClick={() => setResubmitDeliverable(d)}
+                          >
+                            ↻ Resolved · re-submit
+                          </button>
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-widest text-white/70 transition"
+                            onClick={() => { if (d.task_id) onTaskClick?.(d.task_id); }}
+                          >
+                            Add evidence
+                          </button>
                         </div>
-                        {d.rejection_reason && (
-                          <div className="text-xs text-white/75 mt-1 whitespace-pre-wrap">{d.rejection_reason}</div>
-                        )}
-                        {d.rejection_category && (
-                          <span className="inline-block mt-2 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest" style={{ background: "rgba(245,158,11,0.15)", color: "#f59e0b" }}>
-                            {d.rejection_category.replace(/_/g, " ")}
-                          </span>
-                        )}
-                      </button>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -694,6 +719,14 @@ export function SupervisorCanvas({
             onReAudit={onReAudit ? async (id) => { await onReAudit(id); } : undefined}
           />
         </Drawer>
+
+        <ResubmitDeliverableModal
+          deliverable={resubmitDeliverable}
+          onClose={() => setResubmitDeliverable(null)}
+          onSubmit={async (id, note) => {
+            if (onResubmitDeliverable) await onResubmitDeliverable(id, note);
+          }}
+        />
       </div>
     );
   }

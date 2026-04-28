@@ -3,7 +3,7 @@
 import {
   LayoutDashboard, Clock, Users, Camera, FileCheck, Shield,
   Building2, HardHat, X, Settings, Settings2,
-  Eye, FolderKanban, MonitorPlay, TrendingUp, AlignLeft, MessageSquare, Box
+  Eye, FolderKanban, MonitorPlay, TrendingUp, AlignLeft, MessageSquare, Box, ListChecks
 } from "lucide-react";
 
 type LoginResponse = {
@@ -18,6 +18,7 @@ const MENU_ICONS: Record<string, React.ReactNode> = {
   team:      <Users size={16} />,
   review:    <FileCheck size={16} />,
   timeline:  <Clock size={16} />,
+  tasks:     <ListChecks size={16} />,
   capture:   <Camera size={16} />,
   history:   <FileCheck size={16} />,
   summary:   <LayoutDashboard size={16} />,
@@ -74,6 +75,7 @@ function menuForRole(role: string): MenuItem[] {
       ];
     case "helper":
       return [
+        { id: "tasks",    label: "My tasks" },
         { id: "capture",  label: "Capture progress" },
         { id: "history",  label: "History" },
         { id: "journal",  label: "Daily log" },

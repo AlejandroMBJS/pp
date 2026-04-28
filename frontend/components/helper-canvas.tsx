@@ -2,7 +2,7 @@
 
 import type { FormEvent } from "react";
 import { useState, useCallback, useEffect } from "react";
-import { Upload, ImageIcon, X } from "lucide-react";
+import { Upload, ImageIcon, X, ListChecks, ArrowRight, CheckCircle2, Clock3, AlertCircle } from "lucide-react";
 import { EmptyState } from "./ui/empty-state";
 import { ListRow } from "./ui/list-row";
 
@@ -25,10 +25,13 @@ type Evidence = { id: string; file_name: string; status: string; quality_score: 
 type HelperCanvasProps = {
   activeView: string;
   currentTask: Task | null;
+  tasks: Task[];
   evidences: Evidence[];
   uploadMessage: string;
   onFileChange: (file: File | null) => void;
   onUpload: (e: FormEvent<HTMLFormElement>, progressPercent: number) => Promise<void>;
+  onSelectTask: (taskId: string) => void;
+  onViewChange?: (view: string) => void;
   loading: boolean;
   isMobile?: boolean;
   token: string;
@@ -62,10 +65,13 @@ function statusLabel(status: string) {
 export function HelperCanvas({
   activeView,
   currentTask,
+  tasks,
   evidences,
   uploadMessage,
   onFileChange,
   onUpload,
+  onSelectTask,
+  onViewChange,
   loading,
   isMobile = false,
   token,
@@ -96,6 +102,113 @@ export function HelperCanvas({
   const clearFile = useCallback(() => {
     handleFileChange(null);
   }, [handleFileChange]);
+
+  // ── Helper landing view: My tasks ──
+  if (activeView === "tasks") {
+    const sorted = [...tasks].sort((a, b) => {
+      // Tasks with rejected client decisions first (action needed),
+      // then in_progress, then pending, then completed.
+      const rank = (t: Task) => {
+        if (t.client_decision_status === "rejected") return 0;
+        if (t.status === "in_progress") return 1;
+        if (t.status === "pending") return 2;
+        return 3;
+      };
+      const ra = rank(a); const rb = rank(b);
+      if (ra !== rb) return ra - rb;
+      return (a.end_date || "").localeCompare(b.end_date || "");
+    });
+
+    return (
+      <div className={`space-y-6 animate-fade-in ${isMobile ? "pb-20" : ""}`}>
+        <div className="executive-header">
+          <h1 className={`${isMobile ? "text-2xl" : "text-4xl"} font-black text-white tracking-tight leading-none`}>
+            My tasks
+          </h1>
+          <p className="mt-2 text-sm text-white/50 font-medium">
+            {tasks.length === 0
+              ? "You don't have any tasks assigned yet."
+              : `${tasks.length} task${tasks.length === 1 ? "" : "s"} assigned to you.`}
+          </p>
+        </div>
+
+        {tasks.length === 0 ? (
+          <div className="glass-card p-12 text-center border-dashed border-white/10">
+            <ListChecks size={28} className="mx-auto mb-3 text-white/25" />
+            <p className="text-white/40 text-sm">When a supervisor assigns you a task, it will show up here.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {sorted.map((t) => {
+              const overdue = t.status !== "completed" && t.end_date && new Date(t.end_date).getTime() < Date.now();
+              const statusColor =
+                t.status === "completed" ? "#10b981" :
+                t.status === "in_progress" ? "var(--accent-blue)" :
+                "#9ca3af";
+              const Icon =
+                t.status === "completed" ? CheckCircle2 :
+                overdue ? AlertCircle :
+                Clock3;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  className="text-left rounded-2xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/10 p-4 transition group"
+                  onClick={() => { onSelectTask(t.id); onViewChange?.("capture"); }}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className="h-10 w-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                      style={{ background: `color-mix(in srgb, ${statusColor} 12%, transparent)`, color: statusColor }}
+                    >
+                      <Icon size={18} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-white truncate group-hover:text-blue-400 transition-colors">
+                        {t.title}
+                      </div>
+                      <div className="text-xs text-white/45 mt-0.5 flex items-center gap-2">
+                        {t.end_date && <span>Due {new Date(t.end_date).toLocaleDateString("es-MX", { day: "2-digit", month: "short" })}</span>}
+                        {overdue && <span className="text-red-400 font-bold">· OVERDUE</span>}
+                      </div>
+                    </div>
+                    <ArrowRight size={16} className="text-white/20 group-hover:text-white/60 transition flex-shrink-0 mt-1" />
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="mt-3 h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                    <div
+                      className="h-full transition-all duration-500"
+                      style={{ width: `${t.progress_percent}%`, background: statusColor }}
+                    />
+                  </div>
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-white/35 mt-1">
+                    {t.progress_percent}% complete
+                  </div>
+
+                  {/* Client decision banner */}
+                  {t.client_decision_status === "rejected" && (
+                    <div className="mt-3 rounded-lg border px-3 py-2 text-xs" style={{ background: "rgba(245,158,11,0.10)", borderColor: "rgba(245,158,11,0.3)", color: "#f59e0b" }}>
+                      <div className="font-bold inline-flex items-center gap-1">↺ Cliente pidió cambios</div>
+                      {t.client_decision_reason && (
+                        <div className="text-white/75 mt-1 line-clamp-2">{t.client_decision_reason}</div>
+                      )}
+                    </div>
+                  )}
+                  {t.client_decision_status === "approved" && (
+                    <div className="mt-3 rounded-lg border px-3 py-2 text-xs" style={{ background: "rgba(16,185,129,0.10)", borderColor: "rgba(16,185,129,0.3)", color: "#10b981" }}>
+                      <span className="font-bold">✓ Cliente aprobó</span>
+                      {t.client_decision_by_name && <span className="text-white/55"> · {t.client_decision_by_name}</span>}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   if (activeView === "capture") {
     return (
@@ -168,10 +281,17 @@ export function HelperCanvas({
                 )}
               </div>
             ) : (
-              <div className="rounded-2xl bg-white/[0.02] border border-dashed border-white/10 p-8 text-center">
-                <p className="text-white/30 text-sm font-medium italic">
-                   Select a task in the <span className="text-blue-400 font-bold uppercase tracking-widest text-[10px]">Inspector</span> to capture evidence.
+              <div className="rounded-2xl bg-white/[0.02] border border-dashed border-white/10 p-8 text-center space-y-3">
+                <p className="text-white/40 text-sm font-medium italic">
+                  No task selected. Pick one from <span className="text-blue-400 font-bold">My tasks</span> or the topbar pill.
                 </p>
+                <button
+                  type="button"
+                  onClick={() => onViewChange?.("tasks")}
+                  className="inline-flex items-center gap-2 rounded-xl bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/30 text-blue-300 px-4 py-2 text-xs font-bold uppercase tracking-widest transition"
+                >
+                  <ListChecks size={14} /> Open my tasks
+                </button>
               </div>
             )}
 

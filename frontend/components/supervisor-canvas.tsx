@@ -8,6 +8,8 @@ import { EvidenceGallery, type AIFeedback } from "./evidence-gallery";
 import { GanttTimeline } from "./gantt-timeline";
 import { GanttZoomControl, type GanttZoomLevel } from "./ui/gantt-zoom-control";
 import { BudgetPanel } from "./budget-panel";
+import { Drawer } from "./ui/drawer";
+import { EvidenceReviewDrawerContent } from "./supervisor/evidence-review-drawer";
 import { Loader2, TrendingUp, AlignLeft, Plus, ListChecks, Maximize2, Minimize2, X } from "lucide-react";
 import { Toolbar, FilterChips, BulkBar, BulkApproveIcon, BulkRejectIcon, runBulk, type FilterChipOption } from "./ui/toolbar";
 import { buildTaskColorMap } from "../lib/colors";
@@ -130,6 +132,7 @@ export function SupervisorCanvas({
   const [bulkRejectReason, setBulkRejectReason] = useState("");
   const [bulkApproveOpen, setBulkApproveOpen] = useState(false);
   const [bulkApproveVisible, setBulkApproveVisible] = useState(true);
+  const [reviewDrawerId, setReviewDrawerId] = useState<string | null>(null);
   const [ganttFullscreen, setGanttFullscreen] = useState(false);
 
   // Exit fullscreen with Escape.
@@ -525,6 +528,7 @@ export function SupervisorCanvas({
                   isMobile={isMobile}
                   taskColorByTaskId={taskColorByTaskId}
                   emptyText=""
+                  onItemClick={bulkMode ? undefined : (e) => setReviewDrawerId(e.id)}
                 />
               </div>
             ) : (
@@ -568,10 +572,37 @@ export function SupervisorCanvas({
               <div className="h-px flex-1 bg-white/5 mx-4" />
             </div>
             <div className="glass-card p-6 border-white/5 bg-white/[0.02]">
-              <EvidenceGallery evidences={rest} onReAudit={onReAudit} isMobile={isMobile} emptyText="" taskColorByTaskId={taskColorByTaskId} />
+              <EvidenceGallery
+                evidences={rest}
+                onReAudit={onReAudit}
+                isMobile={isMobile}
+                emptyText=""
+                taskColorByTaskId={taskColorByTaskId}
+                onItemClick={(e) => setReviewDrawerId(e.id)}
+              />
             </div>
           </div>
         )}
+
+        {/* Review drawer — opens when a card is clicked (single-item review). */}
+        <Drawer
+          open={!!reviewDrawerId}
+          onClose={() => setReviewDrawerId(null)}
+          title={(() => {
+            const ev = evidences.find((e) => e.id === reviewDrawerId);
+            return ev?.task_title || ev?.file_name || "Evidence review";
+          })()}
+          subtitle="Review evidence"
+          width={isMobile ? 9999 : 520}
+        >
+          <EvidenceReviewDrawerContent
+            evidence={evidences.find((e) => e.id === reviewDrawerId) ?? null}
+            accessToken={accessToken}
+            onApprove={async (id) => { await onEvidenceDecision(id, "approve"); setReviewDrawerId(null); }}
+            onReject={async (id, reason) => { await onEvidenceDecision(id, "reject", { reason }); setReviewDrawerId(null); }}
+            onReAudit={onReAudit ? async (id) => { await onReAudit(id); } : undefined}
+          />
+        </Drawer>
       </div>
     );
   }

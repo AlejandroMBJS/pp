@@ -143,6 +143,10 @@ type EvidenceGalleryProps = {
   // custom color (tint + left accent border). Optional — gallery falls
   // back to default theme when no entry exists for a task.
   taskColorByTaskId?: Map<string, string>;
+  // When provided, intercepts the click on a card and opens this handler
+  // instead of the built-in lightbox. Lets the supervisor view route to
+  // the review drawer while keeping other consumers on the lightbox.
+  onItemClick?: (evidence: Evidence) => void;
 };
 
 function statusBadgeClass(status: string) {
@@ -434,6 +438,7 @@ export function EvidenceGallery({
   bulkSelected,
   onToggleBulk,
   taskColorByTaskId,
+  onItemClick,
 }: EvidenceGalleryProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -472,8 +477,8 @@ export function EvidenceGallery({
               key={evidence.id}
               role="button"
               tabIndex={0}
-              onClick={() => setLightboxIndex(i)}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLightboxIndex(i); } }}
+              onClick={() => { if (onItemClick) { onItemClick(evidence); } else { setLightboxIndex(i); } }}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (onItemClick) onItemClick(evidence); else setLightboxIndex(i); } }}
               className={`glass-card overflow-hidden transition-all border cursor-pointer relative ${
                 selected ? "border-blue-400/60 ring-2 ring-blue-400/30" : "border-white/5 hover:border-white/20 hover:shadow-lg hover:shadow-black/20"
               }`}

@@ -86,6 +86,11 @@ type Task = {
   progress_percent: number;
   predecessor_task_id?: string;
   comparison_photo_url?: string;
+  client_decision_status?: string;
+  client_decision_reason?: string;
+  client_decision_category?: string;
+  client_decision_at?: string;
+  client_decision_by_name?: string;
 };
 
 type Deliverable = {

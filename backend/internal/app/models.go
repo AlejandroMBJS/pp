@@ -204,6 +204,14 @@ type Task struct {
 	ProgressPercent       int    `json:"progress_percent"`
 	ComparisonPhotoURL    string `json:"comparison_photo_url,omitempty"`
 	ColorHex              string `json:"color_hex,omitempty"` // Per-task user override; "" = use status color.
+
+	// Client-decision cascade (joined from the most recent deliverable on this task).
+	// Empty when the task has no client-visible deliverable or no decision yet.
+	ClientDecisionStatus   string `json:"client_decision_status,omitempty"`   // "approved" | "rejected" | ""
+	ClientDecisionReason   string `json:"client_decision_reason,omitempty"`   // Only populated when status="rejected"
+	ClientDecisionCategory string `json:"client_decision_category,omitempty"` // Only populated when status="rejected"
+	ClientDecisionAt       string `json:"client_decision_at,omitempty"`       // ISO timestamp
+	ClientDecisionByName   string `json:"client_decision_by_name,omitempty"`  // Name of the client user who decided
 }
 
 type Deliverable struct {

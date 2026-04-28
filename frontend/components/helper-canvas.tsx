@@ -6,7 +6,20 @@ import { Upload, ImageIcon, X } from "lucide-react";
 import { EmptyState } from "./ui/empty-state";
 import { ListRow } from "./ui/list-row";
 
-type Task = { id: string; title: string; status: string; end_date: string; progress_percent: number; description: string; comparison_photo_url?: string };
+type Task = {
+  id: string;
+  title: string;
+  status: string;
+  end_date: string;
+  progress_percent: number;
+  description: string;
+  comparison_photo_url?: string;
+  client_decision_status?: string;
+  client_decision_reason?: string;
+  client_decision_category?: string;
+  client_decision_at?: string;
+  client_decision_by_name?: string;
+};
 type Evidence = { id: string; file_name: string; status: string; quality_score: number };
 
 type HelperCanvasProps = {
@@ -109,19 +122,50 @@ export function HelperCanvas({
 
           <div className="p-8 space-y-8">
             {currentTask ? (
-              <div className="rounded-2xl bg-gradient-to-br from-blue-600/10 to-cyan-600/10 border border-white/10 p-6 shadow-inner">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="text-xl font-bold text-white tracking-tight leading-tight">{currentTask.title}</div>
-                    <div className="mt-1.5 text-[10px] text-blue-400/80 font-bold uppercase tracking-widest">
-                      Due: {currentTask.end_date}
+              <div className="space-y-3">
+                <div className="rounded-2xl bg-gradient-to-br from-blue-600/10 to-cyan-600/10 border border-white/10 p-6 shadow-inner">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="text-xl font-bold text-white tracking-tight leading-tight">{currentTask.title}</div>
+                      <div className="mt-1.5 text-[10px] text-blue-400/80 font-bold uppercase tracking-widest">
+                        Due: {currentTask.end_date}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-black text-blue-400 leading-none">{currentTask.progress_percent}%</div>
+                      <div className="text-[10px] text-white/30 font-bold uppercase tracking-widest mt-1">Progress</div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-2xl font-black text-blue-400 leading-none">{currentTask.progress_percent}%</div>
-                    <div className="text-[10px] text-white/30 font-bold uppercase tracking-widest mt-1">Progress</div>
-                  </div>
                 </div>
+                {currentTask.client_decision_status === "approved" && (
+                  <div className="rounded-xl border px-4 py-3 flex items-start gap-2 text-sm" style={{ background: "rgba(16,185,129,0.10)", borderColor: "rgba(16,185,129,0.3)", color: "#10b981" }}>
+                    <span className="text-base leading-none">✓</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold">Cliente aprobó la entrega</div>
+                      <div className="text-xs opacity-80 mt-0.5">
+                        {currentTask.client_decision_by_name ? `por ${currentTask.client_decision_by_name}` : ""}
+                        {currentTask.client_decision_at ? ` · ${new Date(currentTask.client_decision_at).toLocaleString("es-MX", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {currentTask.client_decision_status === "rejected" && (
+                  <div className="rounded-xl border px-4 py-3 text-sm" style={{ background: "rgba(245,158,11,0.10)", borderColor: "rgba(245,158,11,0.3)", color: "#f59e0b" }}>
+                    <div className="flex items-start gap-2">
+                      <span className="text-base leading-none">↺</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold">Cliente pidió cambios</div>
+                        {currentTask.client_decision_reason && (
+                          <div className="text-xs text-white/85 mt-1 whitespace-pre-wrap">{currentTask.client_decision_reason}</div>
+                        )}
+                        <div className="text-[10px] opacity-70 mt-1.5 uppercase tracking-widest font-bold">
+                          {currentTask.client_decision_category ? currentTask.client_decision_category.replace(/_/g, " ") : ""}
+                          {currentTask.client_decision_at ? ` · ${new Date(currentTask.client_decision_at).toLocaleString("es-MX", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="rounded-2xl bg-white/[0.02] border border-dashed border-white/10 p-8 text-center">

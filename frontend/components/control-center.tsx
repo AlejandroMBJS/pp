@@ -1943,6 +1943,7 @@ export function ControlCenter() {
             onUpload={handleHelperUpload}
             onSelectTask={handleTaskSelect}
             onViewChange={setActiveView}
+            onResubmitDeliverable={handleDeliverableResubmit}
             loading={loading}
             isMobile={isMobile}
             token={session.access_token}
@@ -2225,6 +2226,7 @@ export function ControlCenter() {
           onUpload={handleHelperUpload}
           onSelectTask={handleTaskSelect}
           onViewChange={setActiveView}
+          onResubmitDeliverable={handleDeliverableResubmit}
           loading={loading}
           isMobile={isMobile}
           token={session.access_token}

@@ -1797,10 +1797,14 @@ const taskSelectWithClientDecision = `
 	       COALESCE(cd.rejection_reason, ''),
 	       COALESCE(cd.rejection_category, ''),
 	       COALESCE(cd.decided_at, ''),
-	       COALESCE(cd_user.full_name, cd_user.email, '')
+	       COALESCE(cd_user.full_name, cd_user.email, ''),
+	       COALESCE(cd.deliverable_id, ''),
+	       COALESCE(cd.title, '')
 	FROM tasks t
 	LEFT JOIN LATERAL (
-		SELECT d.status,
+		SELECT d.id AS deliverable_id,
+		       d.title,
+		       d.status,
 		       d.rejection_reason,
 		       d.rejection_category,
 		       COALESCE(d.approved_at::text, d.updated_at) AS decided_at,
@@ -1822,6 +1826,7 @@ func scanTaskWithDecision(scanner interface{ Scan(...any) error }, t *Task) erro
 		&t.ComparisonPhotoURL, &t.ColorHex,
 		&t.ClientDecisionStatus, &t.ClientDecisionReason, &t.ClientDecisionCategory,
 		&t.ClientDecisionAt, &t.ClientDecisionByName,
+		&t.ClientDecisionDeliverableID, &t.ClientDecisionTitle,
 	)
 }
 

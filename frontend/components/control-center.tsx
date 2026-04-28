@@ -196,6 +196,22 @@ function messageOf(error: unknown) {
   return error instanceof Error ? error.message : "Operation failed";
 }
 
+// Read a single query param from the current URL. Returns "" when missing
+// or running server-side. Used to restore project/task selection on reload.
+function readUrlParam(name: string): string {
+  if (typeof window === "undefined") return "";
+  return new URLSearchParams(window.location.search).get(name) ?? "";
+}
+
+// Pick which project should be selected after the project list loads:
+// honour ?project=ID when it exists in the list, else fall back to the
+// first project. Caller already guards on projectData.length > 0.
+function pickInitialProject(projects: Array<{ id: string }>): string {
+  const fromUrl = readUrlParam("project");
+  if (fromUrl && projects.some((p) => p.id === fromUrl)) return fromUrl;
+  return projects[0]?.id ?? "";
+}
+
 function browserSafeURL(rawUrl: string) {
   if (typeof window === "undefined" || !rawUrl) return rawUrl;
   try {
@@ -666,6 +682,33 @@ export function ControlCenter() {
     }
   }, [activeView]);
 
+  // Persist project + task selections to ?project=&task= so reload + bookmark
+  // restore the same context. Preserves other search params (invite, reset).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    let dirty = false;
+    if (selectedProjectId) {
+      if (url.searchParams.get("project") !== selectedProjectId) {
+        url.searchParams.set("project", selectedProjectId);
+        dirty = true;
+      }
+    } else if (url.searchParams.has("project")) {
+      url.searchParams.delete("project");
+      dirty = true;
+    }
+    if (selectedTaskId) {
+      if (url.searchParams.get("task") !== selectedTaskId) {
+        url.searchParams.set("task", selectedTaskId);
+        dirty = true;
+      }
+    } else if (url.searchParams.has("task")) {
+      url.searchParams.delete("task");
+      dirty = true;
+    }
+    if (dirty) window.history.replaceState(null, "", url.toString());
+  }, [selectedProjectId, selectedTaskId]);
+
   // Sync the other direction: browser back/forward fires hashchange — pull
   // the view from there.
   useEffect(() => {
@@ -764,7 +807,7 @@ export function ControlCenter() {
       setDashboard(dashboardData);
       setUsers(userData);
       setProjects(projectData);
-      if (projectData[0]) setSelectedProjectId(projectData[0].id);
+      if (projectData[0]) setSelectedProjectId(pickInitialProject(projectData));
       return;
     }
 
@@ -775,14 +818,18 @@ export function ControlCenter() {
       ]);
       setUsers(userData);
       setProjects(projectData);
-      if (projectData[0]) setSelectedProjectId(projectData[0].id);
+      if (projectData[0]) setSelectedProjectId(pickInitialProject(projectData));
       return;
     }
 
     if (role === "helper") {
       const assigned = await api<Task[]>("/api/v1/tasks/assigned", { token });
       setTasks(assigned);
-      if (assigned[0]) setSelectedTaskId(assigned[0].id);
+      if (assigned[0]) {
+        const fromUrl = readUrlParam("task");
+        const initial = (fromUrl && assigned.some((t) => t.id === fromUrl)) ? fromUrl : assigned[0].id;
+        setSelectedTaskId(initial);
+      }
       return;
     }
 
@@ -790,9 +837,10 @@ export function ControlCenter() {
       const projectData = await api<Project[]>("/api/v1/projects", { token });
       setProjects(projectData);
       if (projectData[0]) {
-        setSelectedProjectId(projectData[0].id);
+        const initialProj = pickInitialProject(projectData);
+        setSelectedProjectId(initialProj);
         const summary = await api<ClientSummary>(
-          `/api/v1/client/projects/${projectData[0].id}/summary`,
+          `/api/v1/client/projects/${initialProj}/summary`,
           { token }
         );
         setClientSummary(summary);
@@ -819,8 +867,20 @@ export function ControlCenter() {
     ]);
     setTasks(taskData);
     setDeliverables(deliverableData);
+    // Don't auto-select a task on project change. The current selection (if it
+    // still exists in this project) is preserved; otherwise honour ?task= from
+    // the URL when it points at a task in this project; otherwise blank — the
+    // topbar TaskPill prompts the user. This avoids the "phantom task" where
+    // the prior project's selection silently became the first task of the new
+    // project.
+    setSelectedTaskId((prev) => {
+      if (prev && taskData.some((t) => t.id === prev)) return prev;
+      const fromUrl = readUrlParam("task");
+      if (fromUrl && taskData.some((t) => t.id === fromUrl)) return fromUrl;
+      return "";
+    });
+    // Clear/seed the timeline form to match the new context.
     if (taskData[0]) {
-      setSelectedTaskId(taskData[0].id);
       setTimelineForm({
         start_date: taskData[0].start_date,
         end_date: taskData[0].end_date,
@@ -2375,10 +2435,6 @@ export function ControlCenter() {
           setActiveView={setActiveView}
           projects={projects}
           selectedProjectId={selectedProjectId}
-          setSelectedProjectId={setSelectedProjectId}
-          tasks={tasks}
-          selectedTaskId={selectedTaskId}
-          onTaskSelect={handleTaskSelect}
           tenants={tenants}
           pendingEvidenceCount={pendingEvidenceCount}
           isOpen={sidebarOpen}
@@ -2395,6 +2451,12 @@ export function ControlCenter() {
         <TopBar
           session={session}
           currentProject={currentProject}
+          projects={projects}
+          selectedProjectId={selectedProjectId}
+          onProjectSelect={setSelectedProjectId}
+          tasks={tasks}
+          selectedTaskId={selectedTaskId}
+          onTaskSelect={handleTaskSelect}
           activeView={activeView}
           onLogout={handleLogout}
           onMenuOpen={() => setSidebarOpen(true)}

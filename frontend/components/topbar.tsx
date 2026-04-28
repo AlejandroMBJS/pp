@@ -2,12 +2,14 @@
 
 import { LogOut, Bell, Menu, Download, Settings } from "lucide-react";
 import { NotificationsDropdown } from "./notifications-dropdown";
+import { ProjectPill, TaskPill } from "./ui/context-pills";
 
 type LoginResponse = {
   access_token: string;
   user: { id: string; email: string; full_name: string; role: string; tenant_id: string };
 };
 type Project = { id: string; name: string };
+type Task = { id: string; title: string; status: string; progress_percent: number };
 
 const roleColors: Record<string, string> = {
   owner:      "#3b82f6",
@@ -25,9 +27,20 @@ const roleLabels: Record<string, string> = {
   admin:      "Admin",
 };
 
+// Views that depend on a currently-selected task. The task pill appears
+// in the topbar only on these views; on every other view the task picker
+// is hidden so the chrome stays quiet.
+const TASK_REQUIRED_VIEWS = new Set(["capture", "history"]);
+
 type TopBarProps = {
   session: LoginResponse;
   currentProject: Project | null;
+  projects: Project[];
+  selectedProjectId: string;
+  onProjectSelect: (id: string) => void;
+  tasks: Task[];
+  selectedTaskId: string;
+  onTaskSelect: (id: string) => void;
   activeView: string;
   onLogout: () => void;
   onMenuOpen: () => void;
@@ -45,6 +58,12 @@ type TopBarProps = {
 export function TopBar({
   session,
   currentProject,
+  projects,
+  selectedProjectId,
+  onProjectSelect,
+  tasks,
+  selectedTaskId,
+  onTaskSelect,
   activeView,
   onLogout,
   onMenuOpen,
@@ -58,13 +77,18 @@ export function TopBar({
   tenantName,
   brandPrimary,
 }: TopBarProps) {
+  const role = session.user.role.toLowerCase();
   const roleColor = brandPrimary?.trim()
     || roleColors[session.user.role]
     || "#6b7280";
   const canExport =
     onExportCsv &&
     currentProject &&
-    (session.user.role === "owner" || session.user.role === "supervisor");
+    (role === "owner" || role === "supervisor");
+  // Project pill: relevant for everyone with projects assigned except admin and helper.
+  // Helper navigates by task directly (their tasks span projects); admin doesn't have one.
+  const showProjectPill = role !== "admin" && role !== "helper" && projects.length > 0;
+  const showTaskPill = TASK_REQUIRED_VIEWS.has(activeView) && (role === "owner" || role === "supervisor" || role === "helper");
 
   return (
     <header className="topbar">
@@ -80,19 +104,23 @@ export function TopBar({
         </button>
       )}
 
-      {/* Breadcrumb */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 text-sm">
-          <span className="text-white/40 text-xs">{tenantName || "ProjectPulse"}</span>
-          {currentProject && (
-            <>
-              <span className="text-white/20 text-xs">/</span>
-              <span className="font-semibold text-white truncate text-sm">
-                {currentProject.name}
-              </span>
-            </>
-          )}
-        </div>
+      {/* Tenant chip + context pills */}
+      <div className="flex-1 min-w-0 flex items-center gap-2">
+        <span className="text-white/40 text-xs hidden sm:inline">{tenantName || "ProjectPulse"}</span>
+        <span className="text-white/20 text-xs hidden sm:inline">/</span>
+        {showProjectPill ? (
+          <ProjectPill projects={projects} selectedProjectId={selectedProjectId} onSelect={onProjectSelect} />
+        ) : currentProject ? (
+          <span className="font-semibold text-white truncate text-sm">{currentProject.name}</span>
+        ) : null}
+        {showTaskPill && (
+          <TaskPill
+            tasks={tasks}
+            selectedTaskId={selectedTaskId}
+            onSelect={onTaskSelect}
+            required
+          />
+        )}
       </div>
 
       {/* Right section */}

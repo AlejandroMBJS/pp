@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { toast } from "sonner";
 import { EmptyState } from "./ui/empty-state";
-import { EvidenceGallery, type AIFeedback } from "./evidence-gallery";
+import { EvidenceGallery, type AIFeedback, type TaskClientDecision } from "./evidence-gallery";
 import { GanttTimeline } from "./gantt-timeline";
 import { GanttZoomControl, type GanttZoomLevel } from "./ui/gantt-zoom-control";
 import { BudgetPanel } from "./budget-panel";
@@ -161,6 +161,24 @@ export function SupervisorCanvas({
   }, [ganttFullscreen]);
 
   const taskColorByTaskId = useMemo(() => buildTaskColorMap(tasks), [tasks]);
+
+  // Per-task client decision summary, used to render a pill on each evidence
+  // card in Processed History. Only includes tasks where the client has acted.
+  const clientDecisionByTaskId = useMemo(() => {
+    const m = new Map<string, TaskClientDecision>();
+    for (const t of tasks) {
+      if (t.client_decision_status === "approved" || t.client_decision_status === "rejected") {
+        m.set(t.id, {
+          status: t.client_decision_status,
+          reason: t.client_decision_reason,
+          category: t.client_decision_category,
+          by_name: t.client_decision_by_name,
+          at: t.client_decision_at,
+        });
+      }
+    }
+    return m;
+  }, [tasks]);
 
   // Auto-poll while any evidence is queued/processing so the score/status
   // updates without the supervisor having to manually refresh.
@@ -643,6 +661,7 @@ export function SupervisorCanvas({
                   onToggleBulk={bulkMode ? toggleOne : undefined}
                   isMobile={isMobile}
                   taskColorByTaskId={taskColorByTaskId}
+                  clientDecisionByTaskId={clientDecisionByTaskId}
                   emptyText=""
                   onItemClick={bulkMode ? undefined : (e) => setReviewDrawerId(e.id)}
                 />
@@ -694,6 +713,7 @@ export function SupervisorCanvas({
                 isMobile={isMobile}
                 emptyText=""
                 taskColorByTaskId={taskColorByTaskId}
+                clientDecisionByTaskId={clientDecisionByTaskId}
                 onItemClick={(e) => setReviewDrawerId(e.id)}
               />
             </div>

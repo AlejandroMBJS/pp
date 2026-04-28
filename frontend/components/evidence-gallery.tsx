@@ -129,6 +129,16 @@ type Evidence = {
   reference_photo_url?: string;
 };
 
+// Per-task client decision summary, used to render a pill on each evidence
+// card so the supervisor sees what the client said about that task.
+export type TaskClientDecision = {
+  status: "approved" | "rejected";
+  reason?: string;
+  category?: string;
+  by_name?: string;
+  at?: string;
+};
+
 type EvidenceGalleryProps = {
   evidences: Evidence[];
   showActions?: boolean;
@@ -147,6 +157,10 @@ type EvidenceGalleryProps = {
   // instead of the built-in lightbox. Lets the supervisor view route to
   // the review drawer while keeping other consumers on the lightbox.
   onItemClick?: (evidence: Evidence) => void;
+  // Optional: render a client-decision pill on each card whose task has a
+  // decision. Click → modal with reason/category/timestamp. Used by
+  // supervisor's Processed History.
+  clientDecisionByTaskId?: Map<string, TaskClientDecision>;
 };
 
 function statusBadgeClass(status: string) {
@@ -439,8 +453,10 @@ export function EvidenceGallery({
   onToggleBulk,
   taskColorByTaskId,
   onItemClick,
+  clientDecisionByTaskId,
 }: EvidenceGalleryProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [decisionModal, setDecisionModal] = useState<{ d: TaskClientDecision; taskTitle?: string; fileName: string } | null>(null);
   const [mounted, setMounted] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -505,6 +521,23 @@ export function EvidenceGallery({
                   IA
                 </div>
               )}
+              {(() => {
+                const decision = clientDecisionByTaskId?.get(evidence.task_id);
+                if (!decision) return null;
+                const color = decision.status === "approved" ? "#10b981" : "#f59e0b";
+                const label = decision.status === "approved" ? "✓ Cliente aprobó" : "↺ Cambios cliente";
+                return (
+                  <button
+                    type="button"
+                    className={`absolute z-10 flex items-center gap-1 px-2 py-1 rounded-md backdrop-blur text-[10px] font-black uppercase tracking-wider transition ${inFlight ? "top-10" : "top-2"} right-2`}
+                    style={{ background: `color-mix(in srgb, ${color} 25%, rgba(0,0,0,0.6))`, border: `1px solid color-mix(in srgb, ${color} 60%, transparent)`, color }}
+                    onClick={(e) => { e.stopPropagation(); setDecisionModal({ d: decision, taskTitle: evidence.task_title, fileName: evidence.file_name }); }}
+                    title={decision.reason || label}
+                  >
+                    {label}
+                  </button>
+                );
+              })()}
               {evidence.reference_photo_url ? (
                 // Comparison evidence: reference vs capture side-by-side so it
                 // visually distinguishes from single-photo cards.
@@ -620,6 +653,52 @@ export function EvidenceGallery({
           onReject={onReject}
           onReAudit={onReAudit}
         />
+      )}
+      {decisionModal && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setDecisionModal(null); }}
+        >
+          <div className="glass-card border-white/10 p-6 max-w-md w-full">
+            <div className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40 mb-1">
+              Decisión del cliente
+            </div>
+            <h3
+              className="text-xl font-black"
+              style={{ color: decisionModal.d.status === "approved" ? "#10b981" : "#f59e0b" }}
+            >
+              {decisionModal.d.status === "approved" ? "✓ Aprobado" : "↺ Cambios solicitados"}
+            </h3>
+            {decisionModal.taskTitle && (
+              <div className="text-sm text-white/70 mt-1">{decisionModal.taskTitle}</div>
+            )}
+            <div className="text-xs text-white/45 mt-0.5">Evidencia: {decisionModal.fileName}</div>
+            {decisionModal.d.reason && (
+              <div className="mt-4 rounded-xl border px-3 py-2.5 text-sm" style={{ background: "rgba(255,255,255,0.04)", borderColor: "rgba(255,255,255,0.08)" }}>
+                <div className="font-bold text-white/80 mb-1 text-xs uppercase tracking-widest">Motivo</div>
+                <div className="text-white/85 whitespace-pre-wrap">{decisionModal.d.reason}</div>
+              </div>
+            )}
+            {decisionModal.d.category && (
+              <span className="inline-block mt-3 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest" style={{ background: "rgba(245,158,11,0.18)", color: "#f59e0b" }}>
+                {decisionModal.d.category.replace(/_/g, " ")}
+              </span>
+            )}
+            <div className="mt-3 text-xs text-white/45">
+              {decisionModal.d.by_name && <span>Por {decisionModal.d.by_name}</span>}
+              {decisionModal.d.at && <span>{decisionModal.d.by_name ? " · " : ""}{new Date(decisionModal.d.at).toLocaleString("es-MX", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>}
+            </div>
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setDecisionModal(null)}
+                className="rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-2 text-sm text-white/80 transition"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

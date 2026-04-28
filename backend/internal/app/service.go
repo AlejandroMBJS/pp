@@ -3262,6 +3262,89 @@ func (s *Service) ClientSummaryView(ctx context.Context, actor Claims, projectID
 	}, nil
 }
 
+// ListClientActivity returns the most recent N client-visible events for a
+// project (approved/rejected deliverables and committed/approved evidences).
+// Sorted newest first. Used by the client portal activity feed.
+func (s *Service) ListClientActivity(ctx context.Context, actor Claims, projectID string, limit int) ([]ClientActivityEvent, error) {
+	project, err := s.projectByID(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if actor.Role == RoleClient {
+		if err := s.ensureProjectAccess(ctx, actor, project); err != nil {
+			return nil, err
+		}
+	}
+	if actor.Role != RoleClient && actor.Role != RoleOwner && actor.Role != RoleSupervisor {
+		return nil, errors.New("forbidden")
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, type, occurred_at, actor_name, title, subtitle, task_id FROM (
+			-- Deliverable approvals
+			SELECT d.id AS id,
+			       'deliverable_approved' AS type,
+			       d.approved_at AS occurred_at,
+			       COALESCE(u.full_name, u.email, '') AS actor_name,
+			       d.title AS title,
+			       COALESCE(d.approval_comment, '') AS subtitle,
+			       d.task_id AS task_id
+			FROM deliverables d
+			LEFT JOIN users u ON u.id = d.approved_by_user_id
+			WHERE d.project_id = $1 AND d.client_visible = 1
+			  AND d.status = 'approved' AND d.approved_at IS NOT NULL
+			UNION ALL
+			-- Deliverable rejections (use updated_at; lossy but good enough)
+			SELECT d.id AS id,
+			       'deliverable_rejected' AS type,
+			       d.updated_at::timestamptz AS occurred_at,
+			       '' AS actor_name,
+			       d.title AS title,
+			       COALESCE(d.rejection_reason, '') AS subtitle,
+			       d.task_id AS task_id
+			FROM deliverables d
+			WHERE d.project_id = $1 AND d.client_visible = 1
+			  AND d.status = 'rejected'
+			UNION ALL
+			-- Evidence uploads visible to client
+			SELECT e.id AS id,
+			       'evidence_uploaded' AS type,
+			       e.created_at::timestamptz AS occurred_at,
+			       COALESCE(u.full_name, u.email, '') AS actor_name,
+			       COALESCE(t.title, e.file_name) AS title,
+			       COALESCE(e.file_name, '') AS subtitle,
+			       e.task_id AS task_id
+			FROM evidences e
+			LEFT JOIN users u ON u.id = e.uploaded_by_user_id
+			LEFT JOIN tasks t ON t.id = e.task_id
+			WHERE e.project_id = $1 AND e.is_visible_to_client = 1
+			  AND e.status IN ('committed', 'approved')
+		) ev
+		ORDER BY occurred_at DESC NULLS LAST
+		LIMIT $2`, projectID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]ClientActivityEvent, 0, limit)
+	for rows.Next() {
+		var ev ClientActivityEvent
+		var occurredAt sql.NullTime
+		if err := rows.Scan(&ev.ID, &ev.Type, &occurredAt, &ev.ActorName, &ev.Title, &ev.Subtitle, &ev.TaskID); err != nil {
+			return nil, err
+		}
+		if occurredAt.Valid {
+			ev.OccurredAt = occurredAt.Time.UTC().Format(time.RFC3339)
+		}
+		out = append(out, ev)
+	}
+	return out, rows.Err()
+}
+
 func parseFlexibleDate(s string) (time.Time, error) {
 	if s == "" {
 		return time.Time{}, errors.New("empty date")

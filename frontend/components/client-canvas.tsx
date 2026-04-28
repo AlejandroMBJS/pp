@@ -107,6 +107,7 @@ export function ClientCanvas({
   isMobile = false,
 }: ClientCanvasProps) {
   const [drawerId, setDrawerId] = useState<string | null>(null);
+  const [activityRefreshKey, setActivityRefreshKey] = useState(0);
 
   const gallery = clientSummary?.gallery ?? [];
   const filteredGallery = selectedTaskId
@@ -222,7 +223,7 @@ export function ClientCanvas({
               </h2>
               <div className="h-px flex-1 bg-white/5 mx-4" />
             </div>
-            <ActivityFeed projectId={projectId} apiBase={apiBase} accessToken={accessToken} />
+            <ActivityFeed projectId={projectId} apiBase={apiBase} accessToken={accessToken} refreshKey={activityRefreshKey} />
           </div>
         )}
 
@@ -239,8 +240,8 @@ export function ClientCanvas({
             evidences={gallery}
             accessToken={accessToken}
             canAct={!!onApproveDeliverable}
-            onApprove={onApproveDeliverable ? async (id, comment) => { await onApproveDeliverable(id, comment); setDrawerId(null); } : undefined}
-            onReject={onRejectDeliverable ? async (id, r, cat) => { await onRejectDeliverable(id, r, cat); setDrawerId(null); } : undefined}
+            onApprove={onApproveDeliverable ? async (id, comment) => { await onApproveDeliverable(id, comment); setDrawerId(null); setActivityRefreshKey((k) => k + 1); } : undefined}
+            onReject={onRejectDeliverable ? async (id, r, cat) => { await onRejectDeliverable(id, r, cat); setDrawerId(null); setActivityRefreshKey((k) => k + 1); } : undefined}
             onEvidenceClick={(taskId) => {
               if (drawerDeliverable) {
                 onDeliverableClick(drawerDeliverable.id, taskId);

@@ -58,41 +58,41 @@ type Props = {
 const CATEGORY_OPTIONS: { value: string; label: string; suggestions: string[] }[] = [
   {
     value: "missing_photos",
-    label: "Faltan fotos",
+    label: "Missing photos",
     suggestions: [
-      "Falta una foto desde otro ángulo",
-      "No se ve el detalle del extremo",
-      "Faltan fotos del proceso intermedio",
+      "Need a photo from another angle",
+      "Edge detail isn't visible",
+      "Missing photos of the intermediate process",
     ],
   },
   {
     value: "wrong_phase",
-    label: "Fase incorrecta",
+    label: "Wrong phase",
     suggestions: [
-      "Esta fase aún no está completa",
-      "Las fotos corresponden a otra etapa",
-      "Falta terminar la fase anterior",
+      "This phase isn't complete yet",
+      "Photos belong to a different phase",
+      "Previous phase still pending",
     ],
   },
   {
     value: "quality_issue",
-    label: "Problema de calidad",
+    label: "Quality issue",
     suggestions: [
-      "El acabado no cumple lo acordado",
-      "Hay fisuras visibles",
-      "Las medidas no coinciden con el plano",
+      "Finish doesn't match what we agreed",
+      "Visible cracks or imperfections",
+      "Measurements don't match the plan",
     ],
   },
   {
     value: "scope_mismatch",
-    label: "No coincide con lo pactado",
+    label: "Out of scope",
     suggestions: [
-      "Esto no corresponde al alcance original",
-      "Falta el material acordado",
-      "El diseño difiere del aprobado",
+      "Doesn't match the original scope",
+      "Missing the agreed material",
+      "Design differs from what was approved",
     ],
   },
-  { value: "other", label: "Otro", suggestions: [] },
+  { value: "other", label: "Other", suggestions: [] },
 ];
 
 const MAX_REASON = 2000;
@@ -402,7 +402,7 @@ export function DeliverableDrawerContent({
             <textarea
               value={reason}
               onChange={(ev) => setReason(ev.target.value.slice(0, MAX_REASON))}
-              placeholder="Ejemplo: Falta una foto del extremo norte de la viga..."
+              placeholder="Example: Missing a photo of the north end of the beam..."
               className="w-full rounded-xl bg-white/5 border border-white/10 p-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-amber-500/40"
               rows={4}
               autoFocus

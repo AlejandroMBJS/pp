@@ -17,6 +17,7 @@ type Props = {
   projectId: string;
   apiBase?: string;
   accessToken?: string;
+  refreshKey?: number;
 };
 
 function relativeTime(iso: string): string {
@@ -46,7 +47,7 @@ function eventMeta(type: string) {
   }
 }
 
-export function ActivityFeed({ projectId, apiBase = "", accessToken }: Props) {
+export function ActivityFeed({ projectId, apiBase = "", accessToken, refreshKey = 0 }: Props) {
   const [events, setEvents] = useState<ActivityEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,14 +61,17 @@ export function ActivityFeed({ projectId, apiBase = "", accessToken }: Props) {
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = (await res.json()) as ActivityEvent[];
-        if (!cancelled) setEvents(data);
+        if (!cancelled) {
+          setEvents(data);
+          setError(null);
+        }
       } catch (err) {
         if (!cancelled) setError((err as Error).message || "load failed");
       }
     }
     load();
     return () => { cancelled = true; };
-  }, [projectId, apiBase, accessToken]);
+  }, [projectId, apiBase, accessToken, refreshKey]);
 
   if (error) {
     return null; // Silent fail — feed is non-critical.

@@ -5,6 +5,7 @@ import { useState, useCallback, useEffect } from "react";
 import { Upload, ImageIcon, X, ListChecks, ArrowRight, CheckCircle2, Clock3, AlertCircle } from "lucide-react";
 import { EmptyState } from "./ui/empty-state";
 import { ListRow } from "./ui/list-row";
+import { ResubmitDeliverableModal } from "./ui/resubmit-deliverable-modal";
 
 type Task = {
   id: string;
@@ -19,6 +20,8 @@ type Task = {
   client_decision_category?: string;
   client_decision_at?: string;
   client_decision_by_name?: string;
+  client_decision_deliverable_id?: string;
+  client_decision_title?: string;
 };
 type Evidence = { id: string; file_name: string; status: string; quality_score: number };
 
@@ -32,6 +35,7 @@ type HelperCanvasProps = {
   onUpload: (e: FormEvent<HTMLFormElement>, progressPercent: number) => Promise<void>;
   onSelectTask: (taskId: string) => void;
   onViewChange?: (view: string) => void;
+  onResubmitDeliverable?: (deliverableId: string, note: string) => Promise<void>;
   loading: boolean;
   isMobile?: boolean;
   token: string;
@@ -72,6 +76,7 @@ export function HelperCanvas({
   onUpload,
   onSelectTask,
   onViewChange,
+  onResubmitDeliverable,
   loading,
   isMobile = false,
   token,
@@ -79,6 +84,7 @@ export function HelperCanvas({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [progressDraft, setProgressDraft] = useState<number>(currentTask?.progress_percent ?? 0);
+  const [resubmitTask, setResubmitTask] = useState<Task | null>(null);
 
   useEffect(() => {
     setProgressDraft(currentTask?.progress_percent ?? 0);
@@ -193,6 +199,18 @@ export function HelperCanvas({
                       {t.client_decision_reason && (
                         <div className="text-white/75 mt-1 line-clamp-2">{t.client_decision_reason}</div>
                       )}
+                      {onResubmitDeliverable && t.client_decision_deliverable_id && (
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          className="mt-2 inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest cursor-pointer transition"
+                          style={{ background: "color-mix(in srgb, #10b981 22%, transparent)", color: "#10b981", border: "1px solid color-mix(in srgb, #10b981 40%, transparent)" }}
+                          onClick={(ev) => { ev.stopPropagation(); setResubmitTask(t); }}
+                          onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); ev.stopPropagation(); setResubmitTask(t); } }}
+                        >
+                          ↻ Resolved · re-submit
+                        </div>
+                      )}
                     </div>
                   )}
                   {t.client_decision_status === "approved" && (
@@ -206,6 +224,22 @@ export function HelperCanvas({
             })}
           </div>
         )}
+
+        <ResubmitDeliverableModal
+          deliverable={resubmitTask && resubmitTask.client_decision_deliverable_id
+            ? {
+                id: resubmitTask.client_decision_deliverable_id,
+                title: resubmitTask.client_decision_title || resubmitTask.title,
+                task_title: resubmitTask.title,
+                rejection_reason: resubmitTask.client_decision_reason,
+                rejection_category: resubmitTask.client_decision_category,
+              }
+            : null}
+          onClose={() => setResubmitTask(null)}
+          onSubmit={async (id, note) => {
+            if (onResubmitDeliverable) await onResubmitDeliverable(id, note);
+          }}
+        />
       </div>
     );
   }

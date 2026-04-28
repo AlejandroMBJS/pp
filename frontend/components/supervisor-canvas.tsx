@@ -10,7 +10,7 @@ import { GanttZoomControl, type GanttZoomLevel } from "./ui/gantt-zoom-control";
 import { BudgetPanel } from "./budget-panel";
 import { Drawer } from "./ui/drawer";
 import { EvidenceReviewDrawerContent } from "./supervisor/evidence-review-drawer";
-import { ResubmitDeliverableModal } from "./supervisor/resubmit-deliverable-modal";
+import { ResubmitDeliverableModal } from "./ui/resubmit-deliverable-modal";
 import { Loader2, TrendingUp, AlignLeft, Plus, ListChecks, Maximize2, Minimize2, X } from "lucide-react";
 import { Toolbar, FilterChips, BulkBar, BulkApproveIcon, BulkRejectIcon, runBulk, type FilterChipOption } from "./ui/toolbar";
 import { buildTaskColorMap } from "../lib/colors";

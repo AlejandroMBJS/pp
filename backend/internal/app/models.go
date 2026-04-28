@@ -207,10 +207,12 @@ type Task struct {
 
 	// Client-decision cascade (joined from the most recent deliverable on this task).
 	// Empty when the task has no client-visible deliverable or no decision yet.
-	ClientDecisionStatus   string `json:"client_decision_status,omitempty"`   // "approved" | "rejected" | ""
-	ClientDecisionReason   string `json:"client_decision_reason,omitempty"`   // Only populated when status="rejected"
-	ClientDecisionCategory string `json:"client_decision_category,omitempty"` // Only populated when status="rejected"
-	ClientDecisionAt       string `json:"client_decision_at,omitempty"`       // ISO timestamp
+	ClientDecisionStatus        string `json:"client_decision_status,omitempty"`         // "approved" | "rejected" | ""
+	ClientDecisionReason        string `json:"client_decision_reason,omitempty"`         // Only populated when status="rejected"
+	ClientDecisionCategory      string `json:"client_decision_category,omitempty"`       // Only populated when status="rejected"
+	ClientDecisionAt            string `json:"client_decision_at,omitempty"`             // ISO timestamp
+	ClientDecisionDeliverableID string `json:"client_decision_deliverable_id,omitempty"` // Deliverable id for resubmit
+	ClientDecisionTitle         string `json:"client_decision_title,omitempty"`          // Deliverable title
 	ClientDecisionByName   string `json:"client_decision_by_name,omitempty"`  // Name of the client user who decided
 }
 

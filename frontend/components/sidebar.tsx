@@ -2,10 +2,9 @@
 
 import {
   LayoutDashboard, Clock, Users, Camera, FileCheck, Shield,
-  Building2, HardHat, ChevronDown, X, Settings, Settings2,
+  Building2, HardHat, X, Settings, Settings2,
   Eye, FolderKanban, MonitorPlay, TrendingUp, AlignLeft, MessageSquare, Box
 } from "lucide-react";
-import { useState } from "react";
 
 type LoginResponse = {
   access_token: string;
@@ -38,51 +37,57 @@ const MENU_ICONS: Record<string, React.ReactNode> = {
   ownergallery: <Camera size={16} />,
 };
 
-function menuForRole(role: string) {
+type MenuItem = { id: string; label: string; section?: string };
+
+function menuForRole(role: string): MenuItem[] {
   const r = role?.toLowerCase() ?? "";
   switch (r) {
     case "owner":
       return [
-        { id: "overview",      label: "Executive overview",   tag: "owner",    group: "owner" },
-        { id: "projects",      label: "Projects and timeline",tag: "delivery", group: "owner" },
-        { id: "finances",      label: "Finance and costs",    tag: "money",    group: "owner" },
-        { id: "journal",       label: "Daily log",            tag: "site",     group: "owner" },
-        { id: "messages",      label: "Messages and RFI",     tag: "chat",     group: "owner" },
-        { id: "blueprints",    label: "CAD and 3D files",     tag: "cad",      group: "owner" },
-        { id: "ownergallery",  label: "Progress gallery",     tag: "view",     group: "owner" },
-        { id: "team",          label: "Team and tasks",       tag: "crm",      group: "owner" },
-        { id: "review",        label: "Review queue",         tag: "qa",       group: "owner" },
-        { id: "capture",       label: "Capture progress",     tag: "field",    group: "owner" },
-        { id: "history",       label: "Field history",        tag: "proof",    group: "owner" },
-        { id: "summary",       label: "Client view",          tag: "client",   group: "owner" },
-        { id: "gallery",       label: "Approved gallery",     tag: "view",     group: "owner" },
+        // Resumen
+        { id: "overview",     label: "Executive overview", section: "Resumen" },
+        // Trabajo
+        { id: "projects",     label: "Projects and timeline", section: "Trabajo" },
+        { id: "review",       label: "Review queue",          section: "Trabajo" },
+        { id: "capture",      label: "Capture progress",      section: "Trabajo" },
+        { id: "history",      label: "Field history",         section: "Trabajo" },
+        { id: "ownergallery", label: "Progress gallery",      section: "Trabajo" },
+        // Operación
+        { id: "finances",     label: "Finance and costs",     section: "Operación" },
+        { id: "journal",      label: "Daily log",             section: "Operación" },
+        { id: "messages",     label: "Messages and RFI",      section: "Operación" },
+        { id: "blueprints",   label: "CAD and 3D files",      section: "Operación" },
+        // Equipo y cliente
+        { id: "team",         label: "Team",                  section: "Equipo" },
+        { id: "summary",      label: "Client view",           section: "Equipo" },
+        { id: "gallery",      label: "Approved gallery",      section: "Equipo" },
       ];
     case "supervisor":
       return [
-        { id: "review",    label: "Review queue",     tag: "qa",    group: "supervisor" },
-        { id: "timeline",  label: "Timeline Gantt",   tag: "track", group: "supervisor" },
-        { id: "finances",  label: "Expenses",         tag: "money", group: "supervisor" },
-        { id: "journal",   label: "Daily log",        tag: "site",  group: "supervisor" },
-        { id: "messages",  label: "Messages",         tag: "chat",  group: "supervisor" },
-        { id: "blueprints", label: "CAD and 3D files",tag: "cad",   group: "supervisor" },
-        { id: "gallery",    label: "Progress gallery",tag: "view",  group: "supervisor" },
+        { id: "review",    label: "Review queue" },
+        { id: "timeline",  label: "Timeline Gantt" },
+        { id: "finances",  label: "Expenses" },
+        { id: "journal",   label: "Daily log" },
+        { id: "messages",  label: "Messages" },
+        { id: "blueprints", label: "CAD and 3D files" },
+        { id: "gallery",    label: "Progress gallery" },
       ];
     case "helper":
       return [
-        { id: "capture",  label: "Capture progress", tag: "field", group: "helper" },
-        { id: "history",  label: "History",          tag: "proof", group: "helper" },
-        { id: "journal",  label: "Daily log",        tag: "site",  group: "helper" },
+        { id: "capture",  label: "Capture progress" },
+        { id: "history",  label: "History" },
+        { id: "journal",  label: "Daily log" },
       ];
     case "client":
       return [
-        { id: "summary", label: "Project summary",  tag: "client", group: "client" },
-        { id: "gallery", label: "Final gallery",    tag: "view",   group: "client" },
-        { id: "blueprints", label: "CAD and 3D files", tag: "cad",    group: "client" },
+        { id: "summary",    label: "Project summary" },
+        { id: "gallery",    label: "Final gallery" },
+        { id: "blueprints", label: "CAD and 3D files" },
       ];
     default:
       return [
-        { id: "platform", label: "Platform", tag: "admin",    group: "admin" },
-        { id: "rbac",     label: "RBAC",       tag: "security", group: "admin" },
+        { id: "platform", label: "Platform" },
+        { id: "rbac",     label: "RBAC" },
       ];
   }
 }
@@ -111,18 +116,12 @@ const groupLabels: Record<string, string> = {
   admin:      "Admin",
 };
 
-type Task = { id: string; title: string; status: string; progress_percent: number };
-
 type SidebarProps = {
   session: LoginResponse;
   activeView: string;
   setActiveView: (view: string) => void;
   projects: Project[];
   selectedProjectId: string;
-  setSelectedProjectId: (id: string) => void;
-  tasks: Task[];
-  selectedTaskId: string;
-  onTaskSelect: (taskId: string) => void;
   tenants: Array<{ id: string; name: string; slug: string }>;
   pendingEvidenceCount?: number;
   isOpen: boolean;
@@ -140,10 +139,6 @@ export function Sidebar({
   setActiveView,
   projects,
   selectedProjectId,
-  setSelectedProjectId,
-  tasks,
-  selectedTaskId,
-  onTaskSelect,
   tenants,
   pendingEvidenceCount = 0,
   isOpen,
@@ -154,7 +149,6 @@ export function Sidebar({
   tenantName,
   brandPrimary,
 }: SidebarProps) {
-  const [projectOpen, setProjectOpen] = useState(false);
   const menu = menuForRole(session.user.role);
   // Tenant brand override beats the role default. Falls back to role color
   // for the platform-admin "Admin" theme so multi-tenant ops look distinct.
@@ -169,7 +163,8 @@ export function Sidebar({
     onClose();
   }
 
-  // No longer grouped — flat nav for all roles
+  // Group nav items by section header (owner only). Other roles render flat.
+  let lastSection: string | undefined;
 
   return (
     <>
@@ -217,177 +212,56 @@ export function Sidebar({
         </div>
 
         {/* Navigation */}
-        <nav className="mt-4 px-3 flex-1">
+        <nav className="mt-4 px-3 flex-1 overflow-y-auto">
           {menu.map((item) => {
             const active = activeView === item.id;
             const showBadge = item.id === "review" && pendingEvidenceCount > 0;
+            const sectionHeader = item.section && item.section !== lastSection ? item.section : null;
+            if (item.section) lastSection = item.section;
             return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => handleNavClick(item.id)}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left text-sm mb-0.5 transition-colors"
-                style={{
-                  background: active ? "rgba(255,255,255,0.09)" : "transparent",
-                  color: active ? "white" : "#9ca3af",
-                  borderLeft: active ? `3px solid ${roleColor}` : "3px solid transparent",
-                  fontWeight: active ? 600 : 400,
-                }}
-              >
-                <span style={{ color: active ? roleColor : "#6b7280" }}>
-                  {MENU_ICONS[item.id] ?? <HardHat size={16} />}
-                </span>
-                <span className="flex-1">{item.label}</span>
-                {showBadge && (
-                  <span className="badge-counter">{pendingEvidenceCount}</span>
+              <div key={item.id}>
+                {sectionHeader && (
+                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/30 px-3 mt-4 mb-2 first:mt-0">
+                    {sectionHeader}
+                  </div>
                 )}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => handleNavClick(item.id)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left text-sm mb-0.5 transition-colors"
+                  style={{
+                    background: active ? "rgba(255,255,255,0.09)" : "transparent",
+                    color: active ? "white" : "#9ca3af",
+                    borderLeft: active ? `3px solid ${roleColor}` : "3px solid transparent",
+                    fontWeight: active ? 600 : 400,
+                  }}
+                >
+                  <span style={{ color: active ? roleColor : "#6b7280" }}>
+                    {MENU_ICONS[item.id] ?? <HardHat size={16} />}
+                  </span>
+                  <span className="flex-1">{item.label}</span>
+                  {showBadge && (
+                    <span className="badge-counter">{pendingEvidenceCount}</span>
+                  )}
+                </button>
+              </div>
             );
           })}
         </nav>
 
-        {/* Project selector */}
-        {projects.length > 0 && session.user.role !== "admin" && session.user.role !== "helper" && (
-          <div className="mx-4 mb-3 mt-2">
-            <div
-              className="text-xs font-semibold uppercase tracking-widest mb-2 px-1"
-              style={{ color: "#374151" }}
-            >
-              Active project
-            </div>
-            <div className="relative">
-              <div
-                className="flex items-center rounded-xl overflow-hidden"
-                style={{ background: "rgba(255,255,255,0.07)" }}
-              >
-                <button
-                  type="button"
-                  className="flex-1 flex items-center justify-between px-3 py-2.5 text-left text-sm text-white transition-colors"
-                  onClick={() => setProjectOpen((o) => !o)}
-                >
-                  <span className="truncate text-sm">
-                    {currentProject?.name ?? "Select..."}
-                  </span>
-                  <ChevronDown
-                    size={14}
-                    className="ml-2 flex-shrink-0 text-white/40 transition-transform"
-                    style={{ transform: projectOpen ? "rotate(180deg)" : "none" }}
-                  />
-                </button>
-                {/* Per-project settings button (owner only) */}
-                {isOwner && currentProject && onOpenSettingsProject && (
-                  <button
-                    type="button"
-                    className="flex h-9 w-9 items-center justify-center flex-shrink-0 transition-colors"
-                    style={{
-                      color: "#6b7280",
-                      borderLeft: "1px solid rgba(255,255,255,0.06)",
-                    }}
-                    onClick={onOpenSettingsProject}
-                    title="Project settings"
-                  >
-                    <Settings2 size={14} />
-                  </button>
-                )}
-              </div>
-              {projectOpen && (
-                <div
-                  className="absolute bottom-full mb-1 left-0 right-0 rounded-xl py-1 z-20 max-h-48 overflow-y-auto"
-                  style={{ background: "#111827", border: "1px solid rgba(255,255,255,0.1)" }}
-                >
-                  {projects.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      className="w-full px-3 py-2 text-left text-sm transition-colors"
-                      style={{
-                        color: p.id === selectedProjectId ? "white" : "#9ca3af",
-                        background: p.id === selectedProjectId ? "rgba(255,255,255,0.08)" : "transparent",
-                      }}
-                      onClick={() => {
-                        setSelectedProjectId(p.id);
-                        setProjectOpen(false);
-                      }}
-                    >
-                      {p.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Task list (owner / supervisor) */}
-        {tasks.length > 0 && (session.user.role === "owner" || session.user.role === "supervisor") && (
-          <div className="mx-4 mb-3">
-            <div className="text-xs font-semibold uppercase tracking-widest mb-2 px-1" style={{ color: "#374151" }}>
-              Tasks
-            </div>
-            <div className="space-y-0.5 max-h-44 overflow-y-auto pr-1">
-              {tasks.map((task) => {
-                const active = task.id === selectedTaskId;
-                const statusDot =
-                  task.status === "completed" ? "#10b981"
-                  : task.status === "in_progress" ? "#3b82f6"
-                  : "#6b7280";
-                return (
-                  <button
-                    key={task.id}
-                    type="button"
-                    className="w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs transition-colors"
-                    style={{
-                      background: active ? "rgba(255,255,255,0.09)" : "transparent",
-                      color: active ? "white" : "#9ca3af",
-                      borderLeft: active ? `2px solid ${roleColor}` : "2px solid transparent",
-                      fontWeight: active ? 600 : 400,
-                    }}
-                    onClick={() => { onTaskSelect(task.id); onClose(); }}
-                    title={`${task.title} · ${task.progress_percent}%`}
-                  >
-                    <span
-                      className="h-2 w-2 flex-shrink-0 rounded-full"
-                      style={{ background: statusDot }}
-                    />
-                    <span className="truncate flex-1">{task.title}</span>
-                    <span className="flex-shrink-0 text-xs" style={{ color: "#4b5563" }}>
-                      {task.progress_percent}%
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Helper tasks */}
-        {tasks.length > 0 && session.user.role === "helper" && (
-          <div className="mx-4 mb-3">
-            <div className="text-xs font-semibold uppercase tracking-widest mb-2 px-1" style={{ color: "#374151" }}>
-              My tasks
-            </div>
-            <div className="space-y-0.5 max-h-44 overflow-y-auto pr-1">
-              {tasks.map((task) => {
-                const active = task.id === selectedTaskId;
-                return (
-                  <button
-                    key={task.id}
-                    type="button"
-                    className="w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs transition-colors"
-                    style={{
-                      background: active ? "rgba(255,255,255,0.09)" : "transparent",
-                      color: active ? "white" : "#9ca3af",
-                      borderLeft: active ? `2px solid ${roleColor}` : "2px solid transparent",
-                      fontWeight: active ? 600 : 400,
-                    }}
-                    onClick={() => { onTaskSelect(task.id); onClose(); }}
-                  >
-                    <span className="truncate flex-1">{task.title}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+        {/* Project settings shortcut (owner only, when a project is active).
+            The project picker itself moved to the topbar. */}
+        {isOwner && currentProject && onOpenSettingsProject && (
+          <button
+            type="button"
+            className="mx-4 mb-2 flex items-center gap-2 rounded-xl px-3 py-2 text-xs transition-colors"
+            style={{ color: "#9ca3af", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}
+            onClick={onOpenSettingsProject}
+            title="Project settings"
+          >
+            <Settings2 size={12} />
+            <span className="truncate">Project settings · {currentProject.name}</span>
+          </button>
         )}
 
         {/* Admin tenant count */}

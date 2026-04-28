@@ -3160,14 +3160,27 @@ func (s *Service) ClientSummaryView(ctx context.Context, actor Claims, projectID
 		return ClientSummary{}, errors.New("forbidden")
 	}
 	deliverables := make([]Deliverable, 0)
-	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, project_id, task_id, title, description, due_date, status, client_visible FROM deliverables WHERE project_id = $1 AND client_visible = 1 ORDER BY due_date`, projectID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT d.id, d.tenant_id, d.project_id, d.task_id, d.title, d.description, d.due_date, d.status, d.client_visible,
+		       COALESCE(d.approved_by_user_id, ''), COALESCE(d.approved_at, ''), COALESCE(d.rejection_reason, ''),
+		       COALESCE(t.title, ''), COALESCE(u.full_name, u.email, '')
+		FROM deliverables d
+		LEFT JOIN tasks t ON t.id = d.task_id
+		LEFT JOIN users u ON u.id = d.approved_by_user_id
+		WHERE d.project_id = $1 AND d.client_visible = 1
+		ORDER BY d.due_date`, projectID)
 	if err != nil {
 		return ClientSummary{}, err
 	}
 	for rows.Next() {
 		var deliverable Deliverable
 		var visible int
-		if err := rows.Scan(&deliverable.ID, &deliverable.TenantID, &deliverable.ProjectID, &deliverable.TaskID, &deliverable.Title, &deliverable.Description, &deliverable.DueDate, &deliverable.Status, &visible); err != nil {
+		if err := rows.Scan(
+			&deliverable.ID, &deliverable.TenantID, &deliverable.ProjectID, &deliverable.TaskID,
+			&deliverable.Title, &deliverable.Description, &deliverable.DueDate, &deliverable.Status, &visible,
+			&deliverable.ApprovedByUserID, &deliverable.ApprovedAt, &deliverable.RejectionReason,
+			&deliverable.TaskTitle, &deliverable.ApprovedByName,
+		); err != nil {
 			rows.Close()
 			return ClientSummary{}, err
 		}
@@ -3185,7 +3198,99 @@ func (s *Service) ClientSummaryView(ctx context.Context, actor Claims, projectID
 	if totalTasks > 0 {
 		progress = int(float64(completedTasks) / float64(totalTasks) * 100)
 	}
-	return ClientSummary{ProjectID: project.ID, ProjectName: project.Name, TimelineProgress: progress, BudgetSpentPercent: percent(project.SpentTotalCents, project.BudgetTotalCents), Deliverables: deliverables, Gallery: gallery}, nil
+
+	// ETA: max end_date of tasks not yet completed (fallback to project planned_end_date).
+	etaDate := ""
+	_ = s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(end_date), '') FROM tasks WHERE project_id = $1 AND status <> 'completed'`, projectID).Scan(&etaDate)
+	if etaDate == "" {
+		etaDate = project.PlannedEndDate
+	}
+
+	// Deliverables breakdown.
+	breakdown := DeliverablesBreakdown{Total: len(deliverables)}
+	for _, d := range deliverables {
+		switch d.Status {
+		case "approved":
+			breakdown.Approved++
+		case "rejected":
+			breakdown.Rejected++
+		default:
+			breakdown.Pending++
+		}
+	}
+
+	// Next milestone: first non-approved deliverable by due_date.
+	var nextMs *NextMilestone
+	now := time.Now()
+	for _, d := range deliverables {
+		if d.Status == "approved" {
+			continue
+		}
+		du, perr := parseFlexibleDate(d.DueDate)
+		days := 0
+		if perr == nil {
+			days = int(du.Sub(now).Hours() / 24)
+		}
+		nextMs = &NextMilestone{ID: d.ID, Title: d.Title, DueDate: d.DueDate, DaysUntil: days}
+		break
+	}
+
+	// Health status: simple heuristic.
+	health := computeHealthStatus(progress, totalTasks, completedTasks, project.PlannedEndDate, nextMs, breakdown)
+
+	budgetRemaining := project.BudgetTotalCents - project.SpentTotalCents
+	if budgetRemaining < 0 {
+		budgetRemaining = 0
+	}
+
+	return ClientSummary{
+		ProjectID:             project.ID,
+		ProjectName:           project.Name,
+		TimelineProgress:      progress,
+		BudgetSpentPercent:    percent(project.SpentTotalCents, project.BudgetTotalCents),
+		BudgetTotalCents:      project.BudgetTotalCents,
+		BudgetSpentCents:      project.SpentTotalCents,
+		BudgetRemainingCents:  budgetRemaining,
+		HealthStatus:          health,
+		ETADate:               etaDate,
+		NextMilestone:         nextMs,
+		DeliverablesBreakdown: breakdown,
+		Deliverables:          deliverables,
+		Gallery:               gallery,
+	}, nil
+}
+
+func parseFlexibleDate(s string) (time.Time, error) {
+	if s == "" {
+		return time.Time{}, errors.New("empty date")
+	}
+	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05Z", "2006-01-02 15:04:05", "2006-01-02"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unparseable date %q", s)
+}
+
+func computeHealthStatus(progress, totalTasks, completedTasks int, plannedEnd string, next *NextMilestone, br DeliverablesBreakdown) string {
+	if totalTasks > 0 && completedTasks == totalTasks {
+		return "completed"
+	}
+	now := time.Now()
+	if plannedEnd != "" {
+		if pe, err := parseFlexibleDate(plannedEnd); err == nil {
+			if pe.Before(now) {
+				return "delayed"
+			}
+		}
+	}
+	if next != nil && next.DaysUntil < 0 {
+		return "at_risk"
+	}
+	if br.Rejected > 0 {
+		return "at_risk"
+	}
+	return "on_track"
 }
 
 func (s *Service) ClientGallery(ctx context.Context, actor Claims, projectID string) ([]Evidence, error) {

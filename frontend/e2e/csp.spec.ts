@@ -2,6 +2,9 @@ import { test, expect, type ConsoleMessage, type Page } from "@playwright/test";
 
 type Violation = { url: string; text: string };
 
+// Public marketing + auth surfaces. Billing cancel is reachable via
+// /en/billing (Stripe redirects with ?canceled=1 query); there's no
+// standalone /en/billing/cancel route.
 const publicPaths = [
   "/",
   "/en",
@@ -11,7 +14,6 @@ const publicPaths = [
   "/en/pricing",
   "/en/demo",
   "/en/billing/success",
-  "/en/billing/cancel",
 ];
 
 function attachCspListener(page: Page, sink: Violation[]) {
@@ -27,14 +29,21 @@ function attachCspListener(page: Page, sink: Violation[]) {
   });
 }
 
+// Pages that embed third-party iframes (Stripe Pricing Table) keep firing
+// network requests, so `networkidle` never resolves. For those we use
+// `domcontentloaded` and a longer post-load wait so CSP/JS violations
+// still flush into the listener.
+const NETWORK_BUSY_PATHS = new Set(["/en/pricing", "/en/billing/success"]);
+
 for (const path of publicPaths) {
   test(`no CSP violations on ${path}`, async ({ page }) => {
     const violations: Violation[] = [];
     attachCspListener(page, violations);
-    const res = await page.goto(path, { waitUntil: "networkidle" });
+    const busy = NETWORK_BUSY_PATHS.has(path);
+    const res = await page.goto(path, { waitUntil: busy ? "domcontentloaded" : "networkidle" });
     expect(res, `navigation failed for ${path}`).not.toBeNull();
     expect(res!.status(), `non-2xx for ${path}`).toBeLessThan(400);
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(busy ? 1500 : 500);
     if (violations.length > 0) {
       const msg = violations.map((v) => `${v.url}: ${v.text}`).join("\n");
       throw new Error(`CSP/JS errors on ${path}:\n${msg}`);

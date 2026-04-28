@@ -37,8 +37,12 @@ test("signup page renders", async ({ page }) => {
 
 test("pricing page renders with plan tiers", async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto("/en/pricing", { waitUntil: "networkidle" });
+  // /en/pricing embeds the Stripe Pricing Table iframe, which polls forever
+  // so `networkidle` never resolves. domcontentloaded + a buffered wait is
+  // enough to catch JS / CSP errors.
+  await page.goto("/en/pricing", { waitUntil: "domcontentloaded" });
   await expect(page.locator("body")).toBeVisible();
+  await page.waitForTimeout(1500);
   expect(errors, errors.join("\n")).toHaveLength(0);
 });
 

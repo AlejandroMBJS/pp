@@ -3162,7 +3162,7 @@ func (s *Service) ClientSummaryView(ctx context.Context, actor Claims, projectID
 	deliverables := make([]Deliverable, 0)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT d.id, d.tenant_id, d.project_id, d.task_id, d.title, d.description, d.due_date, d.status, d.client_visible,
-		       COALESCE(d.approved_by_user_id, ''), COALESCE(d.approved_at, ''), COALESCE(d.rejection_reason, ''),
+		       COALESCE(d.approved_by_user_id, ''), COALESCE(d.approved_at::text, ''), COALESCE(d.rejection_reason, ''),
 		       COALESCE(t.title, ''), COALESCE(u.full_name, u.email, '')
 		FROM deliverables d
 		LEFT JOIN tasks t ON t.id = d.task_id
@@ -3201,7 +3201,7 @@ func (s *Service) ClientSummaryView(ctx context.Context, actor Claims, projectID
 
 	// ETA: max end_date of tasks not yet completed (fallback to project planned_end_date).
 	etaDate := ""
-	_ = s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(end_date), '') FROM tasks WHERE project_id = $1 AND status <> 'completed'`, projectID).Scan(&etaDate)
+	_ = s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(end_date)::text, '') FROM tasks WHERE project_id = $1 AND status <> 'completed'`, projectID).Scan(&etaDate)
 	if etaDate == "" {
 		etaDate = project.PlannedEndDate
 	}

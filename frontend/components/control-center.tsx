@@ -184,7 +184,7 @@ function defaultViewForRole(role: string) {
   switch (role) {
     case "owner":      return "overview";
     case "supervisor": return "review";
-    case "helper":     return "capture";
+    case "helper":     return "tasks";
     case "client":     return "summary";
     default:           return "platform";
   }
@@ -1914,10 +1914,13 @@ export function ControlCenter() {
           <HelperCanvas
             activeView={activeView}
             currentTask={currentTask}
+            tasks={tasks}
             evidences={evidences}
             uploadMessage={uploadMessage}
             onFileChange={setUploadFile}
             onUpload={handleHelperUpload}
+            onSelectTask={handleTaskSelect}
+            onViewChange={setActiveView}
             loading={loading}
             isMobile={isMobile}
             token={session.access_token}
@@ -2192,10 +2195,13 @@ export function ControlCenter() {
         <HelperCanvas
           activeView={activeView}
           currentTask={currentTask}
+          tasks={tasks}
           evidences={evidences}
           uploadMessage={uploadMessage}
           onFileChange={setUploadFile}
           onUpload={handleHelperUpload}
+          onSelectTask={handleTaskSelect}
+          onViewChange={setActiveView}
           loading={loading}
           isMobile={isMobile}
           token={session.access_token}

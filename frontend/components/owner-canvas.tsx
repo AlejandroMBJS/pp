@@ -76,6 +76,12 @@ type Deliverable = {
   due_date: string;
   status: string;
   client_visible: boolean;
+  rejection_reason?: string;
+  rejection_category?: string;
+  approved_by_name?: string;
+  approved_at?: string;
+  approval_comment?: string;
+  task_title?: string;
 };
 
 type Evidence = {

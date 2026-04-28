@@ -41,6 +41,12 @@ type Deliverable = {
   due_date: string;
   status: string;
   client_visible: boolean;
+  rejection_reason?: string;
+  rejection_category?: string;
+  approved_by_name?: string;
+  approved_at?: string;
+  approval_comment?: string;
+  task_title?: string;
 };
 
 type Evidence = {
@@ -249,10 +255,90 @@ export function SupervisorCanvas({
           )}
         </div>
 
+        {/* Client decisions banner — surfaces deliverables the client just
+            approved or asked to change so the supervisor sees the cascade
+            without needing to dig into the Gantt. */}
+        {(() => {
+          const clientRejected = deliverables.filter((d) => d.client_visible && d.status === "rejected");
+          const clientApproved = deliverables.filter((d) => d.client_visible && d.status === "approved" && d.approved_at);
+          if (clientRejected.length === 0 && clientApproved.length === 0) return null;
+          // Sort approved by approved_at desc, take the most recent 3 to keep the
+          // banner short. Rejected always show in full.
+          const recentApproved = [...clientApproved]
+            .sort((a, b) => (b.approved_at ?? "").localeCompare(a.approved_at ?? ""))
+            .slice(0, 3);
+          return (
+            <div className="space-y-3">
+              {clientRejected.length > 0 && (
+                <div className="rounded-2xl border px-5 py-4" style={{ background: "color-mix(in srgb, #f59e0b 8%, transparent)", borderColor: "color-mix(in srgb, #f59e0b 35%, transparent)" }}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-base">↺</span>
+                    <h2 className="text-sm font-black uppercase tracking-widest" style={{ color: "#f59e0b" }}>
+                      Cliente pidió cambios ({clientRejected.length})
+                    </h2>
+                  </div>
+                  <div className="space-y-2">
+                    {clientRejected.map((d) => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        className="w-full text-left rounded-xl bg-white/3 hover:bg-white/5 border border-white/8 px-4 py-3 transition"
+                        onClick={() => { if (d.task_id) onTaskClick?.(d.task_id); }}
+                      >
+                        <div className="flex items-baseline justify-between gap-3">
+                          <div className="font-bold text-white truncate">{d.title}</div>
+                          {d.task_title && (
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-white/40 flex-shrink-0">
+                              {d.task_title}
+                            </span>
+                          )}
+                        </div>
+                        {d.rejection_reason && (
+                          <div className="text-xs text-white/75 mt-1 whitespace-pre-wrap">{d.rejection_reason}</div>
+                        )}
+                        {d.rejection_category && (
+                          <span className="inline-block mt-2 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest" style={{ background: "rgba(245,158,11,0.15)", color: "#f59e0b" }}>
+                            {d.rejection_category.replace(/_/g, " ")}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {recentApproved.length > 0 && (
+                <div className="rounded-2xl border px-5 py-4" style={{ background: "color-mix(in srgb, #10b981 8%, transparent)", borderColor: "color-mix(in srgb, #10b981 30%, transparent)" }}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-base">✓</span>
+                    <h2 className="text-sm font-black uppercase tracking-widest" style={{ color: "#10b981" }}>
+                      Cliente aprobó recientemente ({clientApproved.length})
+                    </h2>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    {recentApproved.map((d) => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        className="text-left rounded-xl bg-white/3 hover:bg-white/5 border border-white/8 px-3 py-2 transition"
+                        onClick={() => { if (d.task_id) onTaskClick?.(d.task_id); }}
+                      >
+                        <div className="text-sm font-semibold text-white truncate">{d.title}</div>
+                        {d.approved_by_name && (
+                          <div className="text-[10px] text-white/45 mt-0.5">por {d.approved_by_name}</div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Operational Shortcuts - hide on mobile to focus on review */}
         {!isMobile && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <button 
+            <button
               onClick={() => onViewChange?.("journal")}
               className="glass-card p-4 flex items-center gap-4 border-white/5 bg-white/[0.02] hover:bg-white/[0.05] transition-all text-left group"
             >

@@ -207,20 +207,22 @@ type Task struct {
 }
 
 type Deliverable struct {
-	ID               string `json:"id"`
-	TenantID         string `json:"tenant_id"`
-	ProjectID        string `json:"project_id"`
-	TaskID           string `json:"task_id"`
-	Title            string `json:"title"`
-	Description      string `json:"description"`
-	DueDate          string `json:"due_date"`
-	Status           string `json:"status"`
-	ClientVisible    bool   `json:"client_visible"`
-	ApprovedByUserID string `json:"approved_by_user_id,omitempty"`
-	ApprovedByName   string `json:"approved_by_name,omitempty"`
-	ApprovedAt       string `json:"approved_at,omitempty"`
-	RejectionReason  string `json:"rejection_reason,omitempty"`
-	TaskTitle        string `json:"task_title,omitempty"`
+	ID                string `json:"id"`
+	TenantID          string `json:"tenant_id"`
+	ProjectID         string `json:"project_id"`
+	TaskID            string `json:"task_id"`
+	Title             string `json:"title"`
+	Description       string `json:"description"`
+	DueDate           string `json:"due_date"`
+	Status            string `json:"status"`
+	ClientVisible     bool   `json:"client_visible"`
+	ApprovedByUserID  string `json:"approved_by_user_id,omitempty"`
+	ApprovedByName    string `json:"approved_by_name,omitempty"`
+	ApprovedAt        string `json:"approved_at,omitempty"`
+	ApprovalComment   string `json:"approval_comment,omitempty"`
+	RejectionReason   string `json:"rejection_reason,omitempty"`
+	RejectionCategory string `json:"rejection_category,omitempty"`
+	TaskTitle         string `json:"task_title,omitempty"`
 }
 
 type Evidence struct {

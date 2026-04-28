@@ -1582,9 +1582,13 @@ export function ControlCenter() {
     }
   }
 
-  async function handleDeliverableApprove(deliverableId: string) {
+  async function handleDeliverableApprove(deliverableId: string, comment: string = "") {
     if (!session) return;
-    await api(`/api/v1/deliverables/${deliverableId}/approve`, { token: session.access_token, method: "POST" });
+    await api(`/api/v1/deliverables/${deliverableId}/approve`, {
+      token: session.access_token,
+      method: "POST",
+      body: { comment },
+    });
     // Refresh client summary
     if (selectedProjectId) {
       try {
@@ -1597,12 +1601,12 @@ export function ControlCenter() {
     }
   }
 
-  async function handleDeliverableReject(deliverableId: string, reason: string) {
+  async function handleDeliverableReject(deliverableId: string, reason: string, category: string = "") {
     if (!session) return;
     await api(`/api/v1/deliverables/${deliverableId}/reject`, {
       token: session.access_token,
       method: "POST",
-      body: { reason },
+      body: { reason, category },
     });
     if (selectedProjectId) {
       try {

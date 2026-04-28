@@ -3716,7 +3716,17 @@ func (s *Service) ListProjectDeliverables(ctx context.Context, actor Claims, pro
 			return nil, err
 		}
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, project_id, task_id, title, description, due_date, status, client_visible FROM deliverables WHERE project_id = $1 ORDER BY due_date`, projectID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT d.id, d.tenant_id, d.project_id, d.task_id, d.title, d.description, d.due_date, d.status, d.client_visible,
+		       COALESCE(d.approved_by_user_id, ''), COALESCE(d.approved_at::text, ''),
+		       COALESCE(d.rejection_reason, ''), COALESCE(d.rejection_category, ''),
+		       COALESCE(d.approval_comment, ''),
+		       COALESCE(t.title, ''), COALESCE(u.full_name, u.email, '')
+		FROM deliverables d
+		LEFT JOIN tasks t ON t.id = d.task_id
+		LEFT JOIN users u ON u.id = d.approved_by_user_id
+		WHERE d.project_id = $1
+		ORDER BY d.due_date`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -3725,7 +3735,14 @@ func (s *Service) ListProjectDeliverables(ctx context.Context, actor Claims, pro
 	for rows.Next() {
 		var deliverable Deliverable
 		var clientVisible int
-		if err := rows.Scan(&deliverable.ID, &deliverable.TenantID, &deliverable.ProjectID, &deliverable.TaskID, &deliverable.Title, &deliverable.Description, &deliverable.DueDate, &deliverable.Status, &clientVisible); err != nil {
+		if err := rows.Scan(
+			&deliverable.ID, &deliverable.TenantID, &deliverable.ProjectID, &deliverable.TaskID,
+			&deliverable.Title, &deliverable.Description, &deliverable.DueDate, &deliverable.Status, &clientVisible,
+			&deliverable.ApprovedByUserID, &deliverable.ApprovedAt,
+			&deliverable.RejectionReason, &deliverable.RejectionCategory,
+			&deliverable.ApprovalComment,
+			&deliverable.TaskTitle, &deliverable.ApprovedByName,
+		); err != nil {
 			return nil, err
 		}
 		deliverable.ClientVisible = intToBool(clientVisible)

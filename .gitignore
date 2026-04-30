@@ -56,3 +56,7 @@ backend/api
 frontend/e2e/**/.artifacts/
 frontend/playwright-report/
 frontend/test-results/
+
+# Per-host docker compose override (e.g. port mapping for a VPS without a
+# host-level reverse proxy) — lives only on that specific VPS.
+docker-compose.override.yml

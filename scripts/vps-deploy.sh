@@ -54,13 +54,28 @@ git pull --ff-only origin "${REF}" 2>/dev/null || true
 NEW=$(git rev-parse HEAD)
 echo "[deploy] new HEAD: ${NEW}"
 
-echo "[deploy] docker compose up --build"
-docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+# Per-host overrides live in ./docker-compose.override.yml (NOT committed —
+# different VPSs need different port mappings; e.g. a host with no front
+# proxy binds gateway directly to :80, while one behind a host-level Caddy
+# stays on :8888). Include it transparently when present.
+COMPOSE_FILES=(-f docker-compose.prod.yml)
+if [[ -f docker-compose.override.yml ]]; then
+  COMPOSE_FILES+=(-f docker-compose.override.yml)
+  echo "[deploy] including docker-compose.override.yml"
+fi
 
-echo "[deploy] healthcheck: polling http://localhost:8888/healthz"
+echo "[deploy] docker compose up --build"
+docker compose "${COMPOSE_FILES[@]}" --env-file .env up -d --build
+
+# Probe whichever host port is mapped to the gateway's :80 (default 8888,
+# 80 with the override).
+HEALTH_PORT=$(docker compose "${COMPOSE_FILES[@]}" --env-file .env port gateway 80 2>/dev/null | awk -F: 'NR==1{print $NF}')
+HEALTH_PORT="${HEALTH_PORT:-8888}"
+
+echo "[deploy] healthcheck: polling http://localhost:${HEALTH_PORT}/healthz"
 for i in $(seq 1 30); do
   sleep 2
-  if curl -fsS http://localhost:8888/healthz >/dev/null 2>&1; then
+  if curl -fsS "http://localhost:${HEALTH_PORT}/healthz" >/dev/null 2>&1; then
     echo "[deploy] OK healthy after $((i * 2))s"
     docker image prune -f >/dev/null 2>&1 || true
     echo "[deploy] done."
@@ -70,6 +85,6 @@ done
 
 echo "[deploy][FATAL] /healthz never responded. Rolling back to ${PREV}"
 git checkout "${PREV}"
-docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+docker compose "${COMPOSE_FILES[@]}" --env-file .env up -d --build
 echo "[deploy] rollback applied. Investigate ${NEW} and retry."
 exit 1
